@@ -95,7 +95,8 @@ describe("docs", () => {
   test("the configuration guide prints the default rules in full for every access value, and in the agent fix example", () => {
     const raw = text("docs/configuration.md")
     for (const access of ["all", "ask-changes", "read-only"] as const) {
-      const block = new RegExp(`\`access: "${access}"\`[\\s\\S]*?\\n\\n\`\`\`json\\n([\\s\\S]*?)\\n\`\`\``).exec(raw)?.[1] ?? "[]"
+      // Anchored on the heading: the Spending note above also names the read-only value.
+      const block = new RegExp(`### \`access: "${access}"\`[^\\n]*\\n[\\s\\S]*?\\n\\n\`\`\`json\\n([\\s\\S]*?)\\n\`\`\``).exec(raw)?.[1] ?? "[]"
       expect({ access, block: JSON.parse(block) }).toEqual({ access, block: defaultRules(access) })
     }
     const example = /For an agent `reviewer`[\s\S]*?```json\n([\s\S]*?)\n```/.exec(raw)?.[1] ?? "{}"
@@ -105,20 +106,39 @@ describe("docs", () => {
     for (const rule of permissions.slice(1)) expect(READ_TOOLS).toContain((rule as { action: string }).action.replace("elevenlabs_", ""))
   })
 
-  test("the configuration guide prints the conversation denies for summary and off, by exact name", () => {
+  test("the configuration guide prints the conversation denies: the exact names and the patterns", () => {
     const raw = text("docs/configuration.md")
     const summary = /`conversations: "summary"` appends:[\s\S]*?```json\n([\s\S]*?)\n```/.exec(raw)?.[1] ?? "[]"
     const off = /`conversations: "off"` appends:[\s\S]*?```json\n([\s\S]*?)\n```/.exec(raw)?.[1] ?? "[]"
-    expect((JSON.parse(summary) as { action: string }[]).map((rule) => rule.action).sort()).toEqual(TRANSCRIPT_TOOLS.map((tool) => `elevenlabs_${tool}`).sort())
-    expect((JSON.parse(off) as { action: string }[]).map((rule) => rule.action).sort()).toEqual(CONVERSATION_TOOLS.map((tool) => `elevenlabs_${tool}`).sort())
+    const actions = (block: string) => (JSON.parse(block) as { action: string }[]).map((rule) => rule.action)
+    expect(actions(summary).slice(0, TRANSCRIPT_TOOLS.length)).toEqual(TRANSCRIPT_TOOLS.map((tool) => `elevenlabs_${tool}`))
+    expect(actions(off).slice(0, CONVERSATION_TOOLS.length)).toEqual(CONVERSATION_TOOLS.map((tool) => `elevenlabs_${tool}`))
+    for (const block of [summary, off]) expect(actions(block).filter((action) => action.includes("*")).length).toBeGreaterThan(2)
   })
 
   // R19: the export root needs the tool's own rule and the host's external_directory rule.
-  test("the README and the configuration guide give both rules for the media folder", () => {
-    for (const file of ["README.md", "docs/configuration.md"]) {
+  test("the README and the configuration guide give both rules for the media folder, with an absolute path", () => {
+    for (const file of ["README.md", "docs/configuration.md", "docs/scripting.md"]) {
       expect(flat(file)).toContain("external_directory")
-      expect(flat(file)).toContain("~/Downloads/elevenlabs/*")
+      // R19 and DR-8: the resource is the absolute path of mediaRoot, never a `~` the host would not expand.
+      expect(flat(file)).toContain('"resource": "/absolute/path/of/your/mediaRoot/*"')
+      expect(flat(file)).not.toContain('"external_directory", "resource": "~/')
     }
+  })
+
+  // DR-2 and DR-3: what the docs promise about money is what the code does.
+  test("the docs say transcription bills, and that read-only does not stop it", () => {
+    expect(flat("README.md")).toContain("330 per minute for Speech to Text")
+    expect(flat("README.md")).toContain("denies the generations and **not** the transcription")
+    expect(flat("SECURITY.md")).toContain("330 credits a minute")
+    expect(flat("docs/configuration.md")).toContain("`access: \"read-only\"` is about **changes**, not money")
+  })
+
+  test("the README names every billed tool in its spending section, and the estimate caveat", () => {
+    const section = /## Spending([\s\S]*?)## Media and files/.exec(flat("README.md"))?.[1] ?? ""
+    for (const tool of SPEND_TOOLS) expect(flat("docs/configuration.md")).toContain(`elevenlabs_${tool}`)
+    expect(section).toContain("PRICE_UNKNOWN")
+    expect(flat("README.md")).toContain("unverified until the live reconcile")
   })
 
   test("the configuration guide gives the status rows and the states", () => {
@@ -145,11 +165,7 @@ describe("docs", () => {
     expect(readme).toContain("No dollar figure is derived from credits")
   })
 
-  test("the README names every billed tool in its spending section", () => {
-    const section = /## Spending([\s\S]*?)## Media and files/.exec(text("README.md"))?.[1] ?? ""
-    expect(section).toContain("estimate_only")
-    for (const tool of SPEND_TOOLS) expect(flat("docs/configuration.md")).toContain(`elevenlabs_${tool}`)
-  })
+
 })
 
 // The README prints the block the plugin inserts, in full, generated from defaultRules(): it is what an administrator
