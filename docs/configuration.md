@@ -21,6 +21,21 @@ Every option is optional. The plugin reads them from `opencode.json`:
 
 `0` is refused for either cap: a typo must not turn the guard off. Write `null` to mean it.
 
+## Spending
+
+Three calls can bill the workspace and are priced before they run: the generations (`creative_*`), and
+`creative_transcribe_audio`, which Speech to Text bills at 330 credits a minute. A billed call is priced, clamped to what
+the caps afford, **reserved** in the ledger before it is sent, and settled into a charge when its result arrives; two
+calls that start together cannot both spend the same budget. A call the plugin cannot price is refused with
+`PRICE_UNKNOWN` while a cap is on, never run unpriced.
+
+Under `access: "ask-changes"`, an image or video generation may prompt once more for ElevenLabs' estimate, because the
+estimate is a call of its own; the guard asks for it exactly once per generation and never retries. The live reconcile
+records whether the prompt appears.
+
+`access: "read-only"` is about **changes**, not money: it denies every generation, and leaves transcription allowed, so a
+read-only agent can still spend on Speech to Text. The caps are what bound that.
+
 ## The default rules
 
 The block is generated from `defaultRules(access, conversations)` in `src/permissions.ts` and inserted directly after
@@ -67,6 +82,8 @@ Every tool runs, including a tool ElevenLabs adds later, and generations spend c
   { "action": "elevenlabs_creative_upload_flow_reference", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_edit_image", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_generate_image", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_creative_generate_music", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_creative_generate_sound_effect", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_generate_speech", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_generate_video", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_bulk_delete_knowledge_base", "resource": "*", "effect": "allow" },
@@ -118,6 +135,8 @@ can answer, an ask is refused.
   { "action": "elevenlabs_creative_upload_flow_reference", "resource": "*", "effect": "ask" },
   { "action": "elevenlabs_creative_edit_image", "resource": "*", "effect": "ask" },
   { "action": "elevenlabs_creative_generate_image", "resource": "*", "effect": "ask" },
+  { "action": "elevenlabs_creative_generate_music", "resource": "*", "effect": "ask" },
+  { "action": "elevenlabs_creative_generate_sound_effect", "resource": "*", "effect": "ask" },
   { "action": "elevenlabs_creative_generate_speech", "resource": "*", "effect": "ask" },
   { "action": "elevenlabs_creative_generate_video", "resource": "*", "effect": "ask" },
   { "action": "elevenlabs_agents_bulk_delete_knowledge_base", "resource": "*", "effect": "ask" },
@@ -168,6 +187,8 @@ The reads run; everything else is denied, including every generation. A tool Ele
   { "action": "elevenlabs_creative_upload_flow_reference", "resource": "*", "effect": "deny" },
   { "action": "elevenlabs_creative_edit_image", "resource": "*", "effect": "deny" },
   { "action": "elevenlabs_creative_generate_image", "resource": "*", "effect": "deny" },
+  { "action": "elevenlabs_creative_generate_music", "resource": "*", "effect": "deny" },
+  { "action": "elevenlabs_creative_generate_sound_effect", "resource": "*", "effect": "deny" },
   { "action": "elevenlabs_creative_generate_speech", "resource": "*", "effect": "deny" },
   { "action": "elevenlabs_creative_generate_video", "resource": "*", "effect": "deny" },
   { "action": "elevenlabs_agents_bulk_delete_knowledge_base", "resource": "*", "effect": "deny" },
@@ -185,8 +206,12 @@ The option adds deny rules at the end of the block, so they win over its own all
 
 ```json
 [
-  { "action": "elevenlabs_agents_get_conversation", "resource": "*", "effect": "deny" },
-  { "action": "elevenlabs_agents_search_conversation_messages", "resource": "*", "effect": "deny" }
+  {"action":"elevenlabs_agents_get_conversation","resource":"*","effect":"deny"},
+  {"action":"elevenlabs_agents_search_conversation_messages","resource":"*","effect":"deny"},
+  {"action":"elevenlabs_*transcript*","resource":"*","effect":"deny"},
+  {"action":"elevenlabs_*conversation*message*","resource":"*","effect":"deny"},
+  {"action":"elevenlabs_*conversation*audio*","resource":"*","effect":"deny"},
+  {"action":"elevenlabs_*conversation*recording*","resource":"*","effect":"deny"}
 ]
 ```
 
@@ -194,9 +219,12 @@ The option adds deny rules at the end of the block, so they win over its own all
 
 ```json
 [
-  { "action": "elevenlabs_agents_get_conversation", "resource": "*", "effect": "deny" },
-  { "action": "elevenlabs_agents_search_conversation_messages", "resource": "*", "effect": "deny" },
-  { "action": "elevenlabs_agents_list_conversations", "resource": "*", "effect": "deny" }
+  {"action":"elevenlabs_agents_get_conversation","resource":"*","effect":"deny"},
+  {"action":"elevenlabs_agents_search_conversation_messages","resource":"*","effect":"deny"},
+  {"action":"elevenlabs_agents_list_conversations","resource":"*","effect":"deny"},
+  {"action":"elevenlabs_*conversation*","resource":"*","effect":"deny"},
+  {"action":"elevenlabs_*transcript*","resource":"*","effect":"deny"},
+  {"action":"elevenlabs_*call*recording*","resource":"*","effect":"deny"}
 ]
 ```
 
@@ -222,12 +250,14 @@ permission (`elevenlabs_save_media`) and OpenCode's `external_directory` rule fo
 ```json
 { "permissions": [
   { "action": "elevenlabs_save_media", "resource": "*", "effect": "allow" },
-  { "action": "external_directory", "resource": "~/Downloads/elevenlabs/*", "effect": "allow" }
+  { "action": "external_directory", "resource": "/absolute/path/of/your/mediaRoot/*", "effect": "allow" }
 ] }
 ```
 
-A refusal whose message begins `permission.rejected: external_directory` needs the second rule. The first save asks for
-both.
+The second rule's resource is the **absolute** path of `mediaRoot` followed by `/*`; the default root is
+`~/Downloads/elevenlabs`, and `~` is expanded to your home folder (the status report prints the expanded path). A refusal
+whose message begins `permission.rejected: external_directory`, or that starts `EXTERNAL_DIRECTORY_DENIED`, needs that
+rule; the plugin's own refusal prints the exact path to paste.
 
 ## Status
 
@@ -243,7 +273,6 @@ both.
 | `failed` | the connection failed; the row carries OpenCode's reason |
 | `not configured` | OpenCode has no `elevenlabs` server, or yours points at another region's |
 | `conflict` | your own `mcp.servers.elevenlabs` is at a URL that is not ElevenLabs' |
-| `host untested` | OpenCode is outside the range and the plugin is in status-only mode |
 
 ## Errors
 
@@ -252,12 +281,13 @@ Every code the plugin raises, in the order the table lists them:
 | Code | What happened | Next step |
 | --- | --- | --- |
 | `BALANCE_UNAVAILABLE` | The optional API key could not read the subscription. | Run `/elevenlabs-status`; if it keeps failing, remove the key in `/connect`. |
-| `ESTIMATE_REQUIRED` | A billed call has no published price, and ElevenLabs did not give one. | Call the tool once with `"estimate_only": true`, then call it again with the same arguments. |
+| `EXTERNAL_DIRECTORY_DENIED` | The save tool's `external_directory` rule is not allowed for the media folder. | Add `{ "action": "external_directory", "resource": "<absolute mediaRoot>/*", "effect": "allow" }` to the agent's rules. |
 | `HOST_UNTESTED` | OpenCode is outside `>=2.2.3 <2.3.0`. | Use a supported OpenCode, or set `"allowUntestedHost": true`. |
 | `MEDIA_EXPIRED` | The generated file's signed link has expired. | Fetch the generation again for a fresh link; do not generate again. |
 | `MEDIA_TOO_LARGE` | The file is larger than `maxMediaBytes`. | Raise `maxMediaBytes` if you mean to keep a file this large. |
 | `MEDIA_URL_INVALID` | The link is not `https`, carries credentials, or is not on ElevenLabs' generated-file host. | Pass the link a generation returned. |
 | `OPTIONS_INVALID` | A plugin option is missing, of the wrong type, or out of range. | Fix the option; the message names the accepted values. |
+| `PRICE_UNKNOWN` | A call that may spend cannot be priced, and a cap is on, so it was refused before it was sent. | Price it first with `"estimate_only": true` where the tool takes it, or set both caps to `null` — the refusal's next step says which. |
 | `RULES_NOT_ADDED` | The default rules could not be inserted into the agents. | Restart OpenCode. |
 | `SAVE_FAILED` | The file could not be written, or the folder changed while it was. | Check `mediaRoot`, its permissions, and the `external_directory` rule. |
 | `SERVER_NOT_REGISTERED` | The MCP server could not be registered. | Restart OpenCode. |

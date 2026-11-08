@@ -12,15 +12,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and thi
 - A `region` option: `global` (the default), `us`, `eu`, `in` and `sg`. A change needs a new sign-in, and status names
   the entry a change leaves behind.
 - The 40 tools ElevenLabs' own MCP skills name, classified in one table, with the story for every class in the README.
-- A spending guard: ElevenLabs' published credit rates price speech, music and sound effects exactly; image and video are
-  priced by ElevenLabs' own `estimate_only` call before they run; a call that does not fit is refused before it is sent;
-  `generations_count` is cut to what the budget affords; a rolling 24-hour ledger is kept in the plugin's storage; and
-  every paid result carries a cost line and a structured `cost`.
+- A spending guard: ElevenLabs' published credit rates price speech, music, sound effects and transcription at most; image
+  and video are priced by ElevenLabs' own `estimate_only` call before they run; a call that may spend and cannot be priced
+  is refused; a call that does not fit is refused before it is sent; the generation count is cut to what the budget
+  affords, in the field the caller used; the price is reserved before dispatch and settled into a charge afterwards, so
+  two calls that start together cannot spend one budget; the rolling 24-hour ledger is kept per session in the plugin's
+  storage, survives a reload, and is written one charge at a time; and every paid result carries a cost line and a
+  structured `cost`.
 - `sessionCreditCap` (2,000 credits) and `dailyCreditCap` (10,000), both on by default, both settable to `null`.
 - `elevenlabs_save_media`, the plugin's own tool, saves a generated file from its signed link under `mediaRoot`
-  (`~/Downloads/elevenlabs` by default) and reports the path, size, sha256 and duration. Only ElevenLabs' generated-file
-  host is fetched, redirects included; the file is published atomically after a symlink and identity check.
-- `conversations`, with `full`, `summary` and `off`, enforced by deny rules on the exact tool names.
+  (`~/Downloads/elevenlabs` by default) and reports the path, size, sha256 and duration. It asserts its own permission and
+  OpenCode's `external_directory` rule before it fetches anything. Only ElevenLabs' generated-file host, on the default
+  https port, is fetched, redirects included; only an image, audio or video type is written; the file is published
+  atomically after a symlink and identity check.
+- `conversations`, with `full`, `summary` and `off`, enforced by deny rules on the exact tool names and on patterns, so
+  a conversation tool ElevenLabs adds later is denied too.
 - An optional `ElevenLabs API key` entry in `/connect` for the one subscription read that shows the workspace balance.
 - `/elevenlabs-status`, `/elevenlabs` and the `elevenlabs/status` RPC, with the region, spend and conversation rows.
 - `/elevenlabs-doctor`, which checks the region's discovery documents, the scopes, the server, the tools, the skills and

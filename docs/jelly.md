@@ -1,7 +1,7 @@
 # Jelly
 
 Jelly reads the `jelly` section of `package.json` without loading the plugin, so that section must describe the plugin
-exactly. 41 tools are declared (18 read-only): the 40 ElevenLabs tools this plugin classifies, and the plugin's own
+exactly. 43 tools are declared (18 read-only): the 40 ElevenLabs tools this plugin classifies, and the plugin's own
 `elevenlabs_save_media`.
 
 Every declared effect is `allow`, because that is what the default rules give each tool in OpenCode: every tool is

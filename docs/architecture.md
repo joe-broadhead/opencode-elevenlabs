@@ -79,8 +79,15 @@ succeeds.
 
 ## The spending guard
 
-`priceOf` computes a price from ElevenLabs' published formula for speech, music and sound effects. Image and video have
-no published price, so the model path awaits a real `estimate_only: true` call through the host's executor, and the
-script path uses a price the script fetched itself, remembered for ten minutes. A call that cannot be priced is refused
-(`ESTIMATE_REQUIRED`), never guessed. A price that does not fit the caps is refused before dispatch
-(`SPEND_CAP_REACHED`). Recorded spend is `{ at, credits }` only, in `ctx.storage`, pruned to the 24-hour window.
+`priceOf` computes a price from ElevenLabs' published formula for speech, music, sound effects and transcription. Image
+and video have no published price, so the model path awaits a real `estimate_only: true` call through the host's
+executor, once, and the script path uses a price the script fetched itself, remembered for ten minutes. A call that
+cannot be priced is refused (`PRICE_UNKNOWN`), never guessed, and every `creative_*` name that may spend is caught by a
+name pattern even when the table does not know it. A price that does not fit is refused before dispatch
+(`SPEND_CAP_REACHED`).
+
+A price is **reserved** in the ledger before the call is sent and settled into a charge when its result arrives, so a
+parallel turn cannot spend one budget twice; a call that fails before it charges releases its hold, and a hold nothing
+settles expires after ten minutes. Recorded spend is `{ at, credits, sessionID }`, in `ctx.storage`, pruned to the
+24-hour window, written one charge at a time, and keyed by session so a reload restores the session's total too. Two
+locations keep their own ledger instance and their own tools-RPC shapers: there is no module-level runtime.

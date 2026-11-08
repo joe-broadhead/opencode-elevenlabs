@@ -36,5 +36,6 @@ Checked by `scripts/check-forbidden.mjs` across `src/`, `test/`, `scripts/` and 
 - The plugin never sees the OAuth token, and never prints one. Anything read from the network goes through
   `src/redact.ts` before it reaches status or the session.
 - A tool that writes asserts its own permission inside `execute`; a declared `permission` alone does not ask.
-- The provisional parts are named as provisional in one place each: the tool table (README's Known limits and
-  `test/fixtures/README.md`) and the image and video prices (README's Spending).
+- Two facts are unverified until the live reconcile, and the README names both in one place: the tool table is
+  provisional (README's Known limits, `test/fixtures/README.md`), and the estimate's freeness and unit are measured there
+  too. Do not state either as settled.

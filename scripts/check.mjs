@@ -84,7 +84,7 @@ function host() {
     const dir = mkdtempSync(join(realpathSync("/tmp"), `elevenlabs-sdk-${version}-`))
     try {
       // Its own package.json, so npm never walks up to another one.
-      writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "wisprflow-host-sdk", private: true }))
+      writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "elevenlabs-host-sdk", private: true }))
       const code = run("npm", ["install", `@opencode/sdk@${version}`, "--ignore-scripts", "--no-audit", "--no-fund", "--prefer-offline"], { cwd: dir })
         || run("bun", ["test", "./test/host"], { env: { HOST_SDK_DIR: dir } })
       if (code !== 0) return code

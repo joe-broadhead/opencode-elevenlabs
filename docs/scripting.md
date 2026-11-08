@@ -5,9 +5,9 @@ the OpenCode server. It uses the tools RPC, `elevenlabs.tools`, through `opencod
 
 | Class | Methods |
 | --- | --- |
-| read | the 18 read tools (`READ_TOOLS` in `src/elevenlabs-tools.ts`): `agents_get`, `agents_get_conversation`, `agents_get_kb_dependents`, `agents_get_test_run`, `agents_get_widget`, `agents_list`, `agents_list_conversations`, `agents_list_test_runs`, `agents_merge_branch_preview`, `agents_query_knowledge_base_rag`, `agents_search_conversation_messages`, `agents_search_knowledge_base`, `creative_get_flow`, `creative_get_flow_node_types`, `creative_get_flow_run_status`, `creative_get_model_guide`, `creative_list_voices`, `creative_transcribe_audio` |
+| read | the 18 read tools (`READ_TOOLS` in `src/elevenlabs-tools.ts`), `creative_transcribe_audio` among them: `agents_get`, `agents_get_conversation`, `agents_get_kb_dependents`, `agents_get_test_run`, `agents_get_widget`, `agents_list`, `agents_list_conversations`, `agents_list_test_runs`, `agents_merge_branch_preview`, `agents_query_knowledge_base_rag`, `agents_search_conversation_messages`, `agents_search_knowledge_base`, `creative_get_flow`, `creative_get_flow_node_types`, `creative_get_flow_run_status`, `creative_get_model_guide`, `creative_list_voices`, `creative_transcribe_audio` |
 | write | the 13 tools that change the workspace: `agents_create`, `agents_create_branch`, `agents_create_deployment`, `agents_create_kb_folder`, `agents_create_kb_text`, `agents_create_kb_url`, `agents_create_test`, `agents_duplicate`, `agents_merge_branch`, `agents_update`, `creative_attach_reference_file`, `creative_create_flow`, `creative_upload_flow_reference` |
-| write (billed) | the 4 generations: `creative_edit_image`, `creative_generate_image`, `creative_generate_speech`, `creative_generate_video` |
+| write (billed) | the 6 generations, each priced before it runs: `creative_edit_image`, `creative_generate_image`, `creative_generate_music`, `creative_generate_sound_effect`, `creative_generate_speech`, `creative_generate_video` |
 | export | `agents_get_link` (mints a link usable outside the workspace) and `elevenlabs_save_media` (writes a file) |
 | destructive | `agents_bulk_delete_knowledge_base`, `agents_delete`, `agents_delete_phone_number`, `agents_delete_tool` |
 | `describe` | not a tool: lists the methods, their classes and permission actions, whether OpenCode lists each tool now, each tool's input as JSON Schema, and — with a session — that session's permission for each |
@@ -78,10 +78,12 @@ opencode api post /api/rpc/elevenlabs.tools/describe -H "x-opencode-directory:$P
 
 ## Spending in a script
 
-A script's generations count against the same rolling 24-hour ledger the model's calls do.
+A script's generations count against the same rolling 24-hour ledger the model's calls do. `creative_transcribe_audio` is a read that bills: it is allowed at every `access` value, and the caps are what bound it.
 
-- Speech, music and sound effects are priced from ElevenLabs' published rates, so a script gets a price before dispatch
-  and a refusal when it does not fit.
+- Speech, music, sound effects and transcription are priced from ElevenLabs' published rates, so a script gets a price
+  before dispatch and a refusal when it does not fit.
+- A script's price is **reserved** before dispatch and settled when the result arrives, so two calls in flight cannot
+  spend the same budget; a failed call releases its hold.
 - **Image and video have no published price.** A script must fetch one itself, once, then call again with the same
   arguments: the plugin remembers the price for ten minutes.
 
@@ -89,7 +91,7 @@ A script's generations count against the same rolling 24-hour ledger the model's
 opencode api post /api/rpc/elevenlabs.tools/creative_generate_image -H "x-opencode-directory:$PWD" -d '{"input":{"sessionID":"ses_…","input":{"prompt":"a ceramic mug on marble","generations_count":1,"estimate_only":true}}}'
 ```
 
-A paid call with no price and no remembered estimate is refused `ESTIMATE_REQUIRED`, with no generation and no charge.
+A paid call with no price and no remembered estimate is refused `PRICE_UNKNOWN`, with no generation and no charge.
 A paid call whose price does not fit is refused `SPEND_CAP_REACHED`, also with no generation. Both refusals name the
 option to change. Every paid result carries a `cost` object beside its output:
 
@@ -109,8 +111,11 @@ It answers `{ path, bytes, sha256, mime, durationSeconds? }`. It writes outside 
 needs OpenCode's `external_directory` rule for the media folder:
 
 ```json
-{ "action": "external_directory", "resource": "~/Downloads/elevenlabs/*", "effect": "allow" }
+{ "action": "external_directory", "resource": "/absolute/path/of/your/mediaRoot/*", "effect": "allow" }
 ```
+
+The resource is the **absolute** path of `mediaRoot` followed by `/*`; a `~` is not expanded in a rule. The tool asserts
+this rule itself, and its refusal prints the exact path to paste.
 
 ## The location
 
@@ -150,7 +155,7 @@ standard output.
 | `SESSION_AGENT_REQUIRED` | The session names no agent, or an agent that does not exist. |
 | `TOOL_UNAVAILABLE` | The server is connected, but OpenCode does not list the tool, or `elevenlabs_save_media` is not available in this location. |
 | `SPEND_CAP_REACHED` | The call would exceed `sessionCreditCap` or `dailyCreditCap`. No generation was sent. |
-| `ESTIMATE_REQUIRED` | The tool has no published price and no remembered estimate, so the cap cannot be checked. No generation was sent. |
+| `PRICE_UNKNOWN` | The call may spend, and neither the table nor a remembered estimate prices it. No call was sent. |
 | `SERVER_CONFLICT` | Your `opencode.json` defines its own `elevenlabs` server at a URL other than the plugin's, a trailing slash included. `/elevenlabs-status` names both. |
 | `AUTH_REQUIRED`, `CONNECTING`, `CONNECTION_FAILED`, `DISABLED`, `NOT_REGISTERED` | The `elevenlabs` server needs a sign-in, is still connecting, could not connect, is disabled, or is missing. `/elevenlabs-status` gives the details. |
 | `UPSTREAM_ERROR` | ElevenLabs answered with an error, such as an invalid input, an agent that does not exist, a rate limit, or a `429` concurrency refusal. The message holds the first line of ElevenLabs' text, at most 300 characters, with tokens and URL query strings removed. |

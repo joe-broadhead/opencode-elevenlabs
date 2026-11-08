@@ -23,7 +23,7 @@ The `host` and `pack` stages run on every tested OpenCode release when `OPENCODE
 point at stock binaries; each is also installed from npm and run in its own temp folder. Unset, the stages use the locked
 SDK and print a notice.
 
-`npm run pack`-style checks and `npm pack --dry-run` must show the file list in `scripts/check.mjs` and nothing else.
+`npm pack --dry-run` must show the file list in `scripts/check.mjs` and nothing else.
 
 ## ElevenLabs' tools
 

@@ -41,7 +41,7 @@ Ask for what you want in your own words:
 - "Price a five-second video of a ceramic mug in morning light, then make it if it is under 2,000 credits."
 - "Save that voiceover to my Downloads folder."
 
-Two tools do more than relay ElevenLabs:
+One tool and one guard do more than relay ElevenLabs:
 
 - **`elevenlabs_save_media`** writes a generated file to disk from the signed link a generation returns. The link expires
   about two hours after the generation, so this is how a result is kept. It answers with the path, size, sha256 and, when
@@ -72,8 +72,14 @@ Generations are billed in **credits** against the workspace you signed in with.
   the duration, and ElevenLabs publishes no per-unit figure, so before an image or video generation the plugin asks
   ElevenLabs for the exact price with `estimate_only: true`. If the price cannot be had, the call is refused rather than
   run unpriced.
-- **Speech, music and sound effects use ElevenLabs' published rates** (1 credit per character, 900 per minute, 200 per
-  generation), so their cost line says "at most".
+- **Speech, music, sound effects and transcription use ElevenLabs' published rates** (1 credit per character, 900 per
+  minute, 200 per generation, 330 per minute for Speech to Text), so their cost line says "at most". A transcription is a
+  read, but it bills: `access: "read-only"` denies the generations and **not** the transcription, so the caps are what
+  bound it.
+- **A call that may spend is priced before it runs, or refused.** Every `creative_*` tool is priced from the table or by
+  ElevenLabs' estimate; one that cannot be priced is refused `PRICE_UNKNOWN` while either cap is on, never run unpriced.
+- **Two calls that start together cannot both spend the same budget.** The price is reserved in the ledger before the call
+  is sent and settled when its result arrives; a failed call releases its hold.
 - **The caps bound this plugin, not your account.** Someone generating in the ElevenLabs app spends from the same pool.
 - **The balance is only visible with an API key.** Add one through `/connect` → **ElevenLabs API key (optional)** and
   status shows the workspace balance and its reset date. It is used for one read, the subscription, and never to
@@ -89,16 +95,19 @@ Only a link on ElevenLabs' generated-file host is fetched, over `https`, with no
 larger than `maxMediaBytes` (200 MB by default) is refused.
 
 That folder is outside your project, so **two rules apply**: the plugin's own permission, and OpenCode's
-`external_directory` rule for the folder. On the first save OpenCode asks for both. To pre-approve the folder:
+`external_directory` rule for the folder. The plugin asserts both before it fetches anything, and its refusal prints the
+exact rule. To pre-approve the folder:
 
 ```json
 { "permissions": [
   { "action": "elevenlabs_save_media", "resource": "*", "effect": "allow" },
-  { "action": "external_directory", "resource": "~/Downloads/elevenlabs/*", "effect": "allow" }
+  { "action": "external_directory", "resource": "/absolute/path/of/your/mediaRoot/*", "effect": "allow" }
 ] }
 ```
 
-A refusal that starts `permission.rejected: external_directory` needs that second rule.
+The second resource is the **absolute** path of `mediaRoot` followed by `/*`; a `~` is not expanded in a rule, so write
+the path out (`/absolute/path/...`, not `~/...`). A refusal that starts `permission.rejected: external_directory` or
+`EXTERNAL_DIRECTORY_DENIED` needs that second rule.
 
 ## Regions
 
@@ -190,6 +199,8 @@ The plugin inserts this block directly after each agent's base rule that allows 
   { "action": "elevenlabs_creative_upload_flow_reference", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_edit_image", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_generate_image", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_creative_generate_music", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_creative_generate_sound_effect", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_generate_speech", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_generate_video", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_bulk_delete_knowledge_base", "resource": "*", "effect": "allow" },
@@ -256,12 +267,13 @@ Every state, and every sentence `/elevenlabs-status` and `/elevenlabs-doctor` ca
 | Code | What it means | What to do |
 | --- | --- | --- |
 | `BALANCE_UNAVAILABLE` | the optional API key could not read the subscription | run `/elevenlabs-status`; if it keeps failing, remove the key in `/connect` |
-| `ESTIMATE_REQUIRED` | a billed call has no published price and ElevenLabs would not give one | call the tool once with `"estimate_only": true`, then call it again |
+| `EXTERNAL_DIRECTORY_DENIED` | the media folder's `external_directory` rule is not allowed | add the rule the message prints, with the absolute path |
 | `HOST_UNTESTED` | OpenCode is outside `>=2.2.3 <2.3.0` | use a supported OpenCode, or set `"allowUntestedHost": true` |
 | `MEDIA_EXPIRED` | the generated file's signed link has expired | fetch the generation again; do not generate again |
 | `MEDIA_TOO_LARGE` | the file is larger than `maxMediaBytes` | raise `maxMediaBytes` deliberately |
 | `MEDIA_URL_INVALID` | the link is not `https`, or not on ElevenLabs' generated-file host | pass the link a generation returned |
 | `OPTIONS_INVALID` | a plugin option is wrong | fix the option; the message names the accepted values |
+| `PRICE_UNKNOWN` | a call that may spend cannot be priced, and a cap is on, so it was refused before it was sent | price it with `"estimate_only": true` where the tool takes it, or set both caps to `null` |
 | `RULES_NOT_ADDED` | the default rules could not be inserted | restart OpenCode |
 | `SAVE_FAILED` | the file could not be written | check `mediaRoot`, its permissions, and the `external_directory` rule |
 | `SERVER_NOT_REGISTERED` | the MCP server could not be registered | restart OpenCode |
@@ -282,6 +294,9 @@ in your config shadows the plugin's. **Rename or move** that file, then restart 
 - **The caps bound this plugin, not the account.** The workspace balance needs the optional API key.
 - **No dollar figure is derived from credits.**
 - **Image and video prices come from ElevenLabs.** If the estimate is unavailable the call is refused rather than guessed.
+- **Two facts about that estimate are unverified until the live reconcile:** that `estimate_only: true` costs nothing, and
+  that its figure is the batch total for the generations asked for. The cost line therefore says "at most" whenever it is
+  divided, and the reconcile measures both against a real workspace before this line is removed.
 - **Durations are read from the container.** WAV and MP4/M4A state one; MP3, Ogg and WebM do not, and the field is left
   out rather than estimated.
 

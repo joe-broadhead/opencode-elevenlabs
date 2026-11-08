@@ -12,15 +12,18 @@ credits**, so read this first. Every tool takes a `context` parameter: one short
 ## Price it before you spend
 
 - Speech, music, sound effects and transcription have a published credit price, and every paid result carries a cost
-  line such as `Credits: at most 1,200 (600 characters, 2 takes)`.
+  line such as `Credits: at most 1,200 (600 characters, 2 takes)`. **Transcription is billed too** (330 credits a minute),
+  so pass its `duration_seconds` when you know them; without them the call is refused while a cap is on.
 - **Image and video have no published price.** They depend on the model, the resolution and the duration, so the only
-  exact price is ElevenLabs'. Call the same tool with `estimate_only: true` first:
+  price is ElevenLabs'. Call the same tool with `estimate_only: true` first:
 
   ```json
   { "prompt": "a ceramic mug on marble, morning light", "generations_count": 1, "estimate_only": true }
   ```
 
-  The answer is a price and nothing is generated. Say the price and what it buys, then make the paid call:
+  The answer is a price. Say the price and what it buys, then make the paid call. Whether the estimate itself is free, and
+  whether its number is for the whole batch, is being measured against a real workspace; the cost line says "at most"
+  when it is divided across generations, so treat it as a ceiling rather than a receipt:
 
   ```js
   const priced = await tools.elevenlabs.creative_generate_image({ prompt, generations_count: 1, estimate_only: true, context: "price the mug shot" })
@@ -29,14 +32,18 @@ credits**, so read this first. Every tool takes a `context` parameter: one short
   the user asked for options.
 - **Never call a generating tool twice to "retry".** A retry starts and charges a second generation. Poll
   `creative_get_flow_run_status` with the `flow_id` until it reports `all_completed` or `has_failures`.
-- The plugin also caps this: a call over the remaining budget is refused before it is sent, and `generations_count` is cut
-  to what fits. The caps bound this plugin, not the account.
+- The plugin also caps this: a call over the remaining budget is refused before it is sent, the generation count is cut
+  to what fits, a call it cannot price is refused `PRICE_UNKNOWN`, and the price is held against the budget before the
+  call is sent. The caps bound this plugin, not the account.
+- `creative_edit_image` is not known to take `estimate_only`: it runs from a remembered price for those arguments, or
+  when both caps are `null`. Never retry it for a price.
 
-## Speech
+## Speech, music and sound
 
-`creative_generate_speech` needs `text`. `creative_list_voices` first; `voice_id` only ever comes from there or from the user. The default model is
-`eleven_multilingual_v2`; use `eleven_v3` when the script has audio tags such as `[whispering]`. Speech returns two takes
-by default and each is charged.
+`creative_generate_speech` needs `text`; `creative_generate_music` takes `duration_seconds` or `music_length_ms`;
+`creative_generate_sound_effect` takes `prompt` and a generation count. Call `creative_list_voices` first; `voice_id` only
+ever comes from there or from the user. The default speech model is `eleven_multilingual_v2`, or `eleven_v3` when the
+script has audio tags such as `[whispering]`. Speech returns two takes by default and each is charged.
 
 ## Images and video
 

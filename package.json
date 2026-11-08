@@ -276,6 +276,18 @@
         "readOnly": false
       },
       {
+        "name": "elevenlabs_creative_generate_music",
+        "permission": "elevenlabs_creative_generate_music",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
+        "name": "elevenlabs_creative_generate_sound_effect",
+        "permission": "elevenlabs_creative_generate_sound_effect",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
         "name": "elevenlabs_creative_generate_speech",
         "permission": "elevenlabs_creative_generate_speech",
         "effect": "allow",
