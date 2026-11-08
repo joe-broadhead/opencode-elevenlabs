@@ -12,8 +12,9 @@ credits**, so read this first. Every tool takes a `context` parameter: one short
 ## Price it before you spend
 
 - Speech, music, sound effects and transcription have a published credit price, and every paid result carries a cost
-  line such as `Credits: at most 1,200 (600 characters, 2 takes)`. **Transcription is billed too** (330 credits a minute),
-  so pass its `duration_seconds` when you know them; without them the call is refused while a cap is on.
+  line such as `Credits: at most 1,200 (600 characters, 2 takes)`. **Transcription is billed too** (330 credits a minute).
+  The plugin prices it from the audio file it is about to send. A duration you type can raise that price, not lower it.
+  A file it cannot measure is refused while a cap is on.
 - **Image and video have no published price.** They depend on the model, the resolution and the duration, so the only
   price is ElevenLabs'. Call the same tool with `estimate_only: true` first:
 

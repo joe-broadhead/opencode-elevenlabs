@@ -38,6 +38,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and thi
 
 ### Changed
 
+- A caller-typed duration, take count or file size cannot lower a price. Transcription is priced from the file about to
+  be sent; a file that cannot be measured is refused. A price of 0 is a refusal. Speech stays at two takes unless the
+  caller asks for more.
+- A `creative_*` tool the price table does not price is refused while a cap is on. There is no keyword list.
+- A failed call, and a hold still open after ten minutes, is charged the reserved price. A later higher figure may replace
+  that charge. A zero or a missing result does not free the budget.
+- One priced call per session and method is in flight on the script path.
+- The daily cap is one total for this data directory. Two machines do not share it.
+- Conversation denies match without regard to case, and cover `get_call`, `list_calls` and `export_history`.
 - **Every tool is allowed by default**, with the `access` option: `"all"` (the default), `"ask-changes"` and
   `"read-only"`. The generated block is printed in full in the README and the configuration guide for each value, and a
   tool ElevenLabs adds later follows the same namespace rule.

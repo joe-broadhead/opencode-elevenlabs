@@ -19,7 +19,9 @@ Report privately through GitHub's private vulnerability reporting on
   your integration gave them, the phone number they called from, whatever the agent extracted, and the variables their
   app passed in. It lands in the model's context and in the session history on disk. There is no redaction: the point of
   reading a call is what was said. `conversations: "summary"` denies the words and keeps the metadata; `"off"` denies the
-  history too.
+  history too. The match ignores case. `"off"` denies a name containing `conversation` or `transcript`, a name containing
+  `call` and `recording`, and the shapes `get_call`, `list_calls` and `export_history`. It does not deny a generation or
+  a transcription: those names do not match. `"summary"` denies the transcript tools and the transcript patterns.
 - **Generated files stay on your disk.** `elevenlabs_save_media` writes under `mediaRoot` and returns a path, a size, a
   sha256 and, when the container states one, a duration. The bytes never enter the conversation, and nothing is
   uploaded anywhere.
@@ -56,8 +58,9 @@ Report privately through GitHub's private vulnerability reporting on
 - **Write outside the project.** `elevenlabs_save_media` writes under `mediaRoot`. It asserts both its own action and
   OpenCode's `external_directory` rule for that folder before it fetches anything, so a session that denies
   `external_directory` writes nothing.
-- **Use a tool ElevenLabs adds later.** The `elevenlabs_*` rule allows it, so a new spending or deleting tool runs too,
-  and status names it as unknown.
+- **Use a tool ElevenLabs adds later.** The `elevenlabs_*` rule allows it, and status names it as unknown. A new
+  `creative_*` tool is priced or refused while a cap is on, so it does not spend unpriced. A new deleting tool still runs
+  until it is classified.
 
 One line restricts all of it: set `"access": "ask-changes"` (reads run, everything else asks) or `"access": "read-only"`
 (reads run, everything else is denied), or add a rule for one tool, such as

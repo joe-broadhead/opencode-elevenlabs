@@ -79,15 +79,18 @@ succeeds.
 
 ## The spending guard
 
-`priceOf` computes a price from ElevenLabs' published formula for speech, music, sound effects and transcription. Image
-and video have no published price, so the model path awaits a real `estimate_only: true` call through the host's
-executor, once, and the script path uses a price the script fetched itself, remembered for ten minutes. A call that
-cannot be priced is refused (`PRICE_UNKNOWN`), never guessed, and every `creative_*` name that may spend is caught by a
-name pattern even when the table does not know it. A price that does not fit is refused before dispatch
-(`SPEND_CAP_REACHED`).
+`priceOf` computes a price from ElevenLabs' published formula for speech, music, sound effects and a transcription whose
+file the plugin can measure. A number the caller types may raise that price; it cannot lower one, and a price of 0 is a
+refusal. Image and video have no published price, so the model path awaits a real `estimate_only: true` call through the
+host's executor, once, and the script path uses a price the script fetched itself, remembered for ten minutes. A call
+that cannot be priced is refused (`PRICE_UNKNOWN`), never guessed. While either cap is on, a name that starts with
+`creative_` and is not priced by the table the guard consults is refused before dispatch. There is no keyword list. A
+price that does not fit is refused before dispatch (`SPEND_CAP_REACHED`).
 
 A price is **reserved** in the ledger before the call is sent and settled into a charge when its result arrives, so a
-parallel turn cannot spend one budget twice; a call that fails before it charges releases its hold, and a hold nothing
-settles expires after ten minutes. Recorded spend is `{ at, credits, sessionID }`, in `ctx.storage`, pruned to the
-24-hour window, written one charge at a time, and keyed by session so a reload restores the session's total too. Two
-locations keep their own ledger instance and their own tools-RPC shapers: there is no module-level runtime.
+parallel turn cannot spend one budget twice. A call that fails, and a hold still open after ten minutes, is charged the
+reserved price: the plugin cannot tell a free failure from a billed one. A later higher figure may replace that charge.
+A zero or a missing result does not free the budget. Recorded spend is `{ at, credits, sessionID, id }`, with the open
+holds, in `ctx.storage`. Pruning the detail log folds an in-window charge into a total it cannot shrink. Every reserve
+re-reads and merges before it writes, so two ledgers on one storage share one daily cap. Two machines do not. Two
+locations keep their own tools-RPC shapers. On the script path, one priced call per session and method is in flight.

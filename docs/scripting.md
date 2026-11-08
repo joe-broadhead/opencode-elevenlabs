@@ -83,7 +83,8 @@ A script's generations count against the same rolling 24-hour ledger the model's
 - Speech, music, sound effects and transcription are priced from ElevenLabs' published rates, so a script gets a price
   before dispatch and a refusal when it does not fit.
 - A script's price is **reserved** before dispatch and settled when the result arrives, so two calls in flight cannot
-  spend the same budget; a failed call releases its hold.
+  spend the same budget. A failed call is charged the reserved price. One priced call per session and method is in
+  flight; a second, estimate or not, is refused until the first settles.
 - **Image and video have no published price.** A script must fetch one itself, once, then call again with the same
   arguments: the plugin remembers the price for ten minutes.
 
@@ -154,7 +155,7 @@ standard output.
 | `SESSION_UNKNOWN` | OpenCode says the session does not exist in this location. Any other failure to look the session up is OpenCode's own error. |
 | `SESSION_AGENT_REQUIRED` | The session names no agent, or an agent that does not exist. |
 | `TOOL_UNAVAILABLE` | The server is connected, but OpenCode does not list the tool, or `elevenlabs_save_media` is not available in this location. |
-| `SPEND_CAP_REACHED` | The call would exceed `sessionCreditCap` or `dailyCreditCap`. No generation was sent. |
+| `SPEND_CAP_REACHED` | The call would exceed `sessionCreditCap` or `dailyCreditCap`, or a priced call of the same method is already in flight. No generation was sent. |
 | `PRICE_UNKNOWN` | The call may spend, and neither the table nor a remembered estimate prices it. No call was sent. |
 | `SERVER_CONFLICT` | Your `opencode.json` defines its own `elevenlabs` server at a URL other than the plugin's, a trailing slash included. `/elevenlabs-status` names both. |
 | `AUTH_REQUIRED`, `CONNECTING`, `CONNECTION_FAILED`, `DISABLED`, `NOT_REGISTERED` | The `elevenlabs` server needs a sign-in, is still connecting, could not connect, is disabled, or is missing. `/elevenlabs-status` gives the details. |
