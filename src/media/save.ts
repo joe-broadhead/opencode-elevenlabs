@@ -57,6 +57,10 @@ export function checkUrl(raw: string, hosts: readonly string[]): URL {
   if (url.protocol !== "https:" && !(url.protocol === "http:" && loopback(url.hostname) && hosts.some(loopback))) {
     throw invalid(`Only an https link is fetched, and this one is ${url.protocol.replace(":", "")}.`)
   }
+  // Only the default https port: a signed link never carries another, and an odd port is not ElevenLabs' host as we know
+  // it. A loopback host a test seam added is exempt, because a test server listens where it can.
+  const loopbackHost = loopback(url.hostname) && hosts.some(loopback)
+  if (!loopbackHost && url.port !== "" && url.port !== "443") throw invalid(`The link names port ${url.port}; only the default https port is fetched.`)
   if (url.username !== "" || url.password !== "") throw invalid("The link carries a username or password.")
   if (!hosts.some((host) => url.hostname === host || url.hostname.endsWith(`.${host}`))) {
     throw invalid(`The link is on ${url.hostname}, and only ElevenLabs' generated-file hosts are fetched.`)
@@ -66,6 +70,9 @@ export function checkUrl(raw: string, hosts: readonly string[]): URL {
 
 const invalid = (message: string) =>
   elevenlabsError("MEDIA_URL_INVALID", message, "Pass the link a generation returned, such as one on elevenlabsusercontent.com.")
+
+/** The types a generated file can be. Anything else is not a file a generation produces, and is refused (DR-13). */
+const MEDIA_TYPE = /^(?:image|audio|video)\/|^application\/octet-stream$/
 
 const expired = (status: number) =>
   elevenlabsError(
@@ -92,7 +99,12 @@ async function follow(start: URL, deps: SaveDeps): Promise<Response> {
       url = checkUrl(new URL(location, url).toString(), deps.hosts)
       continue
     }
-    if (response.status === 401 || response.status === 403 || response.status === 404 || response.status === 410) throw expired(response.status)
+    // A refused or expired signature is an expired link; a 404 is a link that never existed, and says so (DR-13).
+    if (response.status === 401 || response.status === 403 || response.status === 410) throw expired(response.status)
+    if (response.status === 404) {
+      await response.body?.cancel().catch(() => undefined)
+      throw elevenlabsError("SAVE_FAILED", "ElevenLabs has no file at that link.", "Check the link you passed: a generation's link is long and easy to cut short.")
+    }
     if (!response.ok) {
       await response.body?.cancel().catch(() => undefined)
       throw elevenlabsError("SAVE_FAILED", `ElevenLabs answered HTTP ${response.status} for that link.`, "Try again; if it keeps failing, fetch the generation again for a fresh link.")
@@ -106,7 +118,14 @@ async function follow(start: URL, deps: SaveDeps): Promise<Response> {
 function nameFor(response: Response, url: URL, asked: string | undefined): string {
   const mime = (response.headers.get("content-type") ?? "").split(";")[0]!.trim().toLowerCase()
   const extension = EXTENSIONS[mime]
-  const fromUrl = decodeURIComponent(url.pathname.split("/").filter(Boolean).at(-1) ?? "")
+  const last = url.pathname.split("/").filter(Boolean).at(-1) ?? ""
+  // A malformed per cent escape in the link is not a reason to fail with a raw URIError (DR-13).
+  let fromUrl = last
+  try {
+    fromUrl = decodeURIComponent(last)
+  } catch {
+    fromUrl = last.replace(/%(?![0-9A-Fa-f]{2})/g, "%25")
+  }
   const base = safeName(asked ?? fromUrl, `elevenlabs-${Date.now()}`)
   if (extension === undefined) return base
   return base.toLowerCase().endsWith(extension) ? base : `${base.replace(/\.[A-Za-z0-9]{1,5}$/, "")}${extension}`
@@ -127,6 +146,14 @@ export async function saveMedia(input: { readonly url: string; readonly name?: s
   }
   if (!response.body) throw elevenlabsError("SAVE_FAILED", "ElevenLabs sent no file body.", "Try again, then fetch the generation again for a fresh link.")
   const mime = (response.headers.get("content-type") ?? "application/octet-stream").split(";")[0]!.trim().toLowerCase()
+  if (!MEDIA_TYPE.test(mime)) {
+    await response.body.cancel().catch(() => undefined)
+    throw elevenlabsError(
+      "SAVE_FAILED",
+      `ElevenLabs sent ${mime}, which is not an image, audio or video file.`,
+      "Save the link a generation returned, not a page or an API response.",
+    )
+  }
   const written = await writeMedia({
     root: deps.root,
     name: nameFor(response, url, input.name),

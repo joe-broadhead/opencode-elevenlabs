@@ -111,6 +111,13 @@ describe("durationOf", () => {
 })
 
 describe("the link checks", () => {
+  test("a port other than the default https one is refused, and a loopback test host is exempt", () => {
+    expect(() => checkUrl("https://elevenlabsusercontent.com:8443/a.mp3", HOSTS)).toThrow("MEDIA_URL_INVALID")
+    expect(() => checkUrl("https://elevenlabsusercontent.com:443/a.mp3", HOSTS)).not.toThrow()
+    // Only a seam's loopback host may use another port, because a test server listens where it can.
+    expect(checkUrl("http://127.0.0.1:5000/media/a.mp3", ["elevenlabsusercontent.com", "127.0.0.1"]).port).toBe("5000")
+  })
+
   test("https only, an allowed host only, no credentials", () => {
     expect(checkUrl("https://x.elevenlabsusercontent.com/a/b.mp3", HOSTS).hostname).toBe("x.elevenlabsusercontent.com")
     expect(checkUrl("https://elevenlabsusercontent.com/a.mp3", HOSTS).hostname).toBe("elevenlabsusercontent.com")
@@ -174,6 +181,34 @@ describe("saveMedia", () => {
       hosts: HOSTS,
       fetch: send({ "/grow": () => response(200, "0123456789") }),
     })).rejects.toMatchObject({ code: "MEDIA_TOO_LARGE" })
+  })
+
+  test("a 404 is a link that never existed, not an expiry (DR-13)", async () => {
+    await expect(saveMedia({ url: "https://files.elevenlabsusercontent.com/missing" }, {
+      root: join(root, "missing"),
+      maxBytes: 1024,
+      hosts: HOSTS,
+      fetch: send({ "/missing": () => response(404, "not found") }),
+    })).rejects.toMatchObject({ code: "SAVE_FAILED" })
+  })
+
+  test("a malformed per cent escape in the link is handled, not thrown as a URIError (DR-13)", async () => {
+    const saved = await saveMedia({ url: "https://files.elevenlabsusercontent.com/bad%E0%A4", name: "clip" }, {
+      root: join(root, "escape"),
+      maxBytes: 1024,
+      hosts: HOSTS,
+      fetch: send({ "/bad%E0%A4": () => response(200, "data") }),
+    })
+    expect(saved.path.endsWith("clip.mp3")).toBe(true)
+  })
+
+  test("a type that is not media is refused, and nothing is written (DR-13)", async () => {
+    await expect(saveMedia({ url: "https://files.elevenlabsusercontent.com/page" }, {
+      root: join(root, "html"),
+      maxBytes: 1024,
+      hosts: HOSTS,
+      fetch: send({ "/page": () => response(200, "<html></html>", { "content-type": "text/html" }) }),
+    })).rejects.toMatchObject({ code: "SAVE_FAILED" })
   })
 
   test("an upstream refusal that is not an expiry is a save failure, and the file is not written", async () => {

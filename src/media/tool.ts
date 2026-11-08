@@ -1,5 +1,6 @@
 import type { Plugin } from "@opencode/plugin"
 import { elevenlabsError } from "../constants.js"
+import { expandRoot } from "./policy.js"
 import { saveMedia, savedText, type SaveDeps } from "./save.js"
 
 /** The tool's id is `<namespace>_<name>`, the same shape as the MCP tools beside it. */
@@ -57,16 +58,24 @@ export interface ToolResult {
 
 /**
  * Runs the tool. It writes a file, so it asserts its own permission before it fetches anything: the host's declaration
- * only hides a denied action, and a decline here must reach no network and touch no disk.
+ * only hides a denied action, and a decline here must reach no network and touch no disk. It then asserts the host's
+ * `external_directory` rule for the media folder, because the folder is outside the project (R19, DR-8).
  */
 export async function runSaveMedia(input: SaveToolInput, raw: unknown, call: CallSource): Promise<ToolResult> {
-  await input.assert({
-    sessionID: call.sessionID,
-    agent: call.agent,
-    action: SAVE_ACTION,
-    resources: ["*"],
-    source: { type: "tool", messageID: call.messageID, id: call.id },
-  })
+  const source = { type: "tool" as const, messageID: call.messageID, id: call.id }
+  await input.assert({ sessionID: call.sessionID, agent: call.agent, action: SAVE_ACTION, resources: ["*"], source })
+  const folder = expandRoot(input.root)
+  try {
+    await input.assert({ sessionID: call.sessionID, agent: call.agent, action: "external_directory", resources: [`${folder}/*`], source })
+  } catch (error) {
+    // The host asks for two rules; this one is the path confinement, and its next step names the exact rule to add.
+    if (error instanceof Error && error.name === "Permission.DeclinedError") throw error
+    throw elevenlabsError(
+      "EXTERNAL_DIRECTORY_DENIED",
+      `Writing under ${folder} needs OpenCode's external_directory rule, which this session does not allow.`,
+      `Allow { "action": "external_directory", "resource": "${folder}/*", "effect": "allow" } in this agent's permissions or in permissions, then save again.`,
+    )
+  }
   const args = (typeof raw === "object" && raw !== null ? raw : {}) as Record<string, unknown>
   const url = args.url
   if (typeof url !== "string" || url.trim() === "") {

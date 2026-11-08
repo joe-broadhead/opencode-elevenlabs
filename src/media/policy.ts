@@ -33,7 +33,7 @@ const tooLarge = (maxBytes: number) =>
 
 const refused = (message: string) => elevenlabsError("SAVE_FAILED", message, "Check the plugin's mediaRoot and its permissions, then try again.")
 
-/** `~` is the user's home folder; every other path is taken as written, and a relative one is resolved against home. */
+/** `~` is the user's home folder; every other path is taken as written, and a relative one is resolved against the process's working directory. */
 export function expandRoot(root: string): string {
   const expanded = root === "~" ? homedir() : root.startsWith("~/") ? path.join(homedir(), root.slice(2)) : root
   return path.resolve(expanded)
