@@ -65,21 +65,29 @@ the estimate path and every refusal.
 
 Generations are billed in **credits** against the workspace you signed in with.
 
-- **Caps are on by default.** `sessionCreditCap` is 2,000 credits and `dailyCreditCap` is 10,000, counted over a rolling
-  24 hours across sessions, scripts and restarts. A generation that does not fit is refused **before it is sent**, and a
+- **Caps are on by default.** `sessionCreditCap` is 2,000 credits and `dailyCreditCap` is 10,000, one total for this data
+  directory, counted over a rolling 24 hours across sessions, scripts and restarts. Two projects on two machines do not
+  share a cap: the store cannot enforce one. A generation that does not fit is refused **before it is sent**, and a
   request for more variations than the budget affords is cut to what fits. Set either to `null` for no cap.
 - **Image and video are priced by ElevenLabs, not by this plugin.** Their cost depends on the model, the resolution and
   the duration, and ElevenLabs publishes no per-unit figure, so before an image or video generation the plugin asks
-  ElevenLabs for the exact price with `estimate_only: true`. If the price cannot be had, the call is refused rather than
-  run unpriced.
-- **Speech, music, sound effects and transcription use ElevenLabs' published rates** (1 credit per character, 900 per
-  minute, 200 per generation, 330 per minute for Speech to Text), so their cost line says "at most". A transcription is a
-  read, but it bills: `access: "read-only"` denies the generations and **not** the transcription, so the caps are what
-  bound it.
-- **A call that may spend is priced before it runs, or refused.** Every `creative_*` tool is priced from the table or by
-  ElevenLabs' estimate; one that cannot be priced is refused `PRICE_UNKNOWN` while either cap is on, never run unpriced.
+  ElevenLabs for a price with `estimate_only: true`. The cost line says "at most" until the live reconcile proves the
+  unit. If the price cannot be had, the call is refused rather than run unpriced.
+- **Speech, music, sound effects and transcription use ElevenLabs' published rates** (1 credit per character, two takes,
+  900 per minute, 200 per generation, 330 per minute for Speech to Text), so their cost line says "at most". A caller
+  `takes` below two does not lower the speech price. A transcription is priced from the file about to be sent, not from
+  a duration the caller types; that duration may raise the price, and a file whose container duration cannot be read is
+  refused. A transcription is a read, but it bills: `access: "read-only"` denies the generations and **not** the
+  transcription, so the caps are what bound it.
+- **A call that may spend is priced before it runs, or refused.** While either cap is on, a name that starts with creative_ is priced by the table the guard consults or refused PRICE_UNKNOWN before it is sent, unless that table classifies the name as a read, write, export or delete that does not spend.
+  Image and video, which the table prices only from ElevenLabs' estimate, are the exception that asks for that estimate.
+  A computed price of 0 is a refusal, not a free call.
 - **Two calls that start together cannot both spend the same budget.** The price is reserved in the ledger before the call
-  is sent and settled when its result arrives; a failed call releases its hold.
+  is sent and settled when its result arrives. A call that fails, or whose result never arrives, is charged the reserved
+  price: the plugin cannot tell a free failure from a billed one, and over-counting is the safe side. A later result that
+  reports a higher figure may replace that charge. A missing result, a zero, or an error does not free the budget. A hold
+  still open after ten minutes is settled at the reserved price rather than dropped. On the script path, one priced call
+  per session and method is in flight; a second is refused until the first settles.
 - **The caps bound this plugin, not your account.** Someone generating in the ElevenLabs app spends from the same pool.
 - **The balance is only visible with an API key.** Add one through `/connect` → **ElevenLabs API key (optional)** and
   status shows the workspace balance and its reset date. It is used for one read, the subscription, and never to
@@ -278,7 +286,7 @@ Every state, and every sentence `/elevenlabs-status` and `/elevenlabs-doctor` ca
 | `SAVE_FAILED` | the file could not be written | check `mediaRoot`, its permissions, and the `external_directory` rule |
 | `SERVER_NOT_REGISTERED` | the MCP server could not be registered | restart OpenCode |
 | `SKILLS_INVALID` | a skill failed to load | reinstall the plugin |
-| `SPEND_CAP_REACHED` | the call would exceed a credit cap, so it was refused before it was sent | raise the cap, set it to `null`, or wait for the 24-hour window |
+| `SPEND_CAP_REACHED` | the call would exceed a credit cap, or a priced call of the same method is already in flight, so it was refused before it was sent | raise the cap, set it to `null`, wait for the 24-hour window, or wait for the in-flight call to finish |
 | `STATUS_UNAVAILABLE` | the status report could not be read | restart OpenCode, then run `/elevenlabs-status` |
 
 An upstream error from ElevenLabs, a rate limit included, passes through unchanged.

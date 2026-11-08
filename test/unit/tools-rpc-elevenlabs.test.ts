@@ -85,10 +85,9 @@ describe("ElevenLabs' tools RPC", () => {
     expect(spend.ledger.spend("ses_script").sessionCredits).toBe(1200)
   })
 
-  test("a transcription is priced from its duration, and refused when it does not fit (DR-2)", () => {
+  test("a transcription priced only from a caller duration is refused before dispatch", () => {
     setToolRuntime(runtime(100, 10000))
-    // 330 credits a minute, and a minute does not fit a 100-credit session.
-    expect(() => shapeInput("creative_transcribe_audio", { duration_seconds: 60 }, { ...CALL, action: "elevenlabs_creative_transcribe_audio" })).toThrow("SPEND_CAP_REACHED")
+    expect(() => shapeInput("creative_transcribe_audio", { duration_seconds: 60 }, { ...CALL, action: "elevenlabs_creative_transcribe_audio" })).toThrow("PRICE_UNKNOWN")
     setToolRuntime(undefined)
   })
 

@@ -84,17 +84,36 @@ export const SPEND_TOOLS: readonly string[] = [
  */
 export const SPEND_READS: readonly string[] = ["creative_transcribe_audio"]
 
-/** Every call that may spend, whether it writes or reads. The guard runs on these and nothing else. */
-export const SPEND_ANY: readonly string[] = [...SPEND_TOOLS, ...SPEND_READS]
+/**
+ * Names the published formulas already price, which are not in the attested 40. They are in the table the guard
+ * consults, so a formula is never left where the dispatcher will not run it.
+ */
+export const SPEND_ALIASES: readonly string[] = ["creative_compose_music", "creative_sound_effects"]
+
+/** Every call the price table prices, whether it writes or reads, aliases included. */
+export const SPEND_ANY: readonly string[] = [...SPEND_TOOLS, ...SPEND_READS, ...SPEND_ALIASES]
 
 /**
- * The names a generation tool may carry. ElevenLabs' live list is longer than the 40 attested names, so a tool it adds
- * later must still be caught by the guard: anything matching this is priced or refused, whatever the table says (DR-3).
+ * True when a cap must price this call or refuse it, before dispatch. Every name that starts with `creative_` is
+ * included, except one this table classifies as a read, write, export or delete that does not spend. A name the table
+ * does not price is refused. There is no keyword list.
  */
-export const SPEND_NAME = /(?:^|_)(?:generate|generat|compose|synthesi[sz]e|dub|sound|music|speech|video|image|voice_design|isolate|changer|transcri)(?:_|$)/
+export const mustPrice = (name: string) => {
+  if (SPEND_ANY.includes(name)) return true
+  if (!name.startsWith("creative_")) return false
+  if (READ_TOOLS.includes(name) || WRITE_TOOLS.includes(name) || EXPORT_TOOLS.includes(name) || DESTRUCTIVE_TOOLS.includes(name)) return false
+  return true
+}
 
-/** True for a name that may spend even though the table does not know it. */
-export const spendShaped = (name: string) => SPEND_ANY.includes(name) || (name.startsWith("creative_") && SPEND_NAME.test(name))
+/**
+ * The README sentence for that rule, from the same predicate. A classified non-spending `creative_` name is the only
+ * exception, and only while the table still has one.
+ */
+export function creativeGuardSentence() {
+  const exempt = ALL_TOOLS.some((name) => name.startsWith("creative_") && !mustPrice(name))
+  const rule = "While either cap is on, a name that starts with creative_ is priced by the table the guard consults or refused PRICE_UNKNOWN before it is sent"
+  return exempt ? `${rule}, unless that table classifies the name as a read, write, export or delete that does not spend.` : `${rule}.`
+}
 
 /**
  * The generation tools that accept `estimate_only: true` and price a run without spending anything. The spending guard
@@ -139,7 +158,7 @@ export function classify(name: string): ToolClass {
   return "unknown"
 }
 
-/** True for a tool whose call bills the workspace, writes and billed reads alike. */
+/** True for a tool the price table prices, writes and billed reads alike. The guard's gate is `mustPrice`, not this. */
 export const spends = (name: string) => SPEND_ANY.includes(name)
 
 /** True for a generation tool the guard may price with `estimate_only: true`. */

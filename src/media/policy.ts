@@ -161,37 +161,41 @@ export async function writeMedia(options: WriteOptions): Promise<Written> {
 }
 
 /**
- * The duration of a finished file, when its container states one: a RIFF/WAVE header, or an MP4/M4A `mvhd`. Anything
- * else returns undefined rather than an estimate.
+ * The duration a container header states, in seconds. A RIFF/WAVE header, or an MP4/M4A `mvhd` in the buffer. Anything
+ * else is undefined: a guess from a bitrate would under-price a codec that sits under that floor.
+ */
+export function durationIn(chunk: Buffer): number | undefined {
+  if (chunk.length >= 44 && chunk.toString("ascii", 0, 4) === "RIFF" && chunk.toString("ascii", 8, 12) === "WAVE") {
+    const byteRate = chunk.readUInt32LE(28)
+    const dataBytes = chunk.readUInt32LE(40)
+    if (byteRate > 0 && dataBytes > 0) return Math.round((dataBytes / byteRate) * 1000) / 1000
+    return undefined
+  }
+  const box = chunk.indexOf(Buffer.from("mvhd", "ascii"))
+  if (box < 0) return undefined
+  const version = chunk[box + 4]
+  if (version === 0 && box + 24 <= chunk.length) {
+    const timescale = chunk.readUInt32BE(box + 16)
+    const duration = chunk.readUInt32BE(box + 20)
+    return timescale > 0 ? Math.round((duration / timescale) * 1000) / 1000 : undefined
+  }
+  if (version === 1 && box + 36 <= chunk.length) {
+    const timescale = chunk.readUInt32BE(box + 24)
+    const duration = Number(chunk.readBigUInt64BE(box + 28))
+    return timescale > 0 ? Math.round((duration / timescale) * 1000) / 1000 : undefined
+  }
+  return undefined
+}
+
+/**
+ * The duration of a finished file, when its container states one. Anything else returns undefined rather than an estimate.
  */
 export async function durationOf(file: string): Promise<number | undefined> {
   const handle = await fs.open(file, "r")
   try {
-    const head = Buffer.alloc(64)
-    const { bytesRead } = await handle.read(head, 0, head.length, 0)
-    if (bytesRead >= 44 && head.toString("ascii", 0, 4) === "RIFF" && head.toString("ascii", 8, 12) === "WAVE") {
-      const byteRate = head.readUInt32LE(28)
-      const dataBytes = head.readUInt32LE(40)
-      if (byteRate > 0 && dataBytes > 0) return Math.round((dataBytes / byteRate) * 1000) / 1000
-      return undefined
-    }
-    // MP4/M4A: find `mvhd` in the first 64 KiB and read its timescale and duration. 32-bit and version-1 forms only.
     const chunk = Buffer.alloc(64 * 1024)
     const read = await handle.read(chunk, 0, chunk.length, 0)
-    const box = chunk.subarray(0, read.bytesRead).indexOf(Buffer.from("mvhd", "ascii"))
-    if (box < 0) return undefined
-    const version = chunk[box + 4]
-    if (version === 0) {
-      const timescale = chunk.readUInt32BE(box + 16)
-      const duration = chunk.readUInt32BE(box + 20)
-      return timescale > 0 ? Math.round((duration / timescale) * 1000) / 1000 : undefined
-    }
-    if (version === 1) {
-      const timescale = chunk.readUInt32BE(box + 24)
-      const duration = Number(chunk.readBigUInt64BE(box + 28))
-      return timescale > 0 ? Math.round((duration / timescale) * 1000) / 1000 : undefined
-    }
-    return undefined
+    return durationIn(chunk.subarray(0, read.bytesRead))
   } finally {
     await handle.close()
   }

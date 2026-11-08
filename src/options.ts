@@ -30,7 +30,7 @@ interface Options {
   readonly region: Region
   /** The most credits one session (one conversation with the model) may spend. */
   readonly sessionCreditCap: CreditCap
-  /** The most credits this plugin may spend in any rolling 24 hours, across sessions, scripts and reloads. */
+  /** The most credits this plugin may spend in any rolling 24 hours in this data directory. Two machines do not share it. */
   readonly dailyCreditCap: CreditCap
   /** Where `elevenlabs_save_media` writes, with `~` expanded when the file is written. */
   readonly mediaRoot: string

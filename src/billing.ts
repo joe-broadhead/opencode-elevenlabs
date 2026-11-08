@@ -1,6 +1,9 @@
+import { randomUUID } from "node:crypto"
+import { closeSync, openSync, readSync, statSync } from "node:fs"
 import type { Plugin } from "@opencode/plugin"
 import { elevenlabsError, type PluginCode } from "./constants.js"
-import { ESTIMATE_TOOLS, priced, spendShaped, spends } from "./elevenlabs-tools.js"
+import { ESTIMATE_TOOLS, mustPrice, priced, spends } from "./elevenlabs-tools.js"
+import { durationIn } from "./media/policy.js"
 import type { CreditCap } from "./options.js"
 
 /**
@@ -18,7 +21,10 @@ export const RATES = {
   musicPerMinute: 900,
   /** Sound effects: 200 credits per generation. */
   sfxPerGeneration: 200,
-  /** A conservative floor for an audio bitrate, used only to bound a duration from a file size when nothing else says. */
+  /**
+   * 32 kbit/s. Not a safe floor: Opus and other speech codecs sit under it, so a byte bound at this rate under-prices
+   * a file whose container duration cannot be read. Such a file is refused rather than priced from its size.
+   */
   audioBytesPerSecond: 4_000,
 } as const
 
@@ -71,17 +77,21 @@ export function clampGenerations(input: Record<string, unknown>, allowed: number
 
 /**
  * The credits a call costs, from its arguments and ElevenLabs' published formula. Undefined when the formula does not
- * cover the tool: every image and video call, whose price only the server's own estimate knows, and a transcription
- * whose audio duration the arguments do not state.
+ * cover the tool, when the computed price is 0, or when a transcription's file cannot be measured. A number the caller
+ * typed may raise a measured price. It cannot set one, and it cannot lower one.
  */
 export function priceOf(tool: string, input: Record<string, unknown>): Price | undefined {
   const generations = generationsOf(input) ?? 1
   if (tool === "creative_generate_speech" || tool === "creative_speech" || tool === "text_to_speech") {
     const text = field(input, ["text", "script", "message"])
     if (typeof text !== "string") return undefined
-    const takes = whole(field(input, ["takes", "num_takes"])) ?? RATES.speechTakes
+    // The server is not attested to honour `takes`. Two takes is the bound until a live call proves otherwise. A
+    // caller figure below two must not halve the price; a higher one may raise it.
+    const takes = Math.max(whole(field(input, ["takes", "num_takes"])) ?? 0, RATES.speechTakes)
     const characters = Array.from(text).length
+    if (characters === 0) return undefined
     const credits = Math.ceil(characters * RATES.speechPerCharacter * takes)
+    if (!(credits > 0)) return undefined
     return {
       credits,
       basis: "at-most",
@@ -95,35 +105,69 @@ export function priceOf(tool: string, input: Record<string, unknown>): Price | u
     const milliseconds = number(field(input, ["music_length_ms"]))
     const seconds = number(field(input, ["duration_seconds", "duration"]))
     const minutes = milliseconds !== undefined ? milliseconds / 60_000 : seconds === undefined ? undefined : seconds / 60
-    if (minutes === undefined) return undefined
+    if (minutes === undefined || minutes <= 0) return undefined
     const credits = Math.ceil(minutes * RATES.musicPerMinute)
+    if (!(credits > 0)) return undefined
     return { credits, basis: "at-most", parts: [`${Math.round(minutes * 10) / 10} minutes`] }
   }
   if (tool === "creative_generate_sound_effect" || tool === "creative_sound_effects") {
     const credits = RATES.sfxPerGeneration * generations
+    if (!(credits > 0)) return undefined
     return { credits, basis: "at-most", parts: [`${generations} ${generations === 1 ? "generation" : "generations"} at ${RATES.sfxPerGeneration} credits`] }
   }
   return undefined
 }
 
+/** Argument names that may hold the audio file a transcription is about to send. A URL is not one of them. */
+const AUDIO_PATHS = ["path", "file", "file_path", "audio_path", "filename", "audio_file", "input_file"] as const
+
 /**
- * Speech to Text, from the duration the arguments state or a bound from a file size. A transcription whose length
- * nothing bounds cannot be priced, and the guard refuses it while a cap is on rather than run it unguarded (DR-2).
+ * The file a transcription is about to send, measured here. Container duration only. A format whose header does not
+ * state one is not measured: pricing it from a byte floor would under-price Opus, which sits under 32 kbit/s.
  */
-export function transcriptionPrice(input: Record<string, unknown>): Price | undefined {
-  const milliseconds = number(field(input, ["duration_ms", "audio_duration_ms"]))
-  const statedSeconds = number(field(input, ["duration_seconds", "duration", "audio_duration_seconds"]))
-  const seconds = milliseconds !== undefined ? milliseconds / 1000 : statedSeconds
-  if (seconds !== undefined) {
-    const minutes = seconds / 60
-    return { credits: Math.ceil(minutes * RATES.sttPerMinute), basis: "at-most", parts: [`${Math.round(minutes * 10) / 10} minutes of audio`] }
-  }
-  const bytes = number(field(input, ["size_bytes", "file_size", "bytes"]))
-  if (bytes !== undefined) {
-    const bound = bytes / RATES.audioBytesPerSecond
-    return { credits: Math.ceil((bound / 60) * RATES.sttPerMinute), basis: "at-most", parts: [`at most ${Math.ceil(bound)} s of audio, from ${count(bytes)} bytes`] }
+export function measureAudio(input: Record<string, unknown>): { readonly durationSeconds: number; readonly bytes: number } | undefined {
+  for (const name of AUDIO_PATHS) {
+    const value = input[name]
+    if (typeof value !== "string" || value.length === 0 || value.includes("\0")) continue
+    if (/^[a-z][a-z0-9+.-]*:/i.test(value)) continue
+    let fd: number | undefined
+    try {
+      const stat = statSync(value)
+      if (!stat.isFile() || stat.size <= 0) continue
+      fd = openSync(value, "r")
+      const head = Buffer.alloc(Math.min(stat.size, 64 * 1024))
+      const read = readSync(fd, head, 0, head.length, 0)
+      const durationSeconds = durationIn(head.subarray(0, read))
+      if (durationSeconds === undefined || !(durationSeconds > 0)) return undefined
+      return { durationSeconds, bytes: stat.size }
+    } catch {
+      continue
+    } finally {
+      if (fd !== undefined) closeSync(fd)
+    }
   }
   return undefined
+}
+
+/**
+ * Speech to Text, from the container duration of the file about to be sent. A duration the caller typed may raise that
+ * price. It cannot lower it, it cannot win over the measured duration, and it cannot set a price when the file cannot
+ * be measured. A price of 0 is not a price.
+ */
+export function transcriptionPrice(input: Record<string, unknown>): Price | undefined {
+  const measured = measureAudio(input)
+  if (measured === undefined) return undefined
+  const statedMs = number(field(input, ["duration_ms", "audio_duration_ms"]))
+  const statedSeconds = number(field(input, ["duration_seconds", "duration", "audio_duration_seconds"]))
+  const stated = statedMs !== undefined ? statedMs / 1000 : statedSeconds
+  // The measured duration is the floor. A stated duration may only raise it.
+  const seconds = stated !== undefined && stated > measured.durationSeconds ? stated : measured.durationSeconds
+  if (!(seconds > 0)) return undefined
+  const credits = Math.ceil((seconds / 60) * RATES.sttPerMinute)
+  if (!(credits > 0)) return undefined
+  const parts = [`${Math.round((measured.durationSeconds / 60) * 10) / 10} minutes of audio, measured`]
+  if (stated !== undefined && stated > measured.durationSeconds) parts.push(`caller duration raised the bound to ${Math.round((seconds / 60) * 10) / 10} minutes`)
+  return { credits, basis: "at-most", parts }
 }
 
 /**
@@ -145,6 +189,35 @@ export function actualCreditsOf(result: { readonly output?: unknown; readonly te
   return undefined
 }
 
+/**
+ * Top-level charge fields a result may attest. A nested `credit: 0` is not one of them, and neither is prose. Only an
+ * attested positive figure may settle below the reserved price.
+ */
+const ATTESTED_CREDIT_KEYS = new Set(["credits", "credits_used", "credits_charged", "billed_credits", "credit_cost", "total_credits"])
+
+export function attestedCreditsOf(result: { readonly output?: unknown }): number | undefined {
+  const output = result.output
+  if (output === null || typeof output !== "object" || Array.isArray(output)) return undefined
+  for (const [key, value] of Object.entries(output as Record<string, unknown>)) {
+    if (!ATTESTED_CREDIT_KEYS.has(key.toLowerCase())) continue
+    const credits = number(value)
+    if (credits !== undefined && credits > 0) return credits
+  }
+  return undefined
+}
+
+/**
+ * The figure a completed call is settled at. Never below the reserved price unless one attested field says so. A prose
+ * match and a zero keep the reservation. A higher figure, attested or not, may replace it.
+ */
+export function settlementOf(result: { readonly output?: unknown; readonly text?: string; readonly content?: unknown }, reserved: number): { readonly credits: number; readonly attested: boolean } {
+  const attested = attestedCreditsOf(result)
+  if (attested !== undefined) return { credits: attested, attested: true }
+  const parsed = actualCreditsOf(result)
+  if (parsed !== undefined && parsed > reserved) return { credits: parsed, attested: false }
+  return { credits: reserved, attested: false }
+}
+
 /** The text parts of a host tool result, whichever shape the content has. */
 export function textsOf(result: { readonly text?: string; readonly content?: unknown }): string[] {
   if (typeof result.text === "string") return [result.text]
@@ -154,12 +227,18 @@ export function textsOf(result: { readonly text?: string; readonly content?: unk
   return []
 }
 
-/** "Charged 480 credits": a figure a text-only result states, which the model path used to miss (DR-10). */
+/**
+ * The largest credit figure a text-only result states. The first match is not the charge: "used 1 credit" can precede
+ * "Charged 4800 credits". A zero is not a figure.
+ */
 function creditsInProse(text: string): number | undefined {
-  const match = /\b(?:charged|cost|used|billed)\b[^\d]{0,20}([\d,]{1,12})\s*credits?\b/i.exec(text)
-  if (!match) return undefined
-  const value = Number(match[1]!.replaceAll(",", ""))
-  return Number.isFinite(value) ? value : undefined
+  const pattern = /\b(?:charged|cost|used|billed)\b[^\d]{0,20}([\d,]{1,12})\s*credits?\b/gi
+  let best: number | undefined
+  for (const match of text.matchAll(pattern)) {
+    const value = Number(match[1]!.replaceAll(",", ""))
+    if (Number.isFinite(value) && value > 0 && (best === undefined || value > best)) best = value
+  }
+  return best
 }
 
 const CREDIT_KEYS = /^(?:estimated?_|total_|billed_)?credits?(?:_cost|_used|_charged)?$/i
@@ -177,7 +256,8 @@ function creditsIn(value: unknown, depth = 0): number | undefined {
   for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
     if (CREDIT_KEYS.test(key)) {
       const credits = number(item)
-      if (credits !== undefined) return credits
+      // A nested 0 is not a charge. It must not mask a later figure, and it must not free a reservation.
+      if (credits !== undefined && credits > 0) return credits
     }
   }
   for (const item of Object.values(value as Record<string, unknown>)) {
@@ -203,22 +283,67 @@ function parseJson(text: string): unknown {
 // ---------------------------------------------------------------------------------------------------------------
 // The ledger. Amounts, times and the session they belong to, in the plugin's own storage, so a reload, a restart or a
 // scheduled script cannot reset a cap. A reservation is held from before a call is sent until its result settles, so
-// two calls that start together cannot both fit one budget (DR-1).
+// two calls that start together cannot both fit one budget (DR-1). Reservations live in that record, and every writer
+// re-reads and merges before it sets, so two ledgers on one storage share one cap. Two machines do not: the store
+// cannot see them.
 // ---------------------------------------------------------------------------------------------------------------
 
 export const LEDGER_KEY = "spend.ledger"
 const WINDOW_MS = 24 * 60 * 60 * 1000
-/** A reservation older than this was never settled: the call died, and the budget it held is released. */
+/** A hold still open after this is settled at the reserved price. Ten minutes is inside a long video; expiry must not free the budget. */
 const RESERVATION_MS = 10 * 60 * 1000
-/** Entries older than the window are dropped on every write, so the record cannot grow without bound. */
+/** The detail log is bounded. An in-window charge that no longer fits is folded into a total prune cannot shrink. */
 const MAX_ENTRIES = 1_000
 
 interface Entry {
   /** When the credits were spent, in epoch milliseconds. */
-  readonly at: number
-  readonly credits: number
+  at: number
+  credits: number
   /** The session that spent them, so a reload restores its total too (DR-9). */
-  readonly sessionID: string
+  sessionID: string
+  /** Stable across a rewrite, so a merge does not record the same charge twice. */
+  id: string
+}
+
+interface Hold {
+  sessionID: string
+  credits: number
+  at: number
+}
+
+/** Credits still inside the window that were folded out of the detail log. `at` is the newest folded charge. */
+interface Rolled {
+  at: number
+  credits: number
+  sessionID: string
+}
+
+interface Book {
+  entries: Entry[]
+  holds: Map<string, Hold>
+  rolled: Rolled[]
+  /** Ids moved into `rolled`, so a re-read of an older record cannot put them back. */
+  folded: Set<string>
+  chain: Promise<void>
+}
+
+interface StoredLedger {
+  entries: Entry[]
+  holds: Array<Hold & { id: string }>
+  rolled: Rolled[]
+}
+
+/** One book per storage object, so two Ledger instances in this process see each other's holds without waiting. */
+const books = new WeakMap<object, Book>()
+
+const emptyBook = (): Book => ({ entries: [], holds: new Map(), rolled: [], folded: new Set(), chain: Promise.resolve() })
+
+const bookFor = (storage: object): Book => {
+  const found = books.get(storage)
+  if (found) return found
+  const book = emptyBook()
+  books.set(storage, book)
+  return book
 }
 
 export interface Spend {
@@ -240,8 +365,7 @@ export interface LedgerInput {
 
 /** The ledger both paths share: the model's hooks and a script's shapers reserve, settle and record the same totals. */
 export class Ledger {
-  private entries: Entry[] = []
-  private held = new Map<string, { readonly sessionID: string; readonly credits: number; readonly at: number }>()
+  private readonly local = emptyBook()
   private readonly remembered = new Map<string, { price: Price; at: number }>()
   private readonly now: () => number
   private storage: Storage | undefined
@@ -253,41 +377,29 @@ export class Ledger {
     this.now = input.now ?? (() => Date.now())
   }
 
-  /** Reads the stored ledger once. A storage that is unavailable leaves the totals empty, never fails a call. */
+  /** The book this ledger writes. Two instances on one storage object share it. */
+  private book(): Book {
+    return this.storage ? bookFor(this.storage) : this.local
+  }
+
+  /** Reads the stored ledger once, merging into the shared book. A storage failure leaves the totals as they are. */
   hydrate(): Promise<void> {
-    this.hydrated ??= (async () => {
+    this.hydrated ??= this.enqueue(async (book) => {
       if (!this.storage) return
-      try {
-        const stored = await this.storage.get(LEDGER_KEY)
-        if (Array.isArray(stored)) {
-          this.entries = stored.flatMap((item) => {
-            if (item === null || typeof item !== "object") return []
-            const entry = item as Record<string, unknown>
-            return typeof entry.at === "number" && typeof entry.credits === "number" && typeof entry.sessionID === "string"
-              ? [{ at: entry.at, credits: entry.credits, sessionID: entry.sessionID }]
-              : []
-          })
-          this.prune()
-        }
-      } catch {
-        this.entries = []
-      }
-    })()
+      unionInto(book, parseStored(await this.storage.get(LEDGER_KEY)), this.now())
+    })
     return this.hydrated
   }
 
-  /** The credits spent in the last 24 hours, reservations included, so what is left is what a call may still rely on. */
+  /** The credits spent in the last 24 hours, reservations and folded totals included. */
   daily(): number {
     this.prune()
-    const reserved = [...this.held.values()].reduce((sum, held) => sum + held.credits, 0)
-    return this.entries.reduce((sum, entry) => sum + entry.credits, 0) + reserved
+    return total(this.book(), undefined)
   }
 
   session(sessionID: string): number {
     this.prune()
-    const spent = this.entries.reduce((sum, entry) => sum + (entry.sessionID === sessionID ? entry.credits : 0), 0)
-    const reserved = [...this.held.values()].reduce((sum, held) => sum + (held.sessionID === sessionID ? held.credits : 0), 0)
-    return spent + reserved
+    return total(this.book(), sessionID)
   }
 
   spend(sessionID: string): Spend {
@@ -296,9 +408,13 @@ export class Ledger {
 
   /**
    * Holds `credits` for a call before it is sent, and refuses when it does not fit. Nothing awaits between the check and
-   * the hold, so two calls that start together cannot both pass: the second sees the first's reservation.
+   * the hold, so two calls that start together cannot both pass: the second sees the first's reservation, including one
+   * held by another ledger on the same storage.
    */
   reserve(id: string, sessionID: string, credits: number, caps: Caps) {
+    if (!(credits > 0)) {
+      throw new SpendRefused("PRICE_UNKNOWN", "a priced call cannot be reserved at zero credits.", "Price the call from its file or its published rate, or set both caps to null.")
+    }
     this.prune()
     const spend = this.spend(sessionID)
     const left = remaining(caps, spend).available
@@ -309,33 +425,52 @@ export class Ledger {
         RAISE,
       )
     }
-    this.held.set(id, { sessionID, credits, at: this.now() })
+    this.book().holds.set(id, { sessionID, credits, at: this.now() })
+    void this.persist()
   }
 
   /** The reservation a call holds, if any. */
   reservation(id: string) {
-    return this.held.get(id)
+    return this.book().holds.get(id)
   }
 
   /**
-   * Turns a reservation into a recorded charge, using what the result reported or the price it was reserved at. A call
-   * that reserved nothing is recorded as given, so a caller with no hook still lands in the ledger.
+   * Turns a reservation into a recorded charge. Never below the reserved price unless `attested` is set: a zero, a
+   * missing result or a prose figure must not free the budget. A higher figure replaces the settlement.
    */
-  settle(id: string, sessionID: string, credits: number): Spend {
-    const held = this.held.get(id)
-    this.held.delete(id)
-    return this.record(sessionID, credits, held?.at)
+  settle(id: string, sessionID: string, credits: number, attested = false): Spend {
+    const book = this.book()
+    const held = book.holds.get(id)
+    book.holds.delete(id)
+    const existing = book.entries.find((entry) => entry.id === id)
+    const floor = Math.max(held?.credits ?? 0, existing?.credits ?? 0)
+    const charge = credits > floor ? credits : attested && credits > 0 ? credits : floor
+    if (existing) {
+      if (charge > 0 && charge !== existing.credits) {
+        existing.credits = charge
+        void this.persist()
+      }
+      return this.spend(sessionID)
+    }
+    if (charge > 0) {
+      book.entries.push({ at: held?.at ?? this.now(), credits: charge, sessionID, id })
+      this.prune()
+      void this.persist()
+    }
+    return this.spend(sessionID)
   }
 
-  /** Releases a hold for a call that failed before it charged anything. A missing reservation is not an error. */
+  /** A failure settles the reserved price. It does not free the budget: a billed error and a free one look the same. */
   release(id: string) {
-    this.held.delete(id)
+    const held = this.book().holds.get(id)
+    if (!held) return
+    this.settle(id, held.sessionID, held.credits)
   }
 
   /** Records a completed call. The memory total moves at once; the stored copy follows, one write at a time. */
   record(sessionID: string, credits: number, at = this.now()): Spend {
     if (credits > 0) {
-      this.entries.push({ at, credits, sessionID })
+      this.book().entries.push({ at, credits, sessionID, id: randomUUID() })
       this.prune()
       void this.persist()
     }
@@ -356,35 +491,174 @@ export class Ledger {
 
   /** Forgets everything. The tests use it. */
   reset() {
-    this.entries = []
-    this.held.clear()
+    const book = this.book()
+    book.entries = []
+    book.holds.clear()
+    book.rolled = []
+    book.folded.clear()
     this.remembered.clear()
   }
 
-  /** Drops entries past the window and reservations no result ever settled. */
+  /**
+   * Drops entries past the window. An expired hold is settled at the reserved price, not deleted. An in-window charge
+   * that would be sliced off the detail log is folded into a total instead.
+   */
   private prune() {
+    const book = this.book()
     const now = this.now()
-    this.entries = this.entries.filter((entry) => entry.at >= now - WINDOW_MS).slice(-MAX_ENTRIES)
-    for (const [id, held] of this.held) if (held.at < now - RESERVATION_MS) this.held.delete(id)
+    let changed = false
+    for (const [id, held] of [...book.holds]) {
+      if (held.at >= now - RESERVATION_MS) continue
+      book.holds.delete(id)
+      const existing = book.entries.find((entry) => entry.id === id)
+      if (existing) {
+        if (held.credits > existing.credits) existing.credits = held.credits
+      } else book.entries.push({ at: held.at, credits: held.credits, sessionID: held.sessionID, id })
+      changed = true
+    }
+    const inWindow = book.entries.filter((entry) => entry.at >= now - WINDOW_MS)
+    if (inWindow.length !== book.entries.length) changed = true
+    book.entries = inWindow
+    const rolled = book.rolled.filter((item) => item.at >= now - WINDOW_MS)
+    if (rolled.length !== book.rolled.length) changed = true
+    book.rolled = rolled
+    if (book.entries.length > MAX_ENTRIES) {
+      for (const entry of book.entries.slice(0, book.entries.length - MAX_ENTRIES)) fold(book, entry)
+      book.entries = book.entries.slice(-MAX_ENTRIES)
+      changed = true
+    }
+    if (changed) void this.persist()
   }
 
-  /** Writes are serialised on one chain: a second charge cannot land before the first, so no charge is lost (DR-9). */
+  /**
+   * Re-reads and merges before set, on one chain per storage, so two writers cannot drop each other's charges or holds.
+   */
   private persist(): Promise<void> {
-    const snapshot = this.entries.map((entry) => ({ at: entry.at, credits: entry.credits, sessionID: entry.sessionID }))
-    this.writing = this.writing.then(async () => {
+    return this.enqueue(async (book) => {
       if (!this.storage) return
+      unionInto(book, parseStored(await this.storage.get(LEDGER_KEY)), this.now())
+      await this.storage.set(LEDGER_KEY, serialize(book))
+    })
+  }
+
+  /** Serialises a read-modify-write on this storage. A ledger with no storage runs the work at once. */
+  private enqueue(work: (book: Book) => Promise<void>): Promise<void> {
+    const book = this.book()
+    if (!this.storage) {
+      const run = book.chain.then(() => work(book)).then(() => undefined, () => undefined)
+      book.chain = run
+      this.writing = run
+      return run
+    }
+    const run = book.chain.then(async () => {
       try {
-        await this.storage.set(LEDGER_KEY, snapshot)
+        await work(book)
       } catch {
         // The in-memory total still bounds this process; a storage failure must not fail a generation that already ran.
       }
     })
-    return this.writing
+    book.chain = run
+    this.writing = run
+    return run
   }
 
   /** Waits for the writes in flight. The tests use it. */
   flush(): Promise<void> {
     return this.writing
+  }
+}
+
+const total = (book: Book, sessionID: string | undefined) => {
+  const own = (item: { sessionID: string }) => sessionID === undefined || item.sessionID === sessionID
+  const spent = book.entries.reduce((sum, entry) => sum + (own(entry) ? entry.credits : 0), 0)
+  const folded = book.rolled.reduce((sum, item) => sum + (own(item) ? item.credits : 0), 0)
+  const reserved = [...book.holds.values()].reduce((sum, held) => sum + (own(held) ? held.credits : 0), 0)
+  return spent + folded + reserved
+}
+
+const fold = (book: Book, entry: Entry) => {
+  book.folded.add(entry.id)
+  const existing = book.rolled.find((item) => item.sessionID === entry.sessionID)
+  if (!existing) book.rolled.push({ at: entry.at, credits: entry.credits, sessionID: entry.sessionID })
+  else {
+    existing.credits += entry.credits
+    if (entry.at > existing.at) existing.at = entry.at
+  }
+}
+
+const serialize = (book: Book) => ({
+  entries: book.entries.map((entry) => ({ at: entry.at, credits: entry.credits, sessionID: entry.sessionID, id: entry.id })),
+  holds: [...book.holds].map(([id, held]) => ({ id, at: held.at, credits: held.credits, sessionID: held.sessionID })),
+  rolled: book.rolled.map((item) => ({ at: item.at, credits: item.credits, sessionID: item.sessionID })),
+})
+
+const parseStored = (stored: unknown): StoredLedger => {
+  if (Array.isArray(stored)) return { entries: parseEntries(stored), holds: [], rolled: [] }
+  if (stored === null || typeof stored !== "object") return { entries: [], holds: [], rolled: [] }
+  const record = stored as Record<string, unknown>
+  return { entries: parseEntries(record.entries), holds: parseHolds(record.holds), rolled: parseRolled(record.rolled) }
+}
+
+const parseEntries = (value: unknown): Entry[] =>
+  Array.isArray(value)
+    ? value.flatMap((item, index) => {
+        if (item === null || typeof item !== "object") return []
+        const entry = item as Record<string, unknown>
+        if (typeof entry.at !== "number" || typeof entry.credits !== "number" || typeof entry.sessionID !== "string") return []
+        const id = typeof entry.id === "string" ? entry.id : `${entry.at}:${entry.credits}:${entry.sessionID}:${index}`
+        return [{ at: entry.at, credits: entry.credits, sessionID: entry.sessionID, id }]
+      })
+    : []
+
+const parseHolds = (value: unknown): StoredLedger["holds"] =>
+  Array.isArray(value)
+    ? value.flatMap((item) => {
+        if (item === null || typeof item !== "object") return []
+        const hold = item as Record<string, unknown>
+        return typeof hold.id === "string" && typeof hold.at === "number" && typeof hold.credits === "number" && typeof hold.sessionID === "string"
+          ? [{ id: hold.id, at: hold.at, credits: hold.credits, sessionID: hold.sessionID }]
+          : []
+      })
+    : []
+
+const parseRolled = (value: unknown): Rolled[] =>
+  Array.isArray(value)
+    ? value.flatMap((item) => {
+        if (item === null || typeof item !== "object") return []
+        const rolled = item as Record<string, unknown>
+        return typeof rolled.at === "number" && typeof rolled.credits === "number" && typeof rolled.sessionID === "string"
+          ? [{ at: rolled.at, credits: rolled.credits, sessionID: rolled.sessionID }]
+          : []
+      })
+    : []
+
+/** Adds what storage has and this book does not. Never restores a folded charge, an expired row, or a settled hold. */
+function unionInto(book: Book, stored: StoredLedger, now: number) {
+  for (const entry of stored.entries) {
+    if (entry.at < now - WINDOW_MS || book.folded.has(entry.id)) continue
+    const existing = book.entries.find((item) => item.id === entry.id)
+    if (!existing) book.entries.push(entry)
+    else if (entry.credits > existing.credits) existing.credits = entry.credits
+  }
+  for (const hold of stored.holds) {
+    if (book.entries.some((entry) => entry.id === hold.id) || book.folded.has(hold.id)) {
+      book.holds.delete(hold.id)
+      continue
+    }
+    if (hold.at < now - RESERVATION_MS) {
+      book.entries.push({ at: hold.at, credits: hold.credits, sessionID: hold.sessionID, id: hold.id })
+      continue
+    }
+    if (!book.holds.has(hold.id)) book.holds.set(hold.id, { sessionID: hold.sessionID, credits: hold.credits, at: hold.at })
+  }
+  for (const rolled of stored.rolled) {
+    if (rolled.at < now - WINDOW_MS) continue
+    const existing = book.rolled.find((item) => item.sessionID === rolled.sessionID)
+    if (!existing) book.rolled.push({ ...rolled })
+    else {
+      existing.credits = Math.max(existing.credits, rolled.credits)
+      if (rolled.at > existing.at) existing.at = rolled.at
+    }
   }
 }
 
@@ -537,8 +811,10 @@ export function quoteCallSync(input: Omit<GuardInput, "estimate">, tool: string,
   return quoteSync(input, tool, args, call)
 }
 
+const isTranscription = (tool: string) => tool === "creative_transcribe_audio" || tool === "speech_to_text" || tool === "creative_transcription"
+
 async function quote(context: GuardInput, tool: string, args: Record<string, unknown>, mayEstimate: boolean, call: GuardCall): Promise<Quote> {
-  if (isEstimate(args) || !spendShaped(tool)) return { price: { credits: 0, basis: "exact", parts: [] }, tracked: false }
+  if (isEstimate(args) || !mustPrice(tool)) return { price: { credits: 0, basis: "exact", parts: [] }, tracked: false }
   const caps = context.caps()
   if (caps.sessionCreditCap === null && caps.dailyCreditCap === null) {
     return { price: priceOf(tool, args) ?? { credits: 0, basis: "at-most", parts: ["cost not tracked: both caps are off"] }, tracked: false }
@@ -549,20 +825,21 @@ async function quote(context: GuardInput, tool: string, args: Record<string, unk
     if (price) context.ledger.rememberPrice(tool, args, price)
   }
   price ??= context.ledger.rememberedPrice(tool, args)
-  if (price === undefined) throw unknownPrice(tool, priced(tool))
+  if (price === undefined || !(price.credits > 0)) throw unknownPrice(tool, priced(tool))
   price = clamp(price, caps, args, context.ledger.spend(call.sessionID))
   context.ledger.reserve(call.id, call.sessionID, price.credits, caps)
+  await context.ledger.flush()
   return { price, tracked: true }
 }
 
 function quoteSync(context: Omit<GuardInput, "estimate">, tool: string, args: Record<string, unknown>, call: GuardCall): Quote {
-  if (isEstimate(args) || !spendShaped(tool)) return { price: { credits: 0, basis: "exact", parts: [] }, tracked: false }
+  if (isEstimate(args) || !mustPrice(tool)) return { price: { credits: 0, basis: "exact", parts: [] }, tracked: false }
   const caps = context.caps()
   if (caps.sessionCreditCap === null && caps.dailyCreditCap === null) {
     return { price: priceOf(tool, args) ?? { credits: 0, basis: "at-most", parts: ["cost not tracked: both caps are off"] }, tracked: false }
   }
   let price = priceOf(tool, args) ?? context.ledger.rememberedPrice(tool, args)
-  if (price === undefined) throw unknownPrice(tool, priced(tool))
+  if (price === undefined || !(price.credits > 0)) throw unknownPrice(tool, priced(tool))
   price = clamp(price, caps, args, context.ledger.spend(call.sessionID))
   context.ledger.reserve(call.id, call.sessionID, price.credits, caps)
   return { price, tracked: true }
@@ -584,6 +861,13 @@ function clamp(price: Price, caps: Caps, args: Record<string, unknown>, spend: S
  * schema is not attested is offered the one next step that always works, turning both caps off (DR-5).
  */
 function unknownPrice(tool: string, estimable: boolean) {
+  if (isTranscription(tool)) {
+    return new SpendRefused(
+      "PRICE_UNKNOWN",
+      `${tool} cannot be priced from the file about to be sent, so the cap cannot be checked before it runs.`,
+      `Pass the audio as a local file whose container states a duration (WAV or MP4/M4A). A duration you type cannot set the price. Or set both caps to null to run it unpriced.`,
+    )
+  }
   return new SpendRefused(
     "PRICE_UNKNOWN",
     `${tool} has no published credit price and no remembered estimate, so the cap cannot be checked before it runs.`,
@@ -597,4 +881,4 @@ function unknownPrice(tool: string, estimable: boolean) {
 export const spendError = (code: Extract<PluginCode, "SPEND_CAP_REACHED" | "PRICE_UNKNOWN">, message: string, nextStep: string) =>
   elevenlabsError(code, message, nextStep)
 
-export { ESTIMATE_TOOLS, spends, spendShaped }
+export { ESTIMATE_TOOLS, mustPrice, spends }

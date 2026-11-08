@@ -33,15 +33,15 @@ import { Rpc } from "@opencode/plugin/rpc"
 
 // >>> PLUGIN-SPECIFIC >>>
 import { PLUGIN_ID as ELEVENLABS_PLUGIN_ID, SERVER_NAME } from "../constants.js"
-import { ALL_TOOLS, classify, spends } from "../elevenlabs-tools.js"
+import { ALL_TOOLS, classify, mustPrice } from "../elevenlabs-tools.js"
 import {
-  actualCreditsOf,
   costLine,
   costValue,
   estimatePrice,
   isEstimate,
   Ledger,
   quoteCallSync,
+  settlementOf,
   SpendRefused,
   type Caps,
   type Price,
@@ -157,20 +157,32 @@ export function shapeResult(method: string, result: McpResult, call: ShapeCall):
  * estimate.
  */
 export function shapersFor(runtime: ToolRuntime): LocationShapers {
-  /** A price computed before dispatch, and the reservation it holds, by call key. */
-  const pending = new Map<string, { readonly price: Price; readonly id: string }>()
-  /** Per method and session, the calls waiting to settle, in the order they reserved. */
-  const queues = new Map<string, string[]>()
-  /** The arguments of an `estimate_only` call, so its answer can be remembered against them. */
-  const estimating = new Map<string, Record<string, unknown>>()
+  /**
+   * One in-flight priced call per session and method. A second shapeInput, estimate or not, waits until this call's
+   * shapeResult has run. An estimate must not share a flag with a paid hold: the paid result would be settled at the
+   * estimate. Pairing the two by call id needs that id on ShapeCall, which is shared and is not added here.
+   */
+  const flights = new Map<string, { readonly kind: "paid" | "estimate"; readonly id: string; readonly price: Price; readonly args: Record<string, unknown> }>()
   const key = (call: ShapeCall, method: string) => `${call.sessionID}\u0000${method}`
 
   return {
     input(method, input, call) {
       const args = (typeof input === "object" && input !== null ? input : {}) as Record<string, unknown>
-      if (!spends(method)) return input
+      if (!mustPrice(method)) return input
+      const slot = key(call, method)
+      // Prune first, so a hold that outlasted ten minutes is already a charge and no longer a reservation.
+      runtime.ledger.spend(call.sessionID)
+      const flight = flights.get(slot)
+      if (flight && !(flight.kind === "paid" && runtime.ledger.reservation(flight.id) === undefined)) {
+        throw new SpendRefused(
+          "SPEND_CAP_REACHED",
+          `a priced call to ${method} is already in flight for this session, so another cannot start until it settles.`,
+          "Wait for that call to finish, then call it again.",
+        )
+      }
+      flights.delete(slot)
       if (isEstimate(args)) {
-        estimating.set(key(call, method), args)
+        flights.set(slot, { kind: "estimate", id: "", price: { credits: 0, basis: "exact", parts: [] }, args })
         return input
       }
       const id = `${call.sessionID}\u0000${method}\u0000${randomUUID()}`
@@ -181,34 +193,25 @@ export function shapersFor(runtime: ToolRuntime): LocationShapers {
         messageID: "",
         id,
       })
-      if (tracked) {
-        pending.set(id, { price, id })
-        queues.set(key(call, method), [...(queues.get(key(call, method)) ?? []), id])
-      }
+      if (tracked) flights.set(slot, { kind: "paid", id, price, args })
       return input
     },
 
     result(method, result, call) {
-      if (!spends(method)) return result
-      const prepared = key(call, method)
-      const args = estimating.get(prepared)
-      if (args !== undefined) {
-        estimating.delete(prepared)
-        const price = estimatePrice(args, result)
-        if (price) runtime.ledger.rememberPrice(method, args, price)
+      if (!mustPrice(method)) return result
+      const flight = flights.get(key(call, method))
+      // No priced call is in flight. Do not record a stray figure: an estimate result must not settle a paid hold.
+      if (!flight) return result
+      flights.delete(key(call, method))
+      if (flight.kind === "estimate") {
+        const price = estimatePrice(flight.args, result)
+        if (price) runtime.ledger.rememberPrice(method, flight.args, price)
         return result
       }
-      const id = queues.get(prepared)?.shift()
-      if (queues.get(prepared)?.length === 0) queues.delete(prepared)
-      const before = id === undefined ? undefined : pending.get(id)
-      if (id !== undefined) pending.delete(id)
       const caps = runtime.caps()
-      const reported = actualCreditsOf(result)
-      const price: Price = reported === undefined
-        ? before?.price ?? { credits: 0, basis: "at-most", parts: ["cost not reported"] }
-        : { credits: reported, basis: "exact", parts: [] }
-      // Settle: the reservation becomes the charge, so a parallel call sees it before its own check.
-      const spend = id === undefined ? runtime.ledger.record(call.sessionID, price.credits) : runtime.ledger.settle(id, call.sessionID, price.credits)
+      const settled = settlementOf(result, flight.price.credits)
+      const price: Price = settled.credits === flight.price.credits ? flight.price : { credits: settled.credits, basis: "exact", parts: [] }
+      const spend = runtime.ledger.settle(flight.id, call.sessionID, price.credits, settled.attested)
       const line = costLine(price, spend, caps)
       const value = costValue(price, spend, caps)
       const output = result.output !== null && typeof result.output === "object" && !Array.isArray(result.output)

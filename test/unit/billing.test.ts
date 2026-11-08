@@ -18,7 +18,7 @@ import {
   SpendRefused,
   transcriptionPrice,
 } from "../../src/billing.js"
-import { spendShaped } from "../../src/elevenlabs-tools.js"
+import { mustPrice } from "../../src/elevenlabs-tools.js"
 
 const caps = (session: number | null = 2000, daily: number | null = 10000) => ({ sessionCreditCap: session, dailyCreditCap: daily })
 const spend = (sessionCredits = 0, dailyCredits = 0) => ({ sessionCredits, dailyCredits })
@@ -28,7 +28,8 @@ describe("prices from ElevenLabs' published rates", () => {
   test("speech is characters times the takes, and is a bound rather than an exact figure", () => {
     expect(priceOf("creative_generate_speech", { text: "a".repeat(600) })).toEqual({ credits: 1200, basis: "at-most", parts: ["600 characters", "2 takes"] })
     expect(RATES.speechPerCharacter).toBe(1)
-    expect(priceOf("creative_generate_speech", { text: "hi", takes: 1 })).toMatchObject({ credits: 2, parts: ["2 characters", "1 take"] })
+    // A caller take count below two does not halve the price. Two takes is the bound.
+    expect(priceOf("creative_generate_speech", { text: "hi", takes: 1 })).toMatchObject({ credits: 4, parts: ["2 characters", "2 takes"] })
     expect(priceOf("creative_generate_speech", {})).toBeUndefined()
   })
 
@@ -39,14 +40,13 @@ describe("prices from ElevenLabs' published rates", () => {
     expect(priceOf("creative_generate_music", {})).toBeUndefined()
   })
 
-  test("speech to text is 330 credits a minute, from a stated duration or a bound from the file size", () => {
-    expect(priceOf("creative_transcribe_audio", { duration_seconds: 60 })).toMatchObject({ credits: RATES.sttPerMinute, basis: "at-most" })
-    expect(priceOf("creative_transcribe_audio", { duration_ms: 30_000 })).toMatchObject({ credits: 165 })
-    const bounded = transcriptionPrice({ size_bytes: 4_000 * 60 })!
-    expect(bounded.credits).toBe(RATES.sttPerMinute)
-    expect(bounded.parts.join(" ")).toContain("from 240,000 bytes")
-    // Nothing states or bounds the length: no price, and the guard refuses rather than guessing.
+  test("speech to text is not priced from a number the caller typed", () => {
+    expect(priceOf("creative_transcribe_audio", { duration_seconds: 60 })).toBeUndefined()
+    expect(priceOf("creative_transcribe_audio", { duration_ms: 30_000 })).toBeUndefined()
+    expect(transcriptionPrice({ size_bytes: 4_000 * 60 })).toBeUndefined()
+    expect(priceOf("creative_transcribe_audio", { duration_seconds: 0 })).toBeUndefined()
     expect(priceOf("creative_transcribe_audio", { connect_from: "node_1" })).toBeUndefined()
+    expect(RATES.sttPerMinute).toBe(330)
   })
 
   test("image and video have no formula: ElevenLabs' estimate is the only price", () => {
@@ -56,12 +56,12 @@ describe("prices from ElevenLabs' published rates", () => {
     expect(priceOf("agents_list", {})).toBeUndefined()
   })
 
-  test("a tool the table does not know is still spend-shaped when its name is, so it cannot run unguarded", () => {
-    for (const name of ["creative_generate_dubbing", "creative_compose_music", "creative_sound_effects", "creative_generate_video", "creative_transcribe_audio"]) {
-      expect({ name, shaped: spendShaped(name) }).toEqual({ name, shaped: true })
+  test("a creative_ name the table does not price must be priced or refused, with no keyword list", () => {
+    for (const name of ["creative_compose_music", "creative_sound_effects", "creative_generate_video", "creative_transcribe_audio", "creative_upscale"]) {
+      expect({ name, priced: mustPrice(name) }).toEqual({ name, priced: true })
     }
     for (const name of ["creative_get_flow", "creative_list_voices", "agents_list", "agents_update"]) {
-      expect({ name, shaped: spendShaped(name) }).toEqual({ name, shaped: false })
+      expect({ name, priced: mustPrice(name) }).toEqual({ name, priced: false })
     }
   })
 
@@ -149,8 +149,8 @@ describe("the ledger", () => {
     ledger.record("ses_b", 50)
     await ledger.flush()
     expect(ledger.spend("ses_a")).toEqual({ sessionCredits: 500, dailyCredits: 550 })
-    const saved = store.stored.get("spend.ledger") as { at: number; credits: number; sessionID: string }[]
-    expect(saved.every((entry) => typeof entry.sessionID === "string")).toBe(true)
+    const saved = store.stored.get("spend.ledger") as { entries: { at: number; credits: number; sessionID: string }[] }
+    expect(saved.entries.every((entry) => typeof entry.sessionID === "string")).toBe(true)
 
     // A reload in the same window keeps both totals, the session's included (DR-9).
     const reopened = new Ledger({ storage: store, now: () => 1_000_500 })
@@ -179,8 +179,8 @@ describe("the ledger", () => {
     ledger.record("a", 20)
     ledger.record("a", 30)
     await ledger.flush()
-    const final = written.at(-1) as { credits: number }[]
-    expect(final.reduce((sum, entry) => sum + entry.credits, 0)).toBe(60)
+    const final = written.at(-1) as { entries: { credits: number }[] }
+    expect(final.entries.reduce((sum, entry) => sum + entry.credits, 0)).toBe(60)
     expect(ledger.daily()).toBe(60)
   })
 
@@ -190,20 +190,21 @@ describe("the ledger", () => {
     expect(ledger.spend("ses_a")).toEqual({ sessionCredits: 1200, dailyCredits: 1200 })
     // The second call cannot also fit.
     expect(() => ledger.reserve("c2", "ses_a", 1200, caps())).toThrow(SpendRefused)
-    // Settling at the actual figure replaces the hold.
-    expect(ledger.settle("c1", "ses_a", 1000)).toEqual({ sessionCredits: 1000, dailyCredits: 1000 })
-    // A released hold frees the budget again.
-    ledger.reserve("c3", "ses_a", 1000, caps())
+    // A figure below the reservation does not free the difference. A higher one replaces it.
+    expect(ledger.settle("c1", "ses_a", 1000)).toEqual({ sessionCredits: 1200, dailyCredits: 1200 })
+    expect(ledger.settle("c1", "ses_a", 1300)).toEqual({ sessionCredits: 1300, dailyCredits: 1300 })
+    // A failure settles the reserved price. It does not free the budget.
+    ledger.reserve("c3", "ses_a", 100, caps())
     ledger.release("c3")
-    expect(ledger.spend("ses_a")).toEqual({ sessionCredits: 1000, dailyCredits: 1000 })
+    expect(ledger.spend("ses_a")).toEqual({ sessionCredits: 1400, dailyCredits: 1400 })
   })
 
-  test("a reservation nothing settles expires, so a dead call cannot hold a budget for ever", () => {
+  test("a reservation nothing settles is charged at the reserved price, not dropped", () => {
     let now = 0
     const ledger = new Ledger({ now: () => now })
     ledger.reserve("c1", "ses_a", 900, caps())
     now += 11 * 60 * 1000
-    expect(ledger.spend("ses_a")).toEqual({ sessionCredits: 0, dailyCredits: 0 })
+    expect(ledger.spend("ses_a")).toEqual({ sessionCredits: 900, dailyCredits: 900 })
   })
 
   test("remembers an estimate against exactly those arguments, and forgets it after ten minutes", () => {
@@ -295,8 +296,6 @@ describe("quoteCall", () => {
   test("a read is never priced, and a billed read is", async () => {
     const ledger = new Ledger()
     expect((await quoteCall({ ledger, caps: () => caps() }, "agents_list", {}, call())).price.credits).toBe(0)
-    const quoted = await quoteCall({ ledger, caps: () => caps() }, "creative_transcribe_audio", { duration_seconds: 60 }, call("t1"))
-    expect(quoted.price.credits).toBe(RATES.sttPerMinute)
-    expect(quoted.tracked).toBe(true)
+    await expect(quoteCall({ ledger, caps: () => caps() }, "creative_transcribe_audio", { duration_seconds: 60 }, call("t1"))).rejects.toMatchObject({ code: "PRICE_UNKNOWN" })
   })
 })

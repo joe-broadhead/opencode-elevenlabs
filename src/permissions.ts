@@ -36,8 +36,12 @@ export const conversationDenies = (conversations: Conversations): readonly strin
  */
 export const TRANSCRIPT_PATTERNS: readonly string[] = ["*transcript*", "*conversation*message*", "*conversation*audio*", "*conversation*recording*"]
 
-/** Patterns that catch any read of a call's history, a new tool included, for `conversations: "off"`. */
-export const CONVERSATION_PATTERNS: readonly string[] = ["*conversation*", "*transcript*", "*call*recording*"]
+/**
+ * Patterns that catch a read of a call's history, a new tool included, for `conversations: "off"`. Narrow on purpose:
+ * `get_call`, `list_calls` and `export_history` are history reads, and none of them match a generation, a transcription
+ * or another tool this table means to keep. A broader `*call*` would. The match itself ignores case.
+ */
+export const CONVERSATION_PATTERNS: readonly string[] = ["*conversation*", "*transcript*", "*call*recording*", "*get_call*", "*list_calls*", "*export_history*"]
 
 /**
  * Broad first, narrow last, because the last matching rule wins. Every tool the plugin registers is allowed at
@@ -107,8 +111,9 @@ export function registerDefaultRules(
   })
 }
 
+/** Case-insensitive: `elevenlabs_Agents_Get_Conversation` is the same action as the lowercase rule. */
 const wildcard = (pattern: string) =>
-  new RegExp(`^${pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".")}$`)
+  new RegExp(`^${pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".")}$`, "i")
 
 /** The host's evaluation for an MCP call (resource `*`): the last matching rule wins, and no match asks. */
 export function evaluate(permissions: readonly Rule[], action: string): Rule["effect"] {

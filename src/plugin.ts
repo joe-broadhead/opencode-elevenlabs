@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { Plugin, type Mcp } from "@opencode/plugin"
 import { readBalance, readKey, registerBalanceIntegration } from "./balance.js"
-import { actualCreditsOf, appendLine, costLine, costValue, estimatePrice, isEstimate, Ledger, quoteCall, type Caps, type Price } from "./billing.js"
+import { appendLine, costLine, costValue, estimatePrice, isEstimate, Ledger, quoteCall, settlementOf, type Caps, type Price } from "./billing.js"
 import {
   DISPLAY_NAME,
   errorText,
@@ -17,7 +17,7 @@ import { checkHost } from "./host-version.js"
 import { registerToolsRpc, setToolRuntime, shapersFor, METHODS, type ToolRuntime } from "./host/tools-rpc.js"
 import { watchIntegration } from "./integration.js"
 import { addSaveTool } from "./media/tool.js"
-import { spends } from "./elevenlabs-tools.js"
+import { mustPrice } from "./elevenlabs-tools.js"
 import { parseOptions, type ParsedOptions } from "./options.js"
 import { reasonOf } from "./redact.js"
 import { defaultRules, registerDefaultRules } from "./permissions.js"
@@ -274,7 +274,7 @@ export function createElevenlabsPlugin(seam: ElevenlabsSeam = {}) {
         const tool = toolOf(event.tool)
         if (!guarded() || tool === undefined) return
         const args = (typeof event.input === "object" && event.input !== null ? event.input : {}) as Record<string, unknown>
-        if (isEstimate(args) || !spends(tool)) return
+        if (isEstimate(args) || !mustPrice(tool)) return
         // Price, clamp, and reserve before dispatch: a call that starts at the same time sees this reservation.
         const { price, tracked } = await quoteCall({ ledger, caps, estimate }, tool, args, {
           sessionID: event.sessionID,
@@ -298,15 +298,18 @@ export function createElevenlabsPlugin(seam: ElevenlabsSeam = {}) {
           }
           return
         }
-        if (!spends(tool)) return
-        // A call that failed before it charged anything releases its hold; one that ran settles into a charge.
+        if (!mustPrice(tool)) return
+        // A failure is settled at the reserved price. The plugin cannot tell a free failure from a billed one, and
+        // over-counting is the safe side. A missing result must not free the budget.
         if (event.status !== "completed") {
-          ledger.release(event.id)
+          const reserved = ledger.reservation(event.id)?.credits ?? before?.credits
+          if (reserved !== undefined && reserved > 0) ledger.settle(event.id, event.sessionID, reserved)
           return
         }
-        const reported = actualCreditsOf(event.result)
-        const price: Price = reported === undefined ? before ?? { credits: 0, basis: "at-most", parts: ["cost not reported"] } : { credits: reported, basis: "exact", parts: [] }
-        const spend = before === undefined && reported === undefined ? ledger.spend(event.sessionID) : ledger.settle(event.id, event.sessionID, price.credits)
+        const floor = before?.credits ?? ledger.reservation(event.id)?.credits ?? 0
+        const settled = settlementOf(event.result, floor)
+        const price: Price = settled.credits === floor && before ? before : { credits: settled.credits, basis: settled.credits > 0 && settled.credits !== floor ? "exact" : "at-most", parts: settled.credits === floor ? before?.parts ?? ["cost not reported"] : [] }
+        const spend = settled.credits <= 0 && floor <= 0 ? ledger.spend(event.sessionID) : ledger.settle(event.id, event.sessionID, settled.credits, settled.attested)
         const line = costLine(price, spend, caps())
         appendLine(event.result, line)
         // The structured `cost` beside the output, as the tools RPC does: a Code Mode program reads the output, not the

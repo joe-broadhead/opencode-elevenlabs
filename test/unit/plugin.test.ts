@@ -132,6 +132,7 @@ function context(options: unknown, version = "2.2.3") {
   const rpc: string[] = []
   const handlers = new Map<string, Record<string, (input: unknown, context: unknown) => Promise<unknown>>>()
   const hooks: string[] = []
+  const hookFns = new Map<string, (event: never) => Promise<void>>()
   const stored = new Map<string, unknown>()
   const store = {
     get: async (key: string) => stored.get(key) as never,
@@ -158,7 +159,11 @@ function context(options: unknown, version = "2.2.3") {
     tool: {
       transform: tool.transform,
       list: async () => [{ id: `elevenlabs_${READ}`, execute: async () => ({ content: [{ type: "text", text: "ok" }] }) }],
-      hook: async (name: string) => (hooks.push(name), { dispose: async () => void hooks.splice(hooks.indexOf(name), 1) }),
+      hook: async (name: string, callback?: (event: never) => Promise<void>) => {
+        hooks.push(name)
+        if (callback) hookFns.set(name, callback)
+        return { dispose: async () => void hooks.splice(hooks.indexOf(name), 1) }
+      },
     },
     integration: {
       transform: integration.transform,
@@ -169,7 +174,7 @@ function context(options: unknown, version = "2.2.3") {
     permission: { assert: async () => undefined, hook: async () => ({ dispose: async () => undefined }) },
     event: { subscribe: ({ signal }: { signal: AbortSignal }) => ({ [Symbol.asyncIterator]: () => ({ next: () => new Promise((resolve) => signal.addEventListener("abort", () => resolve({ done: true, value: undefined }))) }) }) },
   } as unknown as SetupContext
-  return { ctx: ctx as Plugin.Context, mcp, agent, skill, command, tool, integration, rpc, handlers, hooks, stored }
+  return { ctx: ctx as Plugin.Context, mcp, agent, skill, command, tool, integration, rpc, handlers, hooks, hookFns, stored }
 }
 
 describe("setup", () => {
@@ -302,5 +307,19 @@ describe("setup", () => {
       expect(mcp.callbacks).toHaveLength(1)
       await cleanup!()
     }
+  })
+
+  test("a creative tool the table does not price is refused on the model path, and a failed call stays charged", async () => {
+    const { ctx, mcp, hookFns } = context({})
+    const cleanup = await createElevenlabsPlugin(seam).setup(ctx)
+    mcp.run(mcpEditor().editor)
+    const before = hookFns.get("execute.before")!
+    const after = hookFns.get("execute.after")!
+    const event = (id: string, tool: string, input: Record<string, unknown>) => ({ tool: `elevenlabs_${tool}`, input, id, sessionID: "ses_test", agent: "build", messageID: "m1" })
+    await expect(before(event("u", "creative_upscale", {}) as never)).rejects.toMatchObject({ code: "PRICE_UNKNOWN" })
+    await before(event("c1", "creative_generate_speech", { text: "x".repeat(750) }) as never)
+    await after({ ...event("c1", "creative_generate_speech", { text: "x".repeat(750) }), status: "error", result: {} } as never)
+    await expect(before(event("c2", "creative_generate_speech", { text: "x".repeat(750) }) as never)).rejects.toMatchObject({ code: "SPEND_CAP_REACHED" })
+    await cleanup!()
   })
 })

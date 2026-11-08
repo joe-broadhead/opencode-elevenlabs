@@ -2,7 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { ALL_TOOLS, SPEND_ANY, spendShaped } from "../../src/elevenlabs-tools.js"
+import { ALL_TOOLS, SPEND_ANY, mustPrice } from "../../src/elevenlabs-tools.js"
 import { priceOf, quoteCall, quoteCallSync, Ledger, SpendRefused } from "../../src/billing.js"
 import { SAVE_ACTION, runSaveMedia } from "../../src/media/tool.js"
 
@@ -19,7 +19,7 @@ describe("nothing that may spend runs unguarded (DR-3)", () => {
     const priced_ = creative.filter((tool) => priceOf(tool, { text: "hi", prompt: "hi", duration_seconds: 60 }) !== undefined)
     const unpriced = creative.filter((tool) => !priced_.includes(tool))
     // Every one is either priced from the table or must be refused: none may run unpriced under a cap.
-    for (const tool of priced_) expect({ tool, shaped: spendShaped(tool) }).toEqual({ tool, shaped: true })
+    for (const tool of priced_) expect({ tool, guarded: mustPrice(tool) }).toEqual({ tool, guarded: true })
     for (const tool of unpriced) {
       const ledger = new Ledger()
       const outcome = await quoteCall({ ledger, caps: () => caps() }, tool, { prompt: "hi" }, call(tool)).then(
@@ -30,7 +30,7 @@ describe("nothing that may spend runs unguarded (DR-3)", () => {
       expect({ tool, outcome: outcome === "quoted" || outcome === "PRICE_UNKNOWN" }).toEqual({ tool, outcome: true })
     }
     // A creative name the table has never seen is still guarded by its shape.
-    expect(spendShaped("creative_generate_dubbing")).toBe(true)
+    expect(mustPrice("creative_upscale")).toBe(true)
     expect(SPEND_ANY).toContain("creative_transcribe_audio")
   })
 
@@ -43,15 +43,16 @@ describe("nothing that may spend runs unguarded (DR-3)", () => {
   })
 })
 
-describe("two locations keep their own money state (DR-9)", () => {
-  test("a reservation in one ledger is invisible to another", () => {
-    const first = new Ledger()
-    const second = new Ledger()
+describe("two ledgers on one storage share one cap", () => {
+  test("a reservation in one ledger is visible to the other", () => {
+    const stored = new Map<string, unknown>()
+    const store = { get: async (key: string) => stored.get(key) as never, set: async (key: string, value: unknown) => void stored.set(key, value) }
+    const first = new Ledger({ storage: store })
+    const second = new Ledger({ storage: store })
     quoteCallSync({ ledger: first, caps: () => caps() }, "creative_generate_speech", { text: "x".repeat(600) }, call("a"))
     expect(first.spend("ses_a").sessionCredits).toBe(1200)
-    expect(second.spend("ses_a").sessionCredits).toBe(0)
-    // The second location can still spend its own budget.
-    expect(() => quoteCallSync({ ledger: second, caps: () => caps() }, "creative_generate_speech", { text: "x".repeat(600) }, call("b"))).not.toThrow()
+    expect(() => quoteCallSync({ ledger: second, caps: () => caps() }, "creative_generate_speech", { text: "x".repeat(600) }, call("b"))).toThrow(SpendRefused)
+    expect(second.spend("ses_a").sessionCredits).toBe(1200)
   })
 })
 
