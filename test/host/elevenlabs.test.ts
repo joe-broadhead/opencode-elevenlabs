@@ -290,10 +290,40 @@ describe(`elevenlabs_save_media on OpenCode ${HOST_VERSION}`, () => {
     expect((outcome as { error: string }).error).toContain("MEDIA_EXPIRED")
   })
 
+  test("a session that denies external_directory writes nothing, and the refusal names the rule (DR-8)", async () => {
+    const sessionID = (
+      await host.client.sessions.create({ agent: "build", location: host.location, permissions: [{ action: "external_directory", resource: "*", effect: "deny" }] })
+    ).id
+    const outcome = await attempt(host, sessionID, "build", "save_media", "reject", { url: `${host.fake.origin}/media/ok`, name: "blocked" })
+    expect(outcome.ok).toBe(false)
+    const message = (outcome as { error: string }).error
+    expect(message).toMatch(/EXTERNAL_DIRECTORY_DENIED|Permission denied|external_directory/)
+    // Nothing was written for this name.
+    const folder = join(ROOT, "media")
+    expect(existsSync(folder) ? await Array.fromAsync(new Bun.Glob("blocked*").scan(folder)) : []).toEqual([])
+  })
+
   test("a link on a host that is not ElevenLabs' own is refused before anything is fetched", async () => {
     const outcome = await save(await session(host), "https://example.com/a.mp3")
     expect(outcome.ok).toBe(false)
     expect((outcome as { error: string }).error).toContain("MEDIA_URL_INVALID")
+  })
+})
+
+// DR-10: a figure that arrives only in the text part is still the charge.
+describe(`a text-only credit figure on OpenCode ${HOST_VERSION}`, () => {
+  let host: Host
+  beforeAll(async () => {
+    host = await startHost({ fake: { reportsCreditsInText: true }, options: { dailyCreditCap: 100_000, sessionCreditCap: 10_000 } })
+    await elevenlabsTools(host)
+  })
+  afterAll(() => host?.close())
+
+  test("the model path charges the figure it was told, not the pre-call bound", async () => {
+    const sessionID = await session(host)
+    const outcome = await codeMode(host, sessionID, `const r = await tools.elevenlabs[${JSON.stringify(SPEECH)}]({ text: "hello" }); throw new Error("SEEN " + JSON.stringify(r))`)
+    expect(outcome).toHaveProperty("seen")
+    expect((outcome as { seen: { cost: { credits: number; basis: string } } }).seen.cost).toMatchObject({ credits: 120, basis: "exact" })
   })
 })
 

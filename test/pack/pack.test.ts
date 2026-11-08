@@ -5,8 +5,8 @@
 // installed with npm, once per run. Every temp folder is a git repository under the system's /tmp, never under TMPDIR
 // or HOME, so OpenCode's upward search for `.opencode` folders never reaches the agents of whoever runs the test.
 // PACK_TARBALL names a tarball that was already packed, such as the one the release publishes, to test it instead.
-// On each release a script also calls ElevenLabs's known reads through the tools RPC, against a loopback fake Wispr
-// Flow server.
+// On each release a script also calls ElevenLabs' known reads through the tools RPC, against a loopback fake ElevenLabs
+// server.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import { spawn, spawnSync } from "node:child_process"
 import { createHash, randomUUID } from "node:crypto"

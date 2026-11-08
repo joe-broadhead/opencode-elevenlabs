@@ -47,6 +47,8 @@ export interface FakeMcpOptions {
   readonly refreshTokens?: boolean
   /** Report credits in a generation's result, so the model path can be exact instead of "at most". */
   readonly reportsCredits?: boolean
+  /** Report the credits in the text part only, as a server that answers in prose does (DR-10). */
+  readonly reportsCreditsInText?: boolean
 }
 
 export interface FakeMcp {
@@ -104,7 +106,8 @@ export async function startFakeMcp(options: FakeMcpOptions = {}): Promise<FakeMc
           return reply({ content: [{ type: "text", text: `Estimated ${IMAGE_CREDITS * generations} credits.` }], structuredContent: { estimate: { credits: IMAGE_CREDITS * generations } } })
         }
         if (SPEND_TOOLS.includes(tool)) {
-          const text = `Generated two variations. Link: ${linkFor("voiceover.mp3")} (expires in about two hours).`
+          const charged = options.reportsCreditsInText ? " Charged 120 credits." : ""
+          const text = `Generated two variations. Link: ${linkFor("voiceover.mp3")} (expires in about two hours).${charged}`
           return reply({
             content: [{ type: "text", text }],
             structuredContent: { flow_id: "flow_1", node_id: "node_1", url: linkFor("voiceover.mp3"), ...(options.reportsCredits ? { credits: 120 } : {}) },
