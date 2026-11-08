@@ -1,0 +1,303 @@
+import { randomUUID } from "node:crypto"
+import { Plugin, type Mcp } from "@opencode/plugin"
+import { readBalance, readKey, registerBalanceIntegration } from "./balance.js"
+import { actualCreditsOf, appendLine, costLine, costValue, estimatePrice, isEstimate, Ledger, priceCall, type Caps, type Price } from "./billing.js"
+import {
+  DISPLAY_NAME,
+  errorText,
+  MEDIA_HOSTS,
+  NAMESPACE_DESCRIPTION,
+  OAUTH_SCOPES,
+  PLUGIN_ID,
+  REGIONS,
+  SERVER_NAME,
+} from "./constants.js"
+import { runDoctor } from "./doctor.js"
+import { checkHost } from "./host-version.js"
+import { registerToolsRpc, setToolRuntime, METHODS } from "./host/tools-rpc.js"
+import { watchIntegration } from "./integration.js"
+import { addSaveTool } from "./media/tool.js"
+import { spends } from "./elevenlabs-tools.js"
+import { parseOptions, type ParsedOptions } from "./options.js"
+import { reasonOf } from "./redact.js"
+import { defaultRules, registerDefaultRules } from "./permissions.js"
+import { loadSkills, registerSkills } from "./skills.js"
+import { readStatus, registerStatusCommand, registerStatusRpc, type ServerSource, type SpendFacts } from "./status.js"
+
+/** Internal seam: tests point the server at a loopback fake without OAuth, at their own skills and media hosts. */
+export interface ElevenlabsSeam {
+  readonly endpoint?: string
+  readonly oauth?: false
+  readonly skillsDir?: string
+  /** Extra hosts a media link may name. Only a test seam adds one; the plugin's own list is ElevenLabs'. */
+  readonly mediaHosts?: readonly string[]
+  readonly fetch?: typeof fetch
+}
+
+type RemoteConfig = Extract<Mcp.ServerConfig, { type: "remote" }>
+
+/**
+ * No oauth block beyond the scope pin: OpenCode chooses CIMD and runs the sign-in itself. ElevenLabs advertises eight
+ * scopes; the pin is the seven its own MCP client asks for, so `ads_read` is never requested. No protocol, codemode,
+ * timeout or headers: the host defaults apply.
+ */
+export const serverConfig = (url: string, seam: ElevenlabsSeam): RemoteConfig => ({
+  type: "remote",
+  url,
+  ...(seam.oauth === false ? { oauth: false as const } : { oauth: { scope: OAUTH_SCOPES } }),
+})
+
+/**
+ * Origin and path only, so a token in a query string never reaches status.
+ */
+export function displayUrl(url: string) {
+  try {
+    const parsed = new URL(url)
+    return `${parsed.origin}${parsed.pathname}`
+  } catch {
+    return "an invalid URL"
+  }
+}
+
+/**
+ * A conflicting server's address for status. Another origin shows only its origin, because its path can hold a secret.
+ */
+export function conflictUrl(url: string, expected: string) {
+  try {
+    const parsed = new URL(url)
+    if (parsed.origin === new URL(expected).origin) return displayUrl(url)
+    return parsed.pathname === "/" ? parsed.origin : `${parsed.origin}/…`
+  } catch {
+    return "an invalid URL"
+  }
+}
+
+/** The region a URL belongs to, when it is one of the five the plugin knows. */
+export function regionOf(url: string) {
+  const shown = displayUrl(url)
+  return (Object.keys(REGIONS) as (keyof typeof REGIONS)[]).find((region) => REGIONS[region] === shown)
+}
+
+/**
+ * Registers `elevenlabs`, or adopts the user's own `mcp.servers.elevenlabs` unchanged when it points at exactly the
+ * selected region's URL: user config is applied first, and a later `set` would replace it. Another region's URL is
+ * `stale` — a region change leaves an old entry behind, and status gives one next step for it. Any other URL is a
+ * conflict, and nothing is added. Synchronous and never throws.
+ */
+export function registerServer(
+  mcp: Pick<Plugin.Context["mcp"], "transform">,
+  config: RemoteConfig,
+  record: (source: ServerSource | undefined, problem?: string) => void,
+) {
+  return mcp.transform((editor) => {
+    try {
+      const existing = editor.get(SERVER_NAME)
+      const expected = displayUrl(config.url)
+      if (!existing) {
+        editor.set(SERVER_NAME, config)
+        return record({ type: "plugin", url: expected })
+      }
+      if (existing.type === "remote" && displayUrl(existing.url) === expected) return record({ type: "adopted", url: expected })
+      const stale = existing.type === "remote" && regionOf(existing.url) !== undefined
+      // A stale entry is one of ElevenLabs' own addresses, so its full URL is safe and the next step needs it; another
+      // server's path can hold a secret and is reduced to its origin.
+      const url = stale && existing.type === "remote" ? displayUrl(existing.url) : existing.type === "remote" ? conflictUrl(existing.url, config.url) : "a local command"
+      record({ type: stale ? "stale" : "conflict", url, expected })
+    } catch (error) {
+      record(undefined, errorText("SERVER_NOT_REGISTERED", `The ${SERVER_NAME} MCP server could not be registered (${reasonOf(error)}).`, "Restart OpenCode."))
+    }
+  })
+}
+
+/** The tool name without the server prefix, or undefined when the call is not one of this server's. */
+const toolOf = (id: string) => (id.startsWith(`${SERVER_NAME}_`) ? id.slice(SERVER_NAME.length + 1) : undefined)
+
+/** The line a generation's result carries: the link dies in about two hours, so say how to keep the file. */
+export const EXPIRY_LINE =
+  "This link expires in about two hours. Save it with elevenlabs_save_media to keep the file; generating it again spends more credits."
+
+/** True when a result carries an http link, so the expiry line is worth saying. */
+const hasLink = (result: { readonly content?: unknown }) => {
+  const text = typeof result.content === "string" ? result.content : Array.isArray(result.content) ? result.content.map((part: { text?: string }) => part.text ?? "").join("\n") : ""
+  return /https:\/\/\S+/.test(text)
+}
+
+/** The estimate the model path may await: ElevenLabs' own price for exactly these arguments, through the host's executor. */
+const estimatorFor = (ctx: Plugin.Context) => async (tool: string, input: Record<string, unknown>, call: { sessionID: string; agent: string; messageID: string }): Promise<Price | undefined> => {
+  const executor = (await ctx.tool.list()).find((entry) => entry.id === `${SERVER_NAME}_${tool}`)
+  if (!executor) return undefined
+  try {
+    const result = await executor.execute({ ...input, estimate_only: true } as never, {
+      sessionID: call.sessionID,
+      agent: call.agent,
+      messageID: call.messageID,
+      id: `estimate:${randomUUID()}`,
+      signal: new AbortController().signal,
+      progress: async () => {},
+    } as never)
+    const normalised = result as { output?: unknown; content?: unknown }
+    const text = typeof normalised.content === "string" ? normalised.content : Array.isArray(normalised.content) ? normalised.content.map((part: { text?: string }) => part.text ?? "").join("\n") : ""
+    return estimatePrice(input, { ...(normalised.output === undefined ? {} : { output: normalised.output }), text })
+  } catch {
+    // A server that refuses the flag, or a link that broke: the guard then refuses rather than guessing a price.
+    return undefined
+  }
+}
+
+export function createElevenlabsPlugin(seam: ElevenlabsSeam = {}) {
+  return Plugin.define({
+    id: PLUGIN_ID,
+    async setup(ctx) {
+      const options: ParsedOptions = parseOptions(ctx.options)
+      const host = checkHost(ctx.app.version, options.allowUntestedHost)
+      const { skills, problems: skillProblems } = await loadSkills(seam.skillsDir)
+      // Transforms replay on every rebuild, so each one overwrites its own entry rather than appending.
+      const problems = new Map<string, string>(skillProblems.map((problem, index) => [`skill:${index}`, problem]))
+      const report = (area: string) => (problem: string | undefined) => void (problem ? problems.set(area, problem) : problems.delete(area))
+      let source: ServerSource | undefined
+
+      const url = seam.endpoint ?? REGIONS[options.region]
+      const ledger = new Ledger({ storage: ctx.storage })
+      await ledger.hydrate()
+      const caps = (): Caps => ({ sessionCreditCap: options.sessionCreditCap, dailyCreditCap: options.dailyCreditCap })
+      const mediaHosts = [...MEDIA_HOSTS, ...(seam.mediaHosts ?? [])]
+
+      await registerServer(ctx.mcp, serverConfig(url, seam), (next, problem) => {
+        source = next
+        report("server")(problem)
+      })
+      // Code Mode's catalog describes the namespace with this text, unless the server is someone else's; the plugin's
+      // own tool lives in the same namespace and is added once.
+      const managed = () => source?.type === "plugin" || source?.type === "adopted"
+      await ctx.tool.transform((editor) => {
+        if (!managed()) return
+        editor.namespace({ name: SERVER_NAME, description: NAMESPACE_DESCRIPTION })
+        addSaveTool({
+          root: options.mediaRoot,
+          maxBytes: options.maxMediaBytes,
+          hosts: mediaHosts,
+          assert: ctx.permission.assert,
+          ...(seam.fetch === undefined ? {} : { fetch: seam.fetch }),
+        })(editor)
+      })
+      await registerDefaultRules(ctx.agent, defaultRules(options.access, options.conversations), report("rules"))
+      await registerBalanceIntegration(ctx.integration)
+
+      // The balance is read only when the user added a key, and a failure is a problem for status, never a failed status.
+      let balance: SpendFacts["balance"]
+      const readSpend = async (): Promise<SpendFacts> => {
+        const key = await readKey(ctx.integration).catch(() => undefined)
+        if (key !== undefined) {
+          try {
+            balance = await readBalance(key)
+          } catch (error) {
+            balance = undefined
+            report("balance")(error instanceof Error ? error.message : String(error))
+          }
+        } else {
+          balance = undefined
+          report("balance")(undefined)
+        }
+        const left = ledger.spend("")
+        return { dailyCredits: left.dailyCredits, sessionCap: options.sessionCreditCap, dailyCap: options.dailyCreditCap, ...(balance === undefined ? {} : { balance }) }
+      }
+      const own = skills.map(({ name, path }) => ({ name, path }))
+      const read = () =>
+        readStatus(ctx, {
+          access: options.access,
+          conversations: options.conversations,
+          region: options.region,
+          mediaRoot: options.mediaRoot,
+          spend: readSpend,
+          ...(source ? { source } : {}),
+          host,
+          skills: own,
+          problems: [...problems.values()],
+        })
+      await registerSkills(ctx.skill, skills)
+      await registerStatusCommand(ctx, read)
+      await registerStatusRpc(ctx.rpc, read)
+
+      // The doctor: the live checks a status report cannot make. It acts, so it is its own command.
+      await ctx.command.transform((editor) =>
+        editor.add({
+          name: "elevenlabs-doctor",
+          description: "Check ElevenLabs' address, sign-in discovery, tools, skills, media folder and spend",
+          execute: async ({ sessionID }) => {
+            const text = await runDoctor(ctx, {
+              region: options.region,
+              access: options.access,
+              conversations: options.conversations,
+              mediaRoot: options.mediaRoot,
+              maxMediaBytes: options.maxMediaBytes,
+              host,
+              spend: await readSpend(),
+              skills: own,
+              ...(balance === undefined ? {} : { balance }),
+              problems: [...problems.values()],
+              ...(seam.fetch === undefined ? {} : { fetch: seam.fetch }),
+            }).catch((error: unknown) => `${errorText("STATUS_UNAVAILABLE", `The doctor could not finish (${reasonOf(error)}).`, "Run /elevenlabs-status, then try again.")}`)
+            await ctx.session.synthetic({ sessionID, text, description: `${DISPLAY_NAME} doctor`, resume: false })
+          },
+        }),
+      )
+
+      // Scripts call the known tools with no model, as a session and its agent, under the same ledger and caps.
+      setToolRuntime({
+        ledger,
+        caps,
+        save: { root: options.mediaRoot, maxBytes: options.maxMediaBytes, hosts: mediaHosts, assert: ctx.permission.assert, ...(seam.fetch === undefined ? {} : { fetch: seam.fetch }) },
+      })
+      const stopTools = await registerToolsRpc(ctx, {
+        methods: METHODS,
+        mcp: { server: SERVER_NAME, managed: () => source?.type !== "conflict" },
+      })
+
+      // The spending guard, on both paths. `execute.before` can change an MCP call's arguments and refuse it before it
+      // is sent; `execute.after` charges the ledger and adds the cost line. Scripts go through the block's shapers.
+      const estimate = estimatorFor(ctx)
+      const pending = new Map<string, { readonly tool: string; readonly price: Price }>()
+      const stopBefore = await ctx.tool.hook("execute.before", async (event) => {
+        const tool = toolOf(event.tool)
+        if (!managed() || tool === undefined) return
+        const args = (typeof event.input === "object" && event.input !== null ? event.input : {}) as Record<string, unknown>
+        if (isEstimate(args) || !spends(tool)) return
+        // Only a billed tool is priced; every other call is left exactly as the model sent it.
+        const priced = await priceCall({ ledger, caps, estimate }, tool, args, { sessionID: event.sessionID, agent: event.agent, messageID: event.messageID })
+        if (priced.credits > 0) pending.set(event.id, { tool, price: priced })
+      })
+      const stopAfter = await ctx.tool.hook("execute.after", async (event) => {
+        const tool = toolOf(event.tool)
+        if (!managed() || tool === undefined) return
+        const args = (typeof event.input === "object" && event.input !== null ? event.input : {}) as Record<string, unknown>
+        const before = pending.get(event.id)
+        pending.delete(event.id)
+        if (event.status !== "completed" || isEstimate(args)) return
+        if (before === undefined && !spends(tool)) return
+        const reported = actualCreditsOf(event.result)
+        const price: Price = reported === undefined ? before?.price ?? { credits: 0, basis: "at-most", parts: ["cost not reported"] } : { credits: reported, basis: "exact", parts: [] }
+        const spend = ledger.record(event.sessionID, price.credits)
+        const line = costLine(price, spend, caps())
+        appendLine(event.result, line)
+        // The structured `cost` beside the output, as the tools RPC does: a Code Mode program reads the output, not the
+        // text parts, so the price travels with it.
+        const output = (event.result as { output?: unknown }).output
+        if (output !== null && typeof output === "object" && !Array.isArray(output)) {
+          ;(output as Record<string, unknown>).cost = costValue(price, spend, caps())
+        }
+        if (hasLink(event.result)) appendLine(event.result, EXPIRY_LINE)
+      })
+
+      const stopWatch = watchIntegration(ctx, managed)
+      return async () => {
+        setToolRuntime(undefined)
+        await stopWatch()
+        await stopBefore.dispose()
+        await stopAfter.dispose()
+        await stopTools()
+      }
+    },
+  })
+}
+
+
