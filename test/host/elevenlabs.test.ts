@@ -1,0 +1,469 @@
+// The plugin on the public @opencode/sdk host: load and connect, the permission model, the spending guard, saving a
+// generated file, /elevenlabs-status, unload, and the /connect entry with its scope pin. Each describe owns one host.
+import { ROOT } from "./isolate.js"
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test"
+import { existsSync, readFileSync, realpathSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join, sep } from "node:path"
+import { Plugin } from "@opencode/plugin"
+import { defaultRules, type Rule } from "../../src/permissions.js"
+import { SKILL_NAMES } from "../../src/skills.js"
+import { OAUTH_SCOPES, SUPPORTED_HOST, TESTED_HOSTS } from "../../src/constants.js"
+import { DELETE, IMAGE, IMAGE_CREDITS, LINK, NEW_TOOL, READ, SPEECH, WRITE } from "./fake-mcp.js"
+import { agentRules, attempt, cleanup, effect, HOST_VERSION, session, startHost, until, type Host } from "./harness.js"
+
+const AGENT_RULES = defaultRules().map((rule, index, rules) => `  ${JSON.stringify(rule)}${index < rules.length - 1 ? "," : ""}`).join("\n")
+const AGENTS_NEXT_STEP = "Put the default rules shown by /elevenlabs-status first in each listed agent's own permissions, in opencode.json or the agent's Markdown file, followed by your top-level rules for ElevenLabs tools."
+const NEW = NEW_TOOL.name
+const SIGN_IN = "Run /connect and choose ElevenLabs, then press o or Enter to open the link (in a terminal, opencode mcp auth elevenlabs opens it automatically)."
+/** The fake's tools: a read, a write, a delete, a share link, a speech and an image generation, and one unknown tool. */
+const SERVED = [READ, WRITE, DELETE, LINK, SPEECH, IMAGE, NEW].map((tool) => `elevenlabs_${tool}`).sort()
+
+// Starting a host takes several seconds, more on a busy machine.
+setDefaultTimeout(120_000)
+afterAll(cleanup)
+
+const BUILT_IN = ["build", "general", "explore", "compaction", "title", "summary", "plan"]
+const wildcard = (pattern: string) => new RegExp(`^${pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*")}$`)
+/** The host hides a tool when the last rule matching its action is a deny on every resource. */
+const hidden = (rules: readonly Rule[], action: string) => {
+  const last = rules.findLast((rule) => wildcard(rule.action).test(action))
+  return last?.resource === "*" && last.effect === "deny"
+}
+
+/** The host lists an MCP server's tools shortly after it connects. */
+const elevenlabsTools = (host: Host) =>
+  until("ElevenLabs' tools are registered", async () => {
+    const ids = (await host.probe().tool.list()).map((tool) => tool.id).filter((id) => id.startsWith("elevenlabs_"))
+    const wanted = [...SERVED, "elevenlabs_save_media"].sort()
+    return ids.length === wanted.length && ids.sort()
+  })
+
+/**
+ * Runs `code` as Code Mode does, through a schedule's check program: OpenCode checks each tool's input and output and
+ * evaluates permissions with nobody present to answer a prompt. The program reports by throwing "SEEN <json>".
+ */
+async function codeMode(host: Host, sessionID: string, code: string): Promise<{ seen: unknown } | { refused: string }> {
+  let message: string
+  try {
+    const schedule = await host.client.experimental.schedule.create({ sessionID, name: "elevenlabs-host-test", when: { in: "6 hours" }, prompt: "noop", if: { code } })
+    await host.client.experimental.schedule.delete({ scheduleID: schedule.id })
+    throw new Error("the check program finished without reporting")
+  } catch (error) {
+    message = error instanceof Error ? error.message : String(error)
+  }
+  const seen = /SEEN (.*)$/s.exec(message)
+  if (!seen) return { refused: message }
+  try {
+    return { seen: JSON.parse(seen[1]!) }
+  } catch {
+    return { seen: seen[1]! }
+  }
+}
+
+async function status(host: Host, sessionID: string) {
+  await host.client.sessions.command({ sessionID, name: "elevenlabs-status", text: "" })
+  return until("/elevenlabs-status posts its text", async () => {
+    const inbox = await host.client.session.inbox.list({ sessionID })
+    const posted = inbox.findLast((item) => item.type === "synthetic")
+    return posted?.type === "synthetic" ? posted.payload.text : undefined
+  })
+}
+
+describe(`the plugin's own server on OpenCode ${HOST_VERSION}`, () => {
+  let host: Host
+  beforeAll(async () => {
+    host = await startHost({ config: () => ({ agents: { reviewer: { description: "Reviews changes", mode: "subagent" } } }) })
+  })
+  afterAll(() => host?.close())
+
+  test("the host's global folders, temp folder and working directory are inside the test's temp root", async () => {
+    const global = ["XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"].map((key) => join(process.env[key]!, "opencode"))
+    expect(global.filter((path) => !existsSync(path))).toEqual([])
+    const { paths } = await host.client.server.info()
+    const used = [...global, realpathSync(paths.tmp), process.env.OPENCODE_TEST_HOME!, tmpdir(), process.cwd()]
+    expect(used.filter((path) => !path.startsWith(ROOT + sep))).toEqual([])
+  })
+
+  test("the plugin is active, elevenlabs is connected, and its tools, skills and both commands are registered", async () => {
+    const { data: plugins } = await host.client.plugin.list({ location: host.location })
+    expect(plugins.find((plugin) => plugin.id === "elevenlabs")?.state.status).toBe("active")
+    const { data: servers } = await host.client.mcp.list({ location: host.location })
+    expect(servers.find((server) => server.name === "elevenlabs")?.status).toEqual({ status: "connected" })
+    expect(await elevenlabsTools(host)).toEqual([...SERVED, "elevenlabs_save_media"].sort())
+    const { data: skills } = await host.client.skill.list({ location: host.location })
+    expect(skills.map((skill) => skill.id).filter((id) => id.startsWith("elevenlabs")).sort()).toEqual([...SKILL_NAMES].sort())
+    const { data: commands } = await host.client.command.list({ location: host.location })
+    expect(commands.map((command) => command.name).filter((name) => name.startsWith("elevenlabs")).sort()).toEqual(["elevenlabs-doctor", "elevenlabs-status"])
+  })
+
+  test("the rules sit right after the base allow in every built-in agent, once", async () => {
+    const rules = await agentRules(host)
+    for (const id of BUILT_IN) {
+      const permissions = rules.get(id)!
+      const base = permissions.findIndex((rule) => rule.action === "*" && rule.resource === "*" && rule.effect === "allow")
+      expect(base).toBe(0)
+      expect(permissions.slice(base + 1, base + 1 + defaultRules().length)).toEqual(defaultRules())
+      expect(permissions.filter((rule) => rule.action === "elevenlabs_*")).toHaveLength(1)
+    }
+  })
+
+  test("Plan and Explore are not weakened", async () => {
+    expect(await effect(host, "plan", "edit")).toBe("deny")
+    expect(await effect(host, "explore", `elevenlabs_${READ}`)).toBe("deny")
+    const explore = await session(host, "explore")
+    expect(await attempt(host, explore, "explore", READ)).toEqual({ asked: undefined, ok: false, error: `Tool.Error: Permission denied: elevenlabs_${READ}` })
+  })
+
+  // R18: every tool is allowed by default, a tool ElevenLabs adds later included, so nothing asks here.
+  test("every tool runs without a prompt, the plugin's own reads and one it does not know", async () => {
+    const build = await session(host)
+    const before = host.fake.calls.length
+    expect(await attempt(host, build, "build", READ)).toEqual({ asked: undefined, ok: true })
+    expect(await attempt(host, build, "build", NEW)).toEqual({ asked: undefined, ok: true })
+    expect(await attempt(host, build, "build", WRITE)).toEqual({ asked: undefined, ok: true })
+    expect(host.fake.calls.slice(before)).toEqual([READ, NEW, WRITE])
+    const rules = (await agentRules(host)).get("build")!
+    expect([...SERVED, "elevenlabs_save_media"].filter((action) => hidden(rules, action))).toEqual([])
+    expect(await effect(host, "build", `elevenlabs_${NEW}`)).toBe("allow")
+  })
+
+  test("an agent defined only in user config gets no rules, and ElevenLabs tools run there unprompted", async () => {
+    const reviewer = (await agentRules(host)).get("reviewer")!
+    expect(reviewer.some((rule) => rule.action.startsWith("elevenlabs_"))).toBe(false)
+    const sessionID = await session(host, "reviewer")
+    expect(await attempt(host, sessionID, "reviewer", NEW)).toEqual({ asked: undefined, ok: true })
+  })
+
+  // R2: the same proofs on the Code Mode path, inside the host's `execute`, where nobody can answer a prompt.
+  test("Code Mode: a read runs; an ask and a deny are refused with nothing sent; an unknown name is refused", async () => {
+    await elevenlabsTools(host)
+    const run = async (sessionID: string, tool: string) => codeMode(host, sessionID, `const r = await tools.elevenlabs[${JSON.stringify(tool)}]({}); throw new Error("SEEN " + JSON.stringify(r))`)
+    const created = async (permissions?: Rule[]) => (await host.client.sessions.create({ agent: "build", location: host.location, ...(permissions ? { permissions } : {}) })).id
+
+    const before = host.fake.calls.length
+    expect(await run(await created(), READ)).toHaveProperty("seen")
+    expect(host.fake.calls.slice(before)).toEqual([READ])
+
+    const asking = host.fake.calls.length
+    const askSession = await created([{ action: `elevenlabs_${READ}`, resource: "*", effect: "ask" }])
+    const asked = await run(askSession, READ)
+    expect(asked).toHaveProperty("refused")
+    expect((asked as { refused: string }).refused).toMatch(/needs approval|nobody is present|not permitted|declined/i)
+    expect(host.fake.calls.slice(asking)).toEqual([])
+    expect(await host.client.permission.list({ sessionID: askSession })).toEqual([])
+
+    const denied = await run(await created([{ action: `elevenlabs_${READ}`, resource: "*", effect: "deny" }]), READ)
+    expect(denied).toHaveProperty("refused")
+    const unknown = await run(await created(), "no_such_tool")
+    expect(unknown).toHaveProperty("refused")
+    expect(host.fake.calls.slice(asking)).toEqual([])
+  })
+
+  test("/elevenlabs-status reports the connection, the region, the spend, the tools, the unguarded agent and its fix", async () => {
+    await elevenlabsTools(host)
+    const text = await status(host, await session(host))
+    expect(text).toContain(`- Connection: connected (${host.fake.url}, registered by this plugin)`)
+    expect(text).toContain("- Region: global (https://api.elevenlabs.io/v1/mcp)")
+    expect(text).toContain("- Spend: 0 credits spent in the last 24 hours of 10,000; a session is capped at 2,000")
+    expect(text).toContain("- Conversations: full: the transcript tools run, and they carry other people's calls")
+    expect(text).toContain("- Skills: the plugin's own\n")
+    expect(text).toContain(`- Tools: ${SERVED.length} available, 1 unknown: ${NEW} (new tools run too)\n`)
+    expect(text).toContain(`- Agents without default rules: reviewer\n${AGENT_RULES}\n`)
+    expect(text).toContain(`- Next step: ${AGENTS_NEXT_STEP}`)
+    expect(text).toContain(`- OpenCode: ${HOST_VERSION} (${TESTED_HOSTS.includes(HOST_VERSION) ? "tested" : "untested"}; supported range ${SUPPORTED_HOST})`)
+  })
+
+  test("unloading the plugin removes the server, the rules and the commands", async () => {
+    await host.client.plugin(Plugin.define({ id: "elevenlabs", setup: () => {} }))
+    await until("the elevenlabs server is gone", async () => {
+      const { data } = await host.client.mcp.list({ location: host.location })
+      return !data.some((server) => server.name === "elevenlabs")
+    })
+    const rules = await agentRules(host)
+    for (const id of BUILT_IN) expect(rules.get(id)!.some((rule) => rule.action.startsWith("elevenlabs_"))).toBe(false)
+    const { data: commands } = await host.client.command.list({ location: host.location })
+    expect(commands.map((command) => command.name)).not.toContain("elevenlabs-status")
+  })
+})
+
+// D1: the spending guard. The fake prices an image at IMAGE_CREDITS per generation and charges nothing for an estimate.
+describe(`the spending guard on OpenCode ${HOST_VERSION}`, () => {
+  describe("a session cap that fits one generation", () => {
+    let host: Host
+    beforeAll(async () => {
+      host = await startHost({ options: { sessionCreditCap: IMAGE_CREDITS, dailyCreditCap: 100_000 } })
+      await elevenlabsTools(host)
+    })
+    afterAll(() => host?.close())
+
+    // The guard runs on the model path and in Code Mode: the host's own `execute` (which a host test's direct executor
+    // call bypasses), so each proof here is a Code Mode call, where the arguments and the cost line are observable.
+    const generate = (sessionID: string, args: Record<string, unknown>) =>
+      codeMode(host, sessionID, `const r = await tools.elevenlabs[${JSON.stringify(IMAGE)}](${JSON.stringify(args)}); throw new Error("SEEN " + JSON.stringify(r))`)
+
+    test("asks ElevenLabs for a price first, clamps four generations to one, and charges only the one that ran", async () => {
+      const before = host.fake.calls.length
+      const outcome = await generate(await session(host), { prompt: "a ceramic mug", generations_count: 4, context: "make a mug" })
+      expect(outcome).toHaveProperty("seen")
+      // Two calls, both to the same tool: the free estimate, then the paid generation, cut to what the cap affords.
+      expect(host.fake.calls.slice(before)).toEqual([IMAGE, IMAGE])
+      expect(host.fake.inputs.at(-1)!.arguments).toMatchObject({ prompt: "a ceramic mug", generations_count: 1 })
+      expect(host.fake.inputs.at(-2)!.arguments).toMatchObject({ estimate_only: true })
+      // The result carries the structured cost, so a Code Mode program can read it too.
+      expect(JSON.stringify(outcome)).toContain('"cost"')
+      expect((outcome as { seen: { cost: { credits: number } } }).seen.cost.credits).toBe(IMAGE_CREDITS)
+    })
+
+    test("a request for more than the cap affords is clamped, not refused, while one generation still fits", async () => {
+      const before = host.fake.calls.length
+      const outcome = await generate(await session(host), { prompt: "a big scene", generations_count: 2 })
+      expect(outcome).toHaveProperty("seen")
+      expect(host.fake.inputs.at(-1)!.arguments).toMatchObject({ generations_count: 1 })
+      expect(host.fake.calls.slice(before)).toEqual([IMAGE, IMAGE])
+    })
+  })
+
+  describe("a session cap below one generation", () => {
+    let host: Host
+    beforeAll(async () => {
+      host = await startHost({ options: { sessionCreditCap: 10, dailyCreditCap: 100_000 } })
+      await elevenlabsTools(host)
+    })
+    afterAll(() => host?.close())
+
+    const generate = (sessionID: string, tool: string, args: Record<string, unknown>) =>
+      codeMode(host, sessionID, `await tools.elevenlabs[${JSON.stringify(tool)}](${JSON.stringify(args)}); throw new Error("SEEN")`)
+
+    test("refuses with SPEND_CAP_REACHED after the estimate, and never makes the generation call", async () => {
+      const before = host.fake.calls.length
+      const outcome = await generate(await session(host), IMAGE, { prompt: "a ceramic mug", generations_count: 1 })
+      expect(outcome).toHaveProperty("refused")
+      expect((outcome as { refused: string }).refused).toContain("SPEND_CAP_REACHED")
+      // The estimate was free; the paid call never happened.
+      expect(host.fake.calls.slice(before)).toEqual([IMAGE])
+      expect(host.fake.inputs.at(-1)!.arguments).toMatchObject({ estimate_only: true })
+    })
+
+    test("a speech call is priced from the published rate and refused the same way, with no server call at all", async () => {
+      const before = host.fake.calls.length
+      const outcome = await generate(await session(host), SPEECH, { text: "x".repeat(60) })
+      expect(outcome).toHaveProperty("refused")
+      expect((outcome as { refused: string }).refused).toContain("SPEND_CAP_REACHED")
+      expect((outcome as { refused: string }).refused).toContain("120 credits")
+      // Speech is priced from the table, so the refused call reached neither the estimate nor the server.
+      expect(host.fake.calls.slice(before)).toEqual([])
+    })
+  })
+})
+
+// D2: the plugin's own tool saves a generated file, and nothing binary enters the conversation.
+describe(`elevenlabs_save_media on OpenCode ${HOST_VERSION}`, () => {
+  let host: Host
+  beforeAll(async () => {
+    host = await startHost({ options: { mediaRoot: join(ROOT, "media"), maxMediaBytes: 1024 * 1024 } })
+    await elevenlabsTools(host)
+  })
+  afterAll(() => host?.close())
+
+  const save = async (sessionID: string, url: string, name?: string) => {
+    const outcome = await attempt(host, sessionID, "build", "save_media", "reject", { url, ...(name ? { name } : {}) })
+    if (!outcome.ok) return outcome
+    const tool = (await host.probe().tool.list()).find((entry) => entry.id === "elevenlabs_save_media")!
+    void tool
+    return outcome
+  }
+
+  test("writes the file under the media root and answers with its path, size and hash", async () => {
+    const sessionID = await session(host)
+    const outcome = await save(sessionID, `${host.fake.origin}/media/ok`, "clip")
+    expect(outcome).toEqual({ asked: undefined, ok: true })
+    const folder = join(ROOT, "media")
+    const written = (await Array.fromAsync(new Bun.Glob("*.mp3").scan(folder))).map((name) => join(folder, name))
+    expect(written).toHaveLength(1)
+    expect(readFileSync(written[0]!).toString()).toBe("ID3fakeaudio")
+  })
+
+  test("an expired link is MEDIA_EXPIRED, and the next step says to fetch the generation again", async () => {
+    const outcome = await save(await session(host), `${host.fake.origin}/media/expired`)
+    expect(outcome.ok).toBe(false)
+    expect((outcome as { error: string }).error).toContain("MEDIA_EXPIRED")
+  })
+
+  test("a link on a host that is not ElevenLabs' own is refused before anything is fetched", async () => {
+    const outcome = await save(await session(host), "https://example.com/a.mp3")
+    expect(outcome.ok).toBe(false)
+    expect((outcome as { error: string }).error).toContain("MEDIA_URL_INVALID")
+  })
+})
+
+// R18: one host test per access value, on the tools RPC path, where a refusal must reach nothing.
+describe(`access on OpenCode ${HOST_VERSION}`, () => {
+  const call = async (host: Host, sessionID: string, method: string, input: unknown = {}): Promise<{ value?: unknown; refused?: string }> =>
+    host.client.rpc
+      .call({ rpcID: "elevenlabs.tools", method, input: { sessionID, input } as never, location: host.location })
+      .then((result) => ({ value: result.output }))
+      .catch((error: unknown) => ({ refused: (error as { data?: { code?: string }; message?: string }).data?.code ?? String(error) }))
+
+  for (const [access, effectOf] of [
+    ["ask-changes", "ask"],
+    ["read-only", "deny"],
+  ] as const) {
+    describe(access, () => {
+      let host: Host
+      beforeAll(async () => {
+        host = await startHost({ options: { access } })
+        await elevenlabsTools(host)
+      })
+      afterAll(() => host?.close())
+
+      test(`the block is the ${access} one, and a read still runs on the tools RPC path`, async () => {
+        const rules = (await agentRules(host)).get("build")!
+        expect(rules.slice(1, 1 + defaultRules(access).length)).toEqual(defaultRules(access))
+        const before = host.fake.calls.length
+        const sessionID = await session(host)
+        expect(await call(host, sessionID, READ)).toHaveProperty("value")
+        expect(host.fake.calls.slice(before)).toEqual([READ])
+      })
+
+      test(`a billed generation is ${effectOf === "deny" ? "denied" : "asked for"} and never reaches ElevenLabs or the ledger`, async () => {
+        const before = host.fake.calls.length
+        expect(await call(host, await session(host), IMAGE, { prompt: "a mug", generations_count: 1 })).toMatchObject({ refused: "PERMISSION_DENIED" })
+        expect(host.fake.calls.slice(before)).toEqual([])
+        // An unclassified name is not a method at all: the RPC refuses it before any rule runs.
+        expect((await call(host, await session(host), NEW)).refused ?? "").toContain("Unknown RPC method")
+      })
+    })
+  }
+})
+
+describe("a user elevenlabs server that points elsewhere", () => {
+  let host: Host
+  beforeAll(async () => {
+    host = await startHost({ config: (url) => ({ mcp: { servers: { elevenlabs: { type: "remote", url: url.replace(/\/mcp$/, "/other"), oauth: false } } } }) })
+  })
+  afterAll(() => host?.close())
+
+  test("is left in place and reported as a conflict", async () => {
+    const text = await status(host, await session(host))
+    const other = host.fake.url.replace(/\/mcp$/, "/other")
+    expect(text).toContain(`- Connection: conflict (your mcp.servers.elevenlabs points at ${other})`)
+    expect(text).toContain(`- Next step: mcp.servers.elevenlabs is set to ${other}, but ElevenLabs's server is ${host.fake.url}.`)
+  })
+})
+
+// ElevenLabs' server answers 401 with a bearer challenge until the user signs in. On the host's own MCP client that is
+// a sign-in, not a failure: status and the status RPC say so, with the /connect step.
+describe("a server that asks for a sign-in", () => {
+  let host: Host
+  beforeAll(async () => {
+    host = await startHost({ oauth: true, fake: { challenge: true } })
+  })
+  afterAll(() => host?.close())
+
+  test("is sign-in required, with the /connect next step, in the RPC and in /elevenlabs-status", async () => {
+    const server = await until("the server needs a sign-in", async () => {
+      const { data } = await host.client.mcp.list({ location: host.location })
+      const found = data.find((item) => item.name === "elevenlabs")
+      return found?.status.status === "needs_auth" ? found : undefined
+    })
+    expect(server.status.status).toBe("needs_auth")
+    const { output } = (await host.client.rpc.call({ rpcID: "elevenlabs", method: "status", input: {}, location: host.location })) as { output: Record<string, unknown> }
+    expect(output).toMatchObject({ state: "sign_in_required", nextStep: SIGN_IN })
+    const text = await status(host, await session(host))
+    expect(text).toContain(`- Connection: sign-in required (${host.fake.url}, registered by this plugin)`)
+    expect(text).toContain(`- Next step: ${SIGN_IN}`)
+    expect(host.fake.markers.length).toBeGreaterThan(0)
+  })
+})
+
+// The /connect mark is only observable while a credential remains, so this signs in with ElevenLabs' own flow and a
+// token that has no refresh token. The plugin reads its mark back from the projected connection, so the mark it sets is
+// the one it clears — and the authorization request carries exactly the seven pinned scopes.
+describe("the /connect sign-in mark", () => {
+  let host: Host
+  beforeAll(async () => {
+    host = await startHost({ oauth: true, fake: { challenge: true, refreshTokens: false } })
+  })
+  afterAll(() => host?.close())
+
+  const SIGN_IN_AGAIN = "ElevenLabs needs a new sign-in. Choose this account to sign in again."
+
+  const connections = async () => {
+    const { data: servers } = await host.client.mcp.list({ location: host.location })
+    const integrationID = servers.find((server) => server.name === "elevenlabs")?.integrationID
+    if (!integrationID) return []
+    const { data } = await host.client.integration.get({ integrationID, location: host.location })
+    return (data as unknown as { connections?: { type?: string; status?: { status: string; message?: string } }[] }).connections ?? []
+  }
+
+  const signIn = async () => {
+    const { data: servers } = await host.client.mcp.list({ location: host.location })
+    const integrationID = servers.find((server) => server.name === "elevenlabs")!.integrationID!
+    const { data: integration } = await host.client.integration.get({ integrationID, location: host.location })
+    const oauth = (host.client.integration as unknown as { oauth: { connect: (input: object) => Promise<{ data: { attemptID: string; url: string } }> } }).oauth
+    const { data: attempt } = await oauth.connect({ integrationID, methodID: (integration.methods[0] as unknown as { id: string }).id, location: host.location })
+    const redirect = await fetch(attempt.url, { redirect: "manual" })
+    const callback = redirect.headers.get("location")
+    expect(callback).toMatch(/^http:\/\/127\.0\.0\.1:\d+\//)
+    await fetch(callback!)
+  }
+  const connected = () =>
+    until("the server is connected", async () => {
+      const { data } = await host.client.mcp.list({ location: host.location })
+      return data.find((server) => server.name === "elevenlabs")?.status.status === "connected"
+    })
+
+  test("is set while the server needs a sign-in, and cleared once the same account connects again", async () => {
+    await signIn()
+    await until("the sign-in stores a token without a refresh token", async () => host.fake.tokens.length === 1)
+    expect(host.fake.tokens[0]).toMatchObject({ grant_type: "authorization_code" })
+    expect(host.fake.tokens[0]).not.toHaveProperty("refresh_token")
+    // The scope pin: exactly the seven, and never `ads_read`.
+    expect(host.fake.authorizations[0]!.scope).toBe(OAUTH_SCOPES)
+    expect(host.fake.authorizations[0]!.scope).not.toContain("ads_read")
+    expect(OAUTH_SCOPES.split(" ")).toHaveLength(7)
+
+    host.fake.challenge = false
+    await connected()
+    expect(await until("/connect shows the account", async () => (await connections()).find((item) => item.type === "credential" && item.status?.message === undefined))).toBeDefined()
+
+    host.fake.challenge = true
+    const mcp = host.client.mcp as unknown as Record<"connect" | "disconnect", (input: object) => Promise<unknown>>
+    await mcp.disconnect({ server: "elevenlabs", location: host.location })
+    await mcp.connect({ server: "elevenlabs", location: host.location }).catch(() => {})
+    await until("the server needs a sign-in", async () => {
+      const { data } = await host.client.mcp.list({ location: host.location })
+      return data.find((server) => server.name === "elevenlabs")?.status.status === "needs_auth"
+    })
+    expect(await until("/connect shows the new sign-in on the account", async () => (await connections()).find((item) => item.status?.message === SIGN_IN_AGAIN))).toBeDefined()
+
+    host.fake.challenge = false
+    await mcp.connect({ server: "elevenlabs", location: host.location })
+    await connected()
+    expect(await until("/connect clears the sign-in mark", async () => ((await connections()).some((item) => item.status?.message) ? undefined : true))).toBe(true)
+  })
+})
+
+describe("the /connect entry", () => {
+  let host: Host
+  beforeAll(async () => {
+    host = await startHost({ oauth: true })
+  })
+  afterAll(() => host?.close())
+
+  const entry = async () => {
+    const { data } = await host.client.mcp.list({ location: host.location })
+    const integrationID = data.find((server) => server.name === "elevenlabs")?.integrationID
+    if (!integrationID) return undefined
+    return (await host.client.integration.get({ integrationID, location: host.location })).data
+  }
+
+  test("is named ElevenLabs, also after the host reloads its MCP servers", async () => {
+    expect((await until("the entry is named ElevenLabs", async () => ((await entry())?.name === "ElevenLabs" ? entry() : undefined)))?.methods).toHaveLength(1)
+    await host.probe().mcp.reload()
+    await until("the entry is named ElevenLabs again after the reload", async () => (await entry())?.name === "ElevenLabs")
+    await Bun.sleep(1000)
+    expect((await entry())?.name).toBe("ElevenLabs")
+  })
+})
