@@ -1,0 +1,364 @@
+{
+  "name": "@joe-broadhead/opencode-elevenlabs",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Unofficial OpenCode plugin for ElevenLabs: manage voice and chat agents, review their calls, and generate speech, images and video through ElevenLabs' official MCP server, with a spending guard and files saved to disk",
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "elevenlabs"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/joe-broadhead/opencode-elevenlabs.git"
+  },
+  "homepage": "https://github.com/joe-broadhead/opencode-elevenlabs#readme",
+  "bugs": {
+    "url": "https://github.com/joe-broadhead/opencode-elevenlabs/issues"
+  },
+  "exports": {
+    ".": "./dist/index.js",
+    "./tui": "./dist/tui.js",
+    "./icon.svg": "./assets/icon.svg",
+    "./icon-128.png": "./assets/icon-128.png",
+    "./icon-256.png": "./assets/icon-256.png"
+  },
+  "files": [
+    "dist",
+    "assets/icon.svg",
+    "assets/icon-128.png",
+    "assets/icon-256.png",
+    "skills",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "opencode": {
+    "host": ">=2.2.3 <2.3.0",
+    "icons": [
+      {
+        "src": "assets/icon.svg",
+        "mimeType": "image/svg+xml",
+        "sizes": [
+          "any"
+        ]
+      },
+      {
+        "src": "assets/icon-128.png",
+        "mimeType": "image/png",
+        "sizes": [
+          "128x128"
+        ]
+      },
+      {
+        "src": "assets/icon-256.png",
+        "mimeType": "image/png",
+        "sizes": [
+          "256x256"
+        ]
+      }
+    ],
+    "vendor": {
+      "id": "elevenlabs",
+      "name": "ElevenLabs",
+      "domain": "elevenlabs.io"
+    }
+  },
+  "jelly": {
+    "title": "ElevenLabs",
+    "summary": "Your ElevenLabs agents, their calls, and generated speech, images and video.",
+    "icon": "assets/icon.svg",
+    "tools": [
+      {
+        "name": "elevenlabs_agents_get",
+        "permission": "elevenlabs_agents_get",
+        "effect": "allow",
+        "readOnly": true
+      },
+      {
+        "name": "elevenlabs_agents_get_conversation",
+        "permission": "elevenlabs_agents_get_conversation",
+        "effect": "allow",
+        "readOnly": true
+      },
+      {
+        "name": "elevenlabs_agents_get_kb_dependents",
+        "permission": "elevenlabs_agents_get_kb_dependents",
+        "effect": "allow",
+        "readOnly": true
+      },
+      {
+        "name": "elevenlabs_agents_get_test_run",
+        "permission": "elevenlabs_agents_get_test_run",
+        "effect": "allow",
+        "readOnly": true
+      },
+      {
+        "name": "elevenlabs_agents_get_widget",
+        "permission": "elevenlabs_agents_get_widget",
+        "effect": "allow",
+        "readOnly": true
+      },
+      {
+        "name": "elevenlabs_agents_list",
+        "permission": "elevenlabs_agents_list",
+        "effect": "allow",
+        "readOnly": true
+      },
+      {
+        "name": "elevenlabs_agents_list_conversations",
+        "permission": "elevenlabs_agents_list_conversations",
+        "effect": "allow",
+        "readOnly": true
+      },
+      {
+        "name": "elevenlabs_agents_list_test_runs",
+        "permission": "elevenlabs_agents_list_test_runs",
+        "effect": "allow",
+        "readOnly": true
+      },
+      {
+        "name": "elevenlabs_agents_merge_branch_preview",
+        "permission": "elevenlabs_agents_merge_branch_preview",
+        "effect": "allow",
+        "readOnly": true
+      },
+      {
+        "name": "elevenlabs_agents_query_knowledge_base_rag",
+        "permission": "elevenlabs_agents_query_knowledge_base_rag",
+        "effect": "allow",
+        "readOnly": true
+      },
+      {
+        "name": "elevenlabs_agents_search_conversation_messages",
+        "permission": "elevenlabs_agents_search_conversation_messages",
+        "effect": "allow",
+        "readOnly": true
+      },
+      {
+        "name": "elevenlabs_agents_search_knowledge_base",
+        "permission": "elevenlabs_agents_search_knowledge_base",
+        "effect": "allow",
+        "readOnly": true
+      },
+      {
+        "name": "elevenlabs_creative_get_flow",
+        "permission": "elevenlabs_creative_get_flow",
+        "effect": "allow",
+        "readOnly": true
+      },
+      {
+        "name": "elevenlabs_creative_get_flow_node_types",
+        "permission": "elevenlabs_creative_get_flow_node_types",
+        "effect": "allow",
+        "readOnly": true
+      },
+      {
+        "name": "elevenlabs_creative_get_flow_run_status",
+        "permission": "elevenlabs_creative_get_flow_run_status",
+        "effect": "allow",
+        "readOnly": true
+      },
+      {
+        "name": "elevenlabs_creative_get_model_guide",
+        "permission": "elevenlabs_creative_get_model_guide",
+        "effect": "allow",
+        "readOnly": true
+      },
+      {
+        "name": "elevenlabs_creative_list_voices",
+        "permission": "elevenlabs_creative_list_voices",
+        "effect": "allow",
+        "readOnly": true
+      },
+      {
+        "name": "elevenlabs_creative_transcribe_audio",
+        "permission": "elevenlabs_creative_transcribe_audio",
+        "effect": "allow",
+        "readOnly": true
+      },
+      {
+        "name": "elevenlabs_agents_get_link",
+        "permission": "elevenlabs_agents_get_link",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
+        "name": "elevenlabs_agents_create",
+        "permission": "elevenlabs_agents_create",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
+        "name": "elevenlabs_agents_create_branch",
+        "permission": "elevenlabs_agents_create_branch",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
+        "name": "elevenlabs_agents_create_deployment",
+        "permission": "elevenlabs_agents_create_deployment",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
+        "name": "elevenlabs_agents_create_kb_folder",
+        "permission": "elevenlabs_agents_create_kb_folder",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
+        "name": "elevenlabs_agents_create_kb_text",
+        "permission": "elevenlabs_agents_create_kb_text",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
+        "name": "elevenlabs_agents_create_kb_url",
+        "permission": "elevenlabs_agents_create_kb_url",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
+        "name": "elevenlabs_agents_create_test",
+        "permission": "elevenlabs_agents_create_test",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
+        "name": "elevenlabs_agents_duplicate",
+        "permission": "elevenlabs_agents_duplicate",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
+        "name": "elevenlabs_agents_merge_branch",
+        "permission": "elevenlabs_agents_merge_branch",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
+        "name": "elevenlabs_agents_update",
+        "permission": "elevenlabs_agents_update",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
+        "name": "elevenlabs_creative_attach_reference_file",
+        "permission": "elevenlabs_creative_attach_reference_file",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
+        "name": "elevenlabs_creative_create_flow",
+        "permission": "elevenlabs_creative_create_flow",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
+        "name": "elevenlabs_creative_upload_flow_reference",
+        "permission": "elevenlabs_creative_upload_flow_reference",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
+        "name": "elevenlabs_creative_edit_image",
+        "permission": "elevenlabs_creative_edit_image",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
+        "name": "elevenlabs_creative_generate_image",
+        "permission": "elevenlabs_creative_generate_image",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
+        "name": "elevenlabs_creative_generate_speech",
+        "permission": "elevenlabs_creative_generate_speech",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
+        "name": "elevenlabs_creative_generate_video",
+        "permission": "elevenlabs_creative_generate_video",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
+        "name": "elevenlabs_agents_bulk_delete_knowledge_base",
+        "permission": "elevenlabs_agents_bulk_delete_knowledge_base",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
+        "name": "elevenlabs_agents_delete",
+        "permission": "elevenlabs_agents_delete",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
+        "name": "elevenlabs_agents_delete_phone_number",
+        "permission": "elevenlabs_agents_delete_phone_number",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
+        "name": "elevenlabs_agents_delete_tool",
+        "permission": "elevenlabs_agents_delete_tool",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
+        "name": "elevenlabs_save_media",
+        "permission": "elevenlabs_save_media",
+        "effect": "allow",
+        "readOnly": false
+      }
+    ],
+    "skills": [
+      "elevenlabs",
+      "elevenlabs-creative",
+      "elevenlabs-calls"
+    ],
+    "rpc": [],
+    "views": [],
+    "signIns": [
+      {
+        "id": "elevenlabs",
+        "label": "ElevenLabs",
+        "server": "elevenlabs"
+      }
+    ],
+    "contributes": {
+      "homeFeeds": [],
+      "homeWidgets": [],
+      "workKinds": [],
+      "settings": []
+    }
+  },
+  "scripts": {
+    "check": "node scripts/check.mjs",
+    "typecheck": "node scripts/check.mjs typecheck",
+    "build": "node scripts/check.mjs build",
+    "test": "node scripts/check.mjs unit",
+    "test:host": "node scripts/check.mjs host",
+    "test:pack": "node scripts/check.mjs pack",
+    "lint": "node scripts/check.mjs forbidden",
+    "drift": "node scripts/check-elevenlabs-tools.mjs"
+  },
+  "devDependencies": {
+    "@opencode/client": "2.2.3",
+    "@opencode/plugin": "2.2.3",
+    "@opencode/sdk": "2.2.3",
+    "@opentui/core": "0.8.0",
+    "@opentui/solid": "0.8.0",
+    "@types/bun": "1.4.4",
+    "@types/node": "24.19.2",
+    "esbuild": "0.28.2",
+    "solid-js": "1.9.17",
+    "typescript": "5.9.3"
+  }
+}
