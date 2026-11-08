@@ -59,16 +59,33 @@ describe("the default rules", () => {
     expect(evaluate([allow("*"), ...defaultRules("all"), { action: `elevenlabs_${READ_A}`, resource: "*", effect: "deny" }], `elevenlabs_${READ_A}`)).toBe("deny")
   })
 
-  test("conversations adds the exact denies at the end, where they win over the block's own allows", () => {
+  test("conversations adds the exact denies and the patterns at the end, where they win over the block's allows", () => {
     expect(conversationDenies("full")).toEqual([])
-    expect(conversationDenies("summary")).toEqual([...TRANSCRIPT_TOOLS])
-    expect(conversationDenies("off")).toEqual([...CONVERSATION_TOOLS])
+    expect(conversationDenies("summary").slice(0, TRANSCRIPT_TOOLS.length)).toEqual([...TRANSCRIPT_TOOLS])
+    expect(conversationDenies("off").slice(0, CONVERSATION_TOOLS.length)).toEqual([...CONVERSATION_TOOLS])
     for (const mode of ["summary", "off"] as const) {
       const rules = defaultRules("all", mode)
-      for (const tool of conversationDenies(mode)) expect(evaluate([allow("*"), ...rules], `elevenlabs_${tool}`)).toBe("deny")
+      for (const tool of conversationDenies(mode).filter((action) => !action.includes("*"))) expect(evaluate([allow("*"), ...rules], `elevenlabs_${tool}`)).toBe("deny")
       // The metadata reads that are not transcripts still run.
-      for (const tool of READ_TOOLS.filter((tool) => !conversationDenies(mode).includes(tool))) expect(evaluate(rules, `elevenlabs_${tool}`)).toBe("allow")
+      const denied = (action: string) => conversationDenies(mode).some((rule) => new RegExp(`^elevenlabs_${rule.replaceAll("*", ".*")}$`).test(action))
+      for (const tool of READ_TOOLS.filter((tool) => !denied(`elevenlabs_${tool}`) && !TRANSCRIPT_TOOLS.includes(tool))) expect(evaluate(rules, `elevenlabs_${tool}`)).toBe("allow")
     }
+  })
+
+  // DR-7: a conversation tool ElevenLabs adds later is denied by the patterns, under every access value.
+  test("a conversation tool the table does not know is denied by the patterns, at every access value", () => {
+    const later = ["elevenlabs_agents_get_conversation_audio", "elevenlabs_agents_get_conversation_transcript", "elevenlabs_agents_fetch_transcript", "elevenlabs_agents_list_conversations_v2"]
+    for (const access of ["all", "ask-changes", "read-only"] as const) {
+      const rules = defaultRules(access, "off")
+      for (const action of later) expect({ action, access, effect: evaluate([allow("*"), ...rules], action) }).toEqual({ action, access, effect: "deny" })
+    }
+    // Under `summary` the words are denied and the metadata reads are not.
+    const summary = defaultRules("all", "summary")
+    for (const action of ["elevenlabs_agents_get_conversation_audio", "elevenlabs_agents_get_conversation_transcript"]) {
+      expect(evaluate([allow("*"), ...summary], action)).toBe("deny")
+    }
+    expect(evaluate([allow("*"), ...summary], "elevenlabs_agents_get_conversation")).toBe("deny")
+    expect(evaluate([allow("*"), ...summary], "elevenlabs_agents_list_conversations")).toBe("allow")
   })
 
   test("hasDefaultRules finds the block anywhere after the base allow, and only the right one", () => {

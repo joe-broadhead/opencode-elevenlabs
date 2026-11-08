@@ -36,14 +36,12 @@ import { PLUGIN_ID as ELEVENLABS_PLUGIN_ID, SERVER_NAME } from "../constants.js"
 import { ALL_TOOLS, classify, spends } from "../elevenlabs-tools.js"
 import {
   actualCreditsOf,
-  assertAffordable,
   costLine,
   costValue,
   estimatePrice,
-  generationsOf,
   isEstimate,
   Ledger,
-  priceOf,
+  quoteCallSync,
   SpendRefused,
   type Caps,
   type Price,
@@ -67,12 +65,15 @@ const classOf = (name: string): MethodClass => {
   }
 }
 
-/**
- * The plugin's own tool, as a method. It writes a file, so it is an export and it asserts its own permission inside
- * `run`, exactly as the direct tool does. `run` reads the owning plugin's live input, so a second instance in one
- * process does not inherit the first one's folder.
- */
-const SAVE_METHOD: PluginMethod = {
+/** What the script path needs from setup: the same ledger and caps the model path uses, and the tool's own seam. */
+export interface ToolRuntime {
+  readonly ledger: Ledger
+  readonly caps: () => Caps
+  readonly save?: SaveToolInput
+}
+
+/** The plugin's own tool, as a method. It writes a file, so it is an export and asserts its own permission inside `run`. */
+const saveMethod = (runtime: () => ToolRuntime | undefined): PluginMethod => ({
   kind: "plugin",
   class: "export",
   name: SAVE_ACTION,
@@ -81,11 +82,13 @@ const SAVE_METHOD: PluginMethod = {
   input: SAVE_SCHEMA,
   output: SAVE_OUTPUT,
   async run(input, call) {
-    const save = runtime?.save
+    const save = runtime()?.save
     if (!save) throw new SaveUnavailable()
     return (await runSaveMedia(save, input, call)).output
   },
-}
+})
+
+let current: (() => ToolRuntime | undefined) | undefined
 
 /**
  * Every tool this plugin knows, by exact upstream name, with the class `describe` reports, plus `elevenlabs_save_media`.
@@ -94,7 +97,7 @@ const SAVE_METHOD: PluginMethod = {
  */
 export const METHODS: readonly MethodSpec[] = [
   ...ALL_TOOLS.map((name): MethodSpec => ({ kind: "mcp", name, class: classOf(name) })),
-  SAVE_METHOD,
+  saveMethod(() => current?.()),
 ]
 
 /** The plugin's own refusal for a method whose owning plugin is not set up. */
@@ -106,101 +109,114 @@ class SaveUnavailable extends Error {
   }
 }
 
-/** What the script path needs from setup: the same ledger and caps the model path uses, and the tool's own seam. */
-export interface ToolRuntime {
-  readonly ledger: Ledger
-  readonly caps: () => Caps
-  readonly save?: SaveToolInput
+/**
+ * The shapers a location's tools RPC uses, built from that location's own runtime. There is no module-level runtime: two
+ * locations in one process each price, cap and save with their own ledger, caps and media folder (DR-9).
+ */
+export interface LocationShapers {
+  readonly input: (method: string, input: unknown, call: ShapeCall) => unknown
+  readonly result: (method: string, result: McpResult, call: ShapeCall) => McpResult
 }
 
-let runtime: ToolRuntime | undefined
-/** A price computed before dispatch, and the arguments it was computed for. */
-const pending = new Map<string, { readonly price: Price; readonly input: Record<string, unknown> }>()
-/** The arguments of an `estimate_only` call, so its answer can be remembered against them. */
-const estimating = new Map<string, Record<string, unknown>>()
-
-/** Setup installs the runtime; a later plugin instance replaces it, and the maps start clean. */
-export function setToolRuntime(next: ToolRuntime | undefined) {
-  runtime = next
-  pending.clear()
-  estimating.clear()
+/** The runtime the block's default shapers use. Setup sets it per location; a second location replaces it (DR-9). */
+export function setToolRuntime(runtime: ToolRuntime | undefined) {
+  current = runtime === undefined ? undefined : () => runtime
 }
 
-const key = (call: ShapeCall, method: string) => `${call.sessionID}\u0000${method}`
+/**
+ * One shaper set per runtime, so the price a call reserved is the price its result settles: the pending map lives with
+ * the runtime, not with each invocation.
+ */
+const shaperSets = new WeakMap<ToolRuntime, LocationShapers>()
+
+const shapersOf = (runtime: ToolRuntime) => {
+  const found = shaperSets.get(runtime)
+  if (found) return found
+  const built = shapersFor(runtime)
+  shaperSets.set(runtime, built)
+  return built
+}
+
+/** The block's shapeInput, for a caller that passes no shapers of its own. Setup always passes its own. */
+export function shapeInput(method: string, input: unknown, call: ShapeCall): unknown {
+  const runtime = current?.()
+  return runtime === undefined ? input : shapersOf(runtime).input(method, input, call)
+}
+
+/** The block's shapeResult, for a caller that passes no shapers of its own. */
+export function shapeResult(method: string, result: McpResult, call: ShapeCall): McpResult {
+  const runtime = current?.()
+  return runtime === undefined ? result : shapersOf(runtime).result(method, result, call)
+}
 
 /**
  * What the model path's `execute.before` hooks do to an MCP call's arguments, which the executor skips: it prices the
- * call from ElevenLabs' formula or from a price the script itself fetched with `estimate_only: true`, clamps
- * `generations_count` to what the caps afford, and refuses a call that does not fit before dispatch — so a refused
- * generation reaches no server and spends nothing.
- *
- * It is synchronous by contract. Image and video have no published price, so a script prices them itself first; the
- * model path gets the same price through the hook, which may await the server's own estimate.
+ * call, clamps its generation count and **reserves** the price before dispatch, so a second call that starts at the same
+ * time cannot spend the same budget. It is synchronous by contract; image and video have no published price, so a script
+ * prices them itself first, and the model path gets the same price through the hook, which may await the server's own
+ * estimate.
  */
-export function shapeInput(method: string, input: unknown, call: ShapeCall): unknown {
-  if (!runtime || !spends(method)) return input
-  const args = (typeof input === "object" && input !== null ? input : {}) as Record<string, unknown>
-  if (isEstimate(args)) {
-    estimating.set(key(call, method), args)
-    return input
-  }
-  const caps = runtime.caps()
-  if (caps.sessionCreditCap === null && caps.dailyCreditCap === null) return input
-  let price = priceOf(method, args) ?? runtime.ledger.rememberedPrice(method, args)
-  if (price === undefined) {
-    throw new SpendRefused(
-      "ESTIMATE_REQUIRED",
-      `${method} has no published credit price, so the cap cannot be checked before it runs.`,
-      `Call ${method} once with "estimate_only": true and the same arguments to get its price, then call it again; each call is billed.`,
-    )
-  }
-  const generations = generationsOf(args)
-  if (price.perGeneration !== undefined && generations !== undefined && generations > 1) {
-    const spend = runtime.ledger.spend(call.sessionID)
-    const left = Math.min(
-      caps.sessionCreditCap === null ? Number.POSITIVE_INFINITY : caps.sessionCreditCap - spend.sessionCredits,
-      caps.dailyCreditCap === null ? Number.POSITIVE_INFINITY : caps.dailyCreditCap - spend.dailyCredits,
-    )
-    const allowed = Math.max(1, Math.min(generations, Math.floor(left / price.perGeneration)))
-    if (allowed < generations) {
-      args.generations_count = allowed
-      price = { ...price, credits: price.perGeneration * allowed, parts: [`${allowed} ${allowed === 1 ? "generation" : "generations"}, estimated by ElevenLabs`] }
-    }
-  }
-  assertAffordable({ tool: method, price, caps, spend: runtime.ledger.spend(call.sessionID) })
-  pending.set(key(call, method), { price, input: args })
-  return input
-}
+export function shapersFor(runtime: ToolRuntime): LocationShapers {
+  /** A price computed before dispatch, and the reservation it holds, by call key. */
+  const pending = new Map<string, { readonly price: Price; readonly id: string }>()
+  /** Per method and session, the calls waiting to settle, in the order they reserved. */
+  const queues = new Map<string, string[]>()
+  /** The arguments of an `estimate_only` call, so its answer can be remembered against them. */
+  const estimating = new Map<string, Record<string, unknown>>()
+  const key = (call: ShapeCall, method: string) => `${call.sessionID}\u0000${method}`
 
-/**
- * What the model path's `execute.after` hooks do to a result, which the executor skips: an `estimate_only` answer is
- * remembered against its arguments, and a billed result is charged to the ledger, gets its cost line, and carries the
- * structured `cost` beside its output.
- */
-export function shapeResult(method: string, result: McpResult, call: ShapeCall): McpResult {
-  if (!runtime || !spends(method)) return result
-  const prepared = key(call, method)
-  const args = estimating.get(prepared)
-  if (args !== undefined) {
-    estimating.delete(prepared)
-    const price = estimatePrice(args, result)
-    if (price) runtime.ledger.rememberPrice(method, args, price)
-    return result
+  return {
+    input(method, input, call) {
+      const args = (typeof input === "object" && input !== null ? input : {}) as Record<string, unknown>
+      if (!spends(method)) return input
+      if (isEstimate(args)) {
+        estimating.set(key(call, method), args)
+        return input
+      }
+      const id = `${call.sessionID}\u0000${method}\u0000${randomUUID()}`
+      // Synchronous from the price to the reservation: nothing can slip between the check and the hold.
+      const { price, tracked } = quoteCallSync({ ledger: runtime.ledger, caps: runtime.caps }, method, args, {
+        sessionID: call.sessionID,
+        agent: call.agent,
+        messageID: "",
+        id,
+      })
+      if (tracked) {
+        pending.set(id, { price, id })
+        queues.set(key(call, method), [...(queues.get(key(call, method)) ?? []), id])
+      }
+      return input
+    },
+
+    result(method, result, call) {
+      if (!spends(method)) return result
+      const prepared = key(call, method)
+      const args = estimating.get(prepared)
+      if (args !== undefined) {
+        estimating.delete(prepared)
+        const price = estimatePrice(args, result)
+        if (price) runtime.ledger.rememberPrice(method, args, price)
+        return result
+      }
+      const id = queues.get(prepared)?.shift()
+      if (queues.get(prepared)?.length === 0) queues.delete(prepared)
+      const before = id === undefined ? undefined : pending.get(id)
+      if (id !== undefined) pending.delete(id)
+      const caps = runtime.caps()
+      const reported = actualCreditsOf(result)
+      const price: Price = reported === undefined
+        ? before?.price ?? { credits: 0, basis: "at-most", parts: ["cost not reported"] }
+        : { credits: reported, basis: "exact", parts: [] }
+      // Settle: the reservation becomes the charge, so a parallel call sees it before its own check.
+      const spend = id === undefined ? runtime.ledger.record(call.sessionID, price.credits) : runtime.ledger.settle(id, call.sessionID, price.credits)
+      const line = costLine(price, spend, caps)
+      const value = costValue(price, spend, caps)
+      const output = result.output !== null && typeof result.output === "object" && !Array.isArray(result.output)
+        ? { ...(result.output as Record<string, unknown>), cost: value }
+        : { cost: value }
+      return { ...result, output, text: result.text === "" ? line : `${result.text}\n${line}` }
+    },
   }
-  const before = pending.get(prepared)
-  pending.delete(prepared)
-  const caps = runtime.caps()
-  const reported = actualCreditsOf(result)
-  const price: Price = reported === undefined
-    ? before?.price ?? { credits: 0, basis: "at-most", parts: ["cost not reported"] }
-    : { credits: reported, basis: "exact", parts: [] }
-  const spend = runtime.ledger.record(call.sessionID, price.credits)
-  const line = costLine(price, spend, caps)
-  const value = costValue(price, spend, caps)
-  const output = result.output !== null && typeof result.output === "object" && !Array.isArray(result.output)
-    ? { ...(result.output as Record<string, unknown>), cost: value }
-    : { cost: value }
-  return { ...result, output, text: result.text === "" ? line : `${result.text}\n${line}` }
 }
 
 /** The next step for each code. Each is one sentence that ends with a full stop. */

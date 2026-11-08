@@ -839,6 +839,58 @@
         "readOnlyHint": false,
         "destructiveHint": true
       }
+    },
+    {
+      "name": "creative_generate_music",
+      "description": "Generates a new file and spends the workspace's credits.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "duration_seconds": {
+            "type": "number"
+          },
+          "music_length_ms": {
+            "type": "integer"
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "context": {
+            "type": "string"
+          }
+        },
+        "required": []
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "creative_generate_sound_effect",
+      "description": "Generates a new file and spends the workspace's credits.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "prompt": {
+            "type": "string"
+          },
+          "generations_count": {
+            "type": "integer"
+          },
+          "duration_seconds": {
+            "type": "number"
+          },
+          "context": {
+            "type": "string"
+          }
+        },
+        "required": []
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false
+      }
     }
   ]
 }

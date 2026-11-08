@@ -2,7 +2,7 @@
 // tools-rpc.test.ts.
 import { describe, expect, test } from "bun:test"
 import { PLUGIN_ID as ELEVENLABS_PLUGIN_ID, SERVER_NAME } from "../../src/constants.js"
-import { METHODS, NEXT_STEPS, PLUGIN_ID, setToolRuntime, shapeInput, shapeResult, TOOLS_RPC_ID } from "../../src/host/tools-rpc.js"
+import { METHODS, NEXT_STEPS, PLUGIN_ID, setToolRuntime, shapeInput, shapeResult, shapersFor, TOOLS_RPC_ID } from "../../src/host/tools-rpc.js"
 import { Ledger } from "../../src/billing.js"
 import { defaultRules } from "../../src/permissions.js"
 import { ALL_TOOLS, READ_TOOLS, SPEND_TOOLS, WRITE_TOOLS } from "../../src/elevenlabs-tools.js"
@@ -48,16 +48,16 @@ describe("ElevenLabs' tools RPC", () => {
     } catch (error) {
       refused = error
     }
-    expect((refused as { code?: string }).code).toBe("ESTIMATE_REQUIRED")
+    expect((refused as { code?: string }).code).toBe("PRICE_UNKNOWN")
     setToolRuntime(undefined)
   })
 
-  test("a remembered estimate prices the same arguments, is clamped to the cap, and is charged with a cost line", () => {
+  test("a remembered estimate prices the same arguments, is clamped in the caller's own key, and is charged", () => {
     const spend = runtime()
     setToolRuntime(spend)
     const call = { ...CALL, action: "elevenlabs_creative_generate_image" }
-    const args = { prompt: "a mug", generations_count: 4, context: "price it" }
-    // The script's own estimate: a price for four generations, remembered against these arguments.
+    // DR-6: the caller used `variations`, so the clamp must land there and nowhere else.
+    const args: Record<string, unknown> = { prompt: "a mug", variations: 4, context: "price it" }
     shapeInput("creative_generate_image", { ...args, estimate_only: true }, call)
     const estimated = shapeResult("creative_generate_image", { output: { estimate: { credits: 4000 } }, text: "" }, call)
     expect(estimated.output).toMatchObject({ estimate: { credits: 4000 } })
@@ -65,11 +65,30 @@ describe("ElevenLabs' tools RPC", () => {
     // 2,000 credits of cap and 1,000 per generation: four become two, and the price follows what will run.
     const clamped = { ...args }
     shapeInput("creative_generate_image", clamped, call)
-    expect(clamped.generations_count).toBe(2)
+    expect(clamped).toEqual({ prompt: "a mug", variations: 2, context: "price it" })
+    expect(clamped).not.toHaveProperty("generations_count")
     const paid = shapeResult("creative_generate_image", { output: { flow_id: "f1" }, text: "created" }, call)
-    expect(paid.text).toContain("Credits: 2,000")
+    expect(paid.text).toContain("Credits: at most 2,000")
     expect(paid.text).toContain("2,000 of 10,000 credits today")
-    expect(paid.output).toMatchObject({ cost: { credits: 2000, basis: "exact", sessionSpent: 2000, dailySpent: 2000, sessionCap: 2000, dailyCap: 10000 } })
+    expect(paid.output).toMatchObject({ cost: { credits: 2000, basis: "at-most", sessionSpent: 2000, dailySpent: 2000, sessionCap: 2000, dailyCap: 10000 } })
+    setToolRuntime(undefined)
+  })
+
+  test("two script calls that reserve together cannot both fit (DR-1)", () => {
+    const spend = runtime(2000, 10000)
+    const shapers = shapersFor(spend)
+    const call = { ...CALL, action: "elevenlabs_creative_generate_speech" }
+    const first = { text: "x".repeat(600) }
+    const second = { text: "x".repeat(600) }
+    expect(() => shapers.input("creative_generate_speech", first, call)).not.toThrow()
+    expect(() => shapers.input("creative_generate_speech", second, call)).toThrow("SPEND_CAP_REACHED")
+    expect(spend.ledger.spend("ses_script").sessionCredits).toBe(1200)
+  })
+
+  test("a transcription is priced from its duration, and refused when it does not fit (DR-2)", () => {
+    setToolRuntime(runtime(100, 10000))
+    // 330 credits a minute, and a minute does not fit a 100-credit session.
+    expect(() => shapeInput("creative_transcribe_audio", { duration_seconds: 60 }, { ...CALL, action: "elevenlabs_creative_transcribe_audio" })).toThrow("SPEND_CAP_REACHED")
     setToolRuntime(undefined)
   })
 

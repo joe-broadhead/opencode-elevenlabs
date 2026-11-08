@@ -40,8 +40,9 @@ describe("the tool table", () => {
     expect(new Set(ALL_TOOLS).size).toBe(ALL_TOOLS.length)
   })
 
-  test("is exactly the saved tool list: the 40 attested names, in both directions", () => {
-    expect(ALL_TOOLS).toHaveLength(40)
+  test("is exactly the saved tool list, in both directions", () => {
+    // The fixture starts from the 40 names ElevenLabs' own skills attest, with the two billed tools the table prices.
+    expect(ALL_TOOLS.length).toBeGreaterThanOrEqual(40)
     expect([...ALL_TOOLS].sort()).toEqual([...LIVE_TOOLS].sort())
   })
 

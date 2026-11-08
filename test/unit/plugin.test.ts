@@ -5,7 +5,7 @@ import { join } from "node:path"
 import type { Plugin } from "@opencode/plugin"
 import { ENDPOINT, NAMESPACE_DESCRIPTION, OAUTH_SCOPES, REGIONS } from "../../src/constants.js"
 import elevenlabs from "../../src/index.js"
-import { conflictUrl, createElevenlabsPlugin, displayUrl, regionOf, registerServer, serverConfig } from "../../src/plugin.js"
+import { conflictUrl, createElevenlabsPlugin, displayUrl, guardsSource, regionOf, registerServer, serverConfig } from "../../src/plugin.js"
 import { SKILL_NAMES } from "../../src/skills.js"
 import type { ServerSource } from "../../src/status.js"
 import { READ_TOOLS, SPEND_TOOLS } from "../../src/elevenlabs-tools.js"
@@ -80,6 +80,15 @@ describe("the elevenlabs server", () => {
       expect(servers.get("elevenlabs")).toEqual({ type: "remote", url: REGIONS[region] })
       expect(records).toEqual([[{ type: "stale", url: REGIONS[region], expected: ENDPOINT }, undefined]])
     }
+  })
+
+  // DR-11: the guard's predicate is about money, not ownership: a stale region entry stays guarded.
+  test("guards every ElevenLabs entry, a stale region entry included, and only another vendor's server is unguarded", () => {
+    expect(guardsSource({ type: "plugin", url: ENDPOINT })).toBe(true)
+    expect(guardsSource({ type: "adopted", url: ENDPOINT })).toBe(true)
+    expect(guardsSource({ type: "stale", url: REGIONS.eu, expected: ENDPOINT })).toBe(true)
+    expect(guardsSource({ type: "conflict", url: "https://example.com/mcp", expected: ENDPOINT })).toBe(false)
+    expect(guardsSource(undefined)).toBe(false)
   })
 
   test("reports a server that points elsewhere as a conflict, adds no server, and shows only its origin", async () => {
@@ -257,7 +266,7 @@ describe("setup", () => {
     mcp.run(mcpEditor().editor)
     const rpcContext = { signal: new AbortController().signal, error: (_type: string, _message: string, data: { code: string }) => ({ code: data.code }) }
     const result = await handlers.get("elevenlabs.tools")![SPEND]!({ sessionID: "ses_test", input: { prompt: "a mug", generations_count: 4 } }, rpcContext)
-    expect(result).toEqual({ code: "ESTIMATE_REQUIRED" })
+    expect(result).toEqual({ code: "PRICE_UNKNOWN" })
     expect(calls).toEqual([])
     await cleanup!()
   })

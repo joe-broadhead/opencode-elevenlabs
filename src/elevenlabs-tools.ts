@@ -65,21 +65,42 @@ export const WRITE_TOOLS: readonly string[] = [
 ]
 
 /**
- * Writes that spend the workspace's credits. Their price is a formula (characters, seconds, generations) or, for image
- * and video, known only from ElevenLabs' own estimate.
+ * Writes that spend the workspace's credits. Their price is a formula (characters, minutes, generations) or, for image
+ * and video, known only from ElevenLabs' own estimate. Every generation tool ElevenLabs' skills name is here: a name
+ * missing from this list would spend unguarded, while the model was told it would not (DR-3).
  */
 export const SPEND_TOOLS: readonly string[] = [
   "creative_edit_image",
   "creative_generate_image",
+  "creative_generate_music",
+  "creative_generate_sound_effect",
   "creative_generate_speech",
   "creative_generate_video",
 ]
 
 /**
+ * Reads that spend: Speech to Text is 330 credits a minute. They stay reads for permissions, because `access` is about
+ * changing the workspace, not about money — but the caps always apply (DR-2).
+ */
+export const SPEND_READS: readonly string[] = ["creative_transcribe_audio"]
+
+/** Every call that may spend, whether it writes or reads. The guard runs on these and nothing else. */
+export const SPEND_ANY: readonly string[] = [...SPEND_TOOLS, ...SPEND_READS]
+
+/**
+ * The names a generation tool may carry. ElevenLabs' live list is longer than the 40 attested names, so a tool it adds
+ * later must still be caught by the guard: anything matching this is priced or refused, whatever the table says (DR-3).
+ */
+export const SPEND_NAME = /(?:^|_)(?:generate|generat|compose|synthesi[sz]e|dub|sound|music|speech|video|image|voice_design|isolate|changer|transcri)(?:_|$)/
+
+/** True for a name that may spend even though the table does not know it. */
+export const spendShaped = (name: string) => SPEND_ANY.includes(name) || (name.startsWith("creative_") && SPEND_NAME.test(name))
+
+/**
  * The generation tools that accept `estimate_only: true` and price a run without spending anything. The spending guard
  * calls these itself before a paid call, and a script calls them once to learn a price. ElevenLabs' creative skill
- * documents the flag for speech, image and video; `creative_edit_image` is priced from the last estimate for the same
- * arguments, because its schema is not attested.
+ * documents the flag for speech, image and video; `creative_edit_image` is left out because its schema is not attested,
+ * so it is priced from a remembered estimate or refused with a next step that works (DR-5).
  */
 export const ESTIMATE_TOOLS: readonly string[] = [
   "creative_generate_image",
@@ -118,8 +139,8 @@ export function classify(name: string): ToolClass {
   return "unknown"
 }
 
-/** True for a tool whose call bills the workspace. The guard runs on exactly these. */
-export const spends = (name: string) => SPEND_TOOLS.includes(name)
+/** True for a tool whose call bills the workspace, writes and billed reads alike. */
+export const spends = (name: string) => SPEND_ANY.includes(name)
 
 /** True for a generation tool the guard may price with `estimate_only: true`. */
 export const priced = (name: string) => ESTIMATE_TOOLS.includes(name)

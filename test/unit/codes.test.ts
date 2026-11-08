@@ -59,6 +59,6 @@ describe("codes", () => {
 
   test("docs/scripting.md lists exactly the tools RPC's codes, plus the plugin's two refusals", () => {
     // R1's refusal table: the shared codes, then the plugin's own codes for a refused billed call.
-    expect(tableCodes(SCRIPTING).sort()).toEqual([...RPC_CODES, "ESTIMATE_REQUIRED", "SPEND_CAP_REACHED"].sort())
+    expect(tableCodes(SCRIPTING).sort()).toEqual([...RPC_CODES, "PRICE_UNKNOWN", "SPEND_CAP_REACHED"].sort())
   })
 })

@@ -23,12 +23,21 @@ const actionOf = (tool: string) => `elevenlabs_${tool}`
 const rule = (tool: string, effect: Rule["effect"]): Rule => ({ action: actionOf(tool), resource: "*", effect })
 
 /**
- * The tools `conversations` denies, by exact live name. `summary` keeps the metadata reads and stops the words; `off`
- * stops every read of a call's history. The denies come last, so they win over the block's own allows and over the
- * `elevenlabs_*` namespace rule.
+ * The tools `conversations` denies, by exact live name, then the patterns that catch a conversation tool ElevenLabs adds
+ * later (DR-7). `summary` keeps the metadata reads and stops the words; `off` stops every read of a call's history. The
+ * denies come last, so they win over the block's own allows and over the `elevenlabs_*` namespace rule.
  */
 export const conversationDenies = (conversations: Conversations): readonly string[] =>
-  conversations === "off" ? CONVERSATION_TOOLS : conversations === "summary" ? TRANSCRIPT_TOOLS : []
+  conversations === "off" ? [...CONVERSATION_TOOLS, ...CONVERSATION_PATTERNS] : conversations === "summary" ? [...TRANSCRIPT_TOOLS, ...TRANSCRIPT_PATTERNS] : []
+
+/**
+ * Patterns for the words a tool that returns a call's words carries, whatever it is called exactly. Bare, because the
+ * rule helper adds the `elevenlabs_` prefix.
+ */
+export const TRANSCRIPT_PATTERNS: readonly string[] = ["*transcript*", "*conversation*message*", "*conversation*audio*", "*conversation*recording*"]
+
+/** Patterns that catch any read of a call's history, a new tool included, for `conversations: "off"`. */
+export const CONVERSATION_PATTERNS: readonly string[] = ["*conversation*", "*transcript*", "*call*recording*"]
 
 /**
  * Broad first, narrow last, because the last matching rule wins. Every tool the plugin registers is allowed at
@@ -44,6 +53,7 @@ export const defaultRules = (access: Access = "all", conversations: Conversation
     rule("*", other),
     ...READ_TOOLS.map((tool) => rule(tool, "allow")),
     ...[...EXPORT_TOOLS, ...WRITE_TOOLS, ...SPEND_TOOLS, ...DESTRUCTIVE_TOOLS].map((tool) => rule(tool, other)),
+    // Exact names first, then the patterns: a rule's action may be a pattern, and the last matching rule wins.
     ...conversationDenies(conversations).map((tool) => rule(tool, "deny")),
   ]
 }

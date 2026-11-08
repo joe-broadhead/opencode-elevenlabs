@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { Plugin, type Mcp } from "@opencode/plugin"
 import { readBalance, readKey, registerBalanceIntegration } from "./balance.js"
-import { actualCreditsOf, appendLine, costLine, costValue, estimatePrice, isEstimate, Ledger, priceCall, type Caps, type Price } from "./billing.js"
+import { actualCreditsOf, appendLine, costLine, costValue, estimatePrice, isEstimate, Ledger, quoteCall, type Caps, type Price } from "./billing.js"
 import {
   DISPLAY_NAME,
   errorText,
@@ -14,7 +14,7 @@ import {
 } from "./constants.js"
 import { runDoctor } from "./doctor.js"
 import { checkHost } from "./host-version.js"
-import { registerToolsRpc, setToolRuntime, METHODS } from "./host/tools-rpc.js"
+import { registerToolsRpc, setToolRuntime, shapersFor, METHODS, type ToolRuntime } from "./host/tools-rpc.js"
 import { watchIntegration } from "./integration.js"
 import { addSaveTool } from "./media/tool.js"
 import { spends } from "./elevenlabs-tools.js"
@@ -109,6 +109,13 @@ export function registerServer(
   })
 }
 
+/**
+ * Whether the money guard runs for a server entry (DR-11). It is true for every entry that is ElevenLabs' — the plugin's
+ * own, the user's adopted one, and a stale entry at another region's URL, which OpenCode still connects and still lists
+ * tools for. Only a server at another vendor's URL is not ours to price.
+ */
+export const guardsSource = (source: ServerSource | undefined) => source !== undefined && source.type !== "conflict"
+
 /** The tool name without the server prefix, or undefined when the call is not one of this server's. */
 const toolOf = (id: string) => (id.startsWith(`${SERVER_NAME}_`) ? id.slice(SERVER_NAME.length + 1) : undefined)
 
@@ -168,7 +175,13 @@ export function createElevenlabsPlugin(seam: ElevenlabsSeam = {}) {
       })
       // Code Mode's catalog describes the namespace with this text, unless the server is someone else's; the plugin's
       // own tool lives in the same namespace and is added once.
+      // `managed` decides whether this plugin owns the server entry: it may rename it and add its namespace and tool.
       const managed = () => source?.type === "plugin" || source?.type === "adopted"
+      /**
+       * The guard's own predicate (DR-11): every ElevenLabs entry is guarded, a stale region entry included, because
+       * OpenCode still connects it and still lists its tools. Only another vendor's server at the same name is not ours.
+       */
+      const guarded = () => source !== undefined && source.type !== "conflict"
       await ctx.tool.transform((editor) => {
         if (!managed()) return
         editor.namespace({ name: SERVER_NAME, description: NAMESPACE_DESCRIPTION })
@@ -243,40 +256,57 @@ export function createElevenlabsPlugin(seam: ElevenlabsSeam = {}) {
       )
 
       // Scripts call the known tools with no model, as a session and its agent, under the same ledger and caps.
-      setToolRuntime({
-        ledger,
-        caps,
-        save: { root: options.mediaRoot, maxBytes: options.maxMediaBytes, hosts: mediaHosts, assert: ctx.permission.assert, ...(seam.fetch === undefined ? {} : { fetch: seam.fetch }) },
-      })
+      const save = { root: options.mediaRoot, maxBytes: options.maxMediaBytes, hosts: mediaHosts, assert: ctx.permission.assert, ...(seam.fetch === undefined ? {} : { fetch: seam.fetch }) }
+      const runtime: ToolRuntime = { ledger, caps, save }
+      setToolRuntime(runtime)
       const stopTools = await registerToolsRpc(ctx, {
         methods: METHODS,
         mcp: { server: SERVER_NAME, managed: () => source?.type !== "conflict" },
+        // The shapers are this location's own, so a second location never prices or saves with the first one's ledger.
+        shapers: shapersFor(runtime),
       })
 
       // The spending guard, on both paths. `execute.before` can change an MCP call's arguments and refuse it before it
       // is sent; `execute.after` charges the ledger and adds the cost line. Scripts go through the block's shapers.
       const estimate = estimatorFor(ctx)
-      const pending = new Map<string, { readonly tool: string; readonly price: Price }>()
+      const pending = new Map<string, Price>()
       const stopBefore = await ctx.tool.hook("execute.before", async (event) => {
         const tool = toolOf(event.tool)
-        if (!managed() || tool === undefined) return
+        if (!guarded() || tool === undefined) return
         const args = (typeof event.input === "object" && event.input !== null ? event.input : {}) as Record<string, unknown>
         if (isEstimate(args) || !spends(tool)) return
-        // Only a billed tool is priced; every other call is left exactly as the model sent it.
-        const priced = await priceCall({ ledger, caps, estimate }, tool, args, { sessionID: event.sessionID, agent: event.agent, messageID: event.messageID })
-        if (priced.credits > 0) pending.set(event.id, { tool, price: priced })
+        // Price, clamp, and reserve before dispatch: a call that starts at the same time sees this reservation.
+        const { price, tracked } = await quoteCall({ ledger, caps, estimate }, tool, args, {
+          sessionID: event.sessionID,
+          agent: event.agent,
+          messageID: event.messageID,
+          id: event.id,
+        })
+        if (tracked) pending.set(event.id, price)
       })
       const stopAfter = await ctx.tool.hook("execute.after", async (event) => {
         const tool = toolOf(event.tool)
-        if (!managed() || tool === undefined) return
+        if (!guarded() || tool === undefined) return
         const args = (typeof event.input === "object" && event.input !== null ? event.input : {}) as Record<string, unknown>
         const before = pending.get(event.id)
         pending.delete(event.id)
-        if (event.status !== "completed" || isEstimate(args)) return
-        if (before === undefined && !spends(tool)) return
+        // An estimate is free and is not a charge: remember it, so the paid call that follows can be priced (DR-5).
+        if (isEstimate(args)) {
+          if (event.status === "completed") {
+            const price = estimatePrice(args, { ...(event.result.output === undefined ? {} : { output: event.result.output }), ...(event.result.content === undefined ? {} : { content: event.result.content }) })
+            if (price) ledger.rememberPrice(tool, args, price)
+          }
+          return
+        }
+        if (!spends(tool)) return
+        // A call that failed before it charged anything releases its hold; one that ran settles into a charge.
+        if (event.status !== "completed") {
+          ledger.release(event.id)
+          return
+        }
         const reported = actualCreditsOf(event.result)
-        const price: Price = reported === undefined ? before?.price ?? { credits: 0, basis: "at-most", parts: ["cost not reported"] } : { credits: reported, basis: "exact", parts: [] }
-        const spend = ledger.record(event.sessionID, price.credits)
+        const price: Price = reported === undefined ? before ?? { credits: 0, basis: "at-most", parts: ["cost not reported"] } : { credits: reported, basis: "exact", parts: [] }
+        const spend = before === undefined && reported === undefined ? ledger.spend(event.sessionID) : ledger.settle(event.id, event.sessionID, price.credits)
         const line = costLine(price, spend, caps())
         appendLine(event.result, line)
         // The structured `cost` beside the output, as the tools RPC does: a Code Mode program reads the output, not the
