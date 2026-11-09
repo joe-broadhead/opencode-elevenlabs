@@ -104,3 +104,35 @@ charge is never lost.** `reserve` keeps its check and its hold synchronous, with
 writes the hold's own key and awaits it before dispatch; a failed write takes the hold back out of memory and refuses
 the call. Two machines share nothing. Two locations keep their own tools-RPC shapers. On the script path, one priced
 call per session and method is in flight.
+
+### Argument allowlists
+
+Every tool the guard prices has a list of the argument names it may carry while a cap is on. An argument outside its
+tool's list is one whose effect on the bill this plugin does not know, so the call is refused (`PRICE_UNKNOWN`) and the
+refusal names the argument, rather than being priced as if the argument were not there. With both caps off nothing is
+priced and the same call runs. The lists come from the schemas the plugin knows — `test/fixtures/live-tools.json` and
+the fake server in `test/host/fake-mcp.ts` — and from the names the pricing itself reads. Neither source has been
+checked against a live account, so confirming each priced tool's real argument names is one of the live-reconcile
+steps in `test/fixtures/README.md`.
+
+Every priced call may carry `estimate_only`, `estimateOnly`, `context`, `generations_count`, `generations`,
+`variations` and `num_generations`. Beyond those:
+
+| Tools | Arguments |
+|---|---|
+| `creative_generate_speech`, `creative_speech`, `text_to_speech` | `text`, `script`, `message`, `takes`, `num_takes`, `voice_id`, `model_id` |
+| `creative_transcribe_audio`, `speech_to_text`, `creative_transcription` | `path`, `file`, `file_path`, `audio_path`, `filename`, `audio_file`, `input_file`, `duration_ms`, `audio_duration_ms`, `duration_seconds`, `duration`, `audio_duration_seconds`, `model_id`, `language_code`, `timestamps_granularity`, `diarize`, `use_speaker_library`, `detect_speaker_roles`, `num_speakers`, `diarization_threshold`, `keyterms`, `tag_audio_events`, `entity_detection`, `entity_redaction`, `no_verbatim`, `use_multi_channel`, `multichannel_output_style`, `webhook`, `webhook_id`, `webhook_metadata`, `temperature`, `seed`, `additional_formats`, `file_format`, `enable_logging` |
+| `creative_generate_music`, `creative_compose_music` | `prompt`, `music_length_ms`, `duration_seconds`, `duration`, `composition_plan` |
+| `creative_generate_sound_effect`, `creative_sound_effects` | `prompt`, `duration_seconds` |
+| `creative_generate_image` | `prompt`, `model_id` |
+| `creative_generate_video` | `prompt`, `model_id`, `duration_seconds` |
+
+Two names are deliberately absent. `transcript_edit` is documented as a 30% surcharge billed for at least ten seconds,
+which is a price this plugin does not compute. `connect_from` points the server at a file somewhere this plugin cannot
+measure, and for a transcription the file is the whole of the price. Any other tool has no list, because the guard
+cannot price it at all and a cap already refuses it.
+
+A `composition_plan` is priced at the sum of its sections' `duration_ms` (or `duration_seconds`), and the call is
+priced at whichever is longer, that sum or a length the call states. A plan whose durations cannot be read — no
+sections, a section with no duration, a duration no number can be read out of — is `PRICE_UNKNOWN`. A length above
+ElevenLabs' published maximum is priced as stated: over-pricing a call is the safe side, and no refusal is owed.

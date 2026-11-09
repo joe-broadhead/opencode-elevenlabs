@@ -42,6 +42,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and thi
   be sent; a file that cannot be measured is refused. A price of 0 is a refusal. Speech stays at two takes unless the
   caller asks for more.
 - A `creative_*` tool the price table does not price is refused while a cap is on. There is no keyword list.
+- Every priced tool has an argument allowlist, not transcription alone: while a cap is on, an argument whose effect on
+  the bill this plugin does not know refuses the call by name, on the table path and the server-estimate path alike.
+  `docs/architecture.md` lists every allowlist. A `composition_plan` is priced at the sum of its sections' durations,
+  or at a longer stated length; a plan whose durations cannot be read is refused.
 - A failed call, and a hold still open after ten minutes, is charged the reserved price. A later higher figure may replace
   that charge. A zero or a missing result does not free the budget.
 - A reported figure above the reserved price is always the charge, however far above, clamped at the daily cap so one

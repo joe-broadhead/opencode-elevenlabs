@@ -84,6 +84,9 @@ export function priceOf(name: string, input: Record<string, unknown>): Price | u
   // Case is folded here as it is in `mustPrice` (RR2-8), so a name in another case is priced rather than refused: the
   // guard asks this table for every name it must price, and the two must agree on which names those are.
   const tool = name.toLowerCase()
+  // An argument this plugin has never priced may change what the call is billed, whichever tool carries it, so the
+  // call is not priced rather than priced as if the argument were not there (RR3-6, widened by RR4-3).
+  if (unknownArgument(tool, input) !== undefined) return undefined
   // A transcription prices its own files and so decides for itself which of them were measured; every other priced
   // tool measures none, so any argument naming a file or a URL is audio the server will read and the price will not
   // cover (RR3-7).
@@ -110,12 +113,18 @@ export function priceOf(name: string, input: Record<string, unknown>): Price | u
   }
   if (tool === "creative_generate_music" || tool === "creative_compose_music") {
     const stated = musicLengthsMs(input)
+    // A composition plan asks for music section by section, and a plan of minutes may carry no length field at all;
+    // priced at the three-second floor, that is minutes of music a cap never saw (RR4-3).
+    const plan = planLengthMs(input["composition_plan"])
+    if (plan === NOT_A_LENGTH) return undefined
     // No length at all is the server's own default, which this plugin cannot know: PRICE_UNKNOWN, not a guess. So is
     // a length field holding something no number can be read out of.
-    if (stated === undefined || stated.length === 0) return undefined
+    if (stated === undefined) return undefined
+    const lengths = plan === undefined ? stated : [...stated, plan]
+    if (lengths.length === 0) return undefined
     // A caller number may raise a price and may not lower one (RR-1). A call that states a length twice may generate
     // the longer of them, so the longer is what it is priced at, whichever key holds it and in whichever order.
-    const asked = Math.max(...stated)
+    const asked = Math.max(...lengths)
     const milliseconds = Math.max(asked, MUSIC_MIN_MS)
     const minutes = milliseconds / 60_000
     const credits = Math.ceil(minutes * RATES.musicPerMinute)
@@ -159,6 +168,34 @@ const musicLengthsMs = (input: Record<string, unknown>): number[] | undefined =>
 
 /** A length field that holds something no length can be read out of. One such field is the whole call's price (RR3-9). */
 const NOT_A_LENGTH = Symbol("not a length")
+
+/** More sections than any composition plan a person writes. Past it the plan is not one this plugin reads. */
+const MAX_PLAN_SECTIONS = 1_000
+
+/**
+ * The music a composition plan asks for, in milliseconds: the sum of its sections' own durations. The plan is the
+ * length when it is longer than anything the call states, because that is the music the server will generate and
+ * bill. A plan whose durations cannot be read — not an object, no sections, a section with no duration or with one no
+ * number can be read out of — is PRICE_UNKNOWN, not a plan worth nothing.
+ */
+const planLengthMs = (value: unknown): number | undefined | typeof NOT_A_LENGTH => {
+  if (value === undefined || value === null) return undefined
+  if (typeof value !== "object" || Array.isArray(value)) return NOT_A_LENGTH
+  const sections = (value as { sections?: unknown }).sections
+  if (!Array.isArray(sections) || sections.length === 0 || sections.length > MAX_PLAN_SECTIONS) return NOT_A_LENGTH
+  let total = 0
+  for (const section of sections) {
+    if (section === null || typeof section !== "object" || Array.isArray(section)) return NOT_A_LENGTH
+    const fields = section as Record<string, unknown>
+    const milliseconds = lengthValue(fields["duration_ms"])
+    const seconds = lengthValue(fields["duration_seconds"])
+    if (milliseconds === NOT_A_LENGTH || seconds === NOT_A_LENGTH) return NOT_A_LENGTH
+    const length = milliseconds ?? (seconds === undefined ? undefined : seconds * 1_000)
+    if (length === undefined || !(length > 0)) return NOT_A_LENGTH
+    total += length
+  }
+  return total > 0 ? total : NOT_A_LENGTH
+}
 
 /**
  * The length a field states. A caller that wrote `"30000"` asked for thirty seconds, so a numeric string is read as the
@@ -216,6 +253,61 @@ const TRANSCRIPTION_ARGUMENTS = new Set<string>([
   "file_format",
   "enable_logging",
 ])
+
+/**
+ * Argument names any priced call may carry: the ones the guard reads itself, and the one every tool in the known
+ * list declares. `connect_from` is deliberately absent, as `transcript_edit` is: it points the server at a file
+ * somewhere this plugin cannot measure, which is the whole of a transcription's price.
+ */
+const COMMON_ARGUMENTS = ["estimate_only", "estimateOnly", "context", ...GENERATION_KEYS] as const
+
+/** Speech: ElevenLabs' own schema for it, and the names the pricing reads for the text and the take count. */
+const SPEECH_ARGUMENTS = new Set<string>([...COMMON_ARGUMENTS, "text", "script", "message", "takes", "num_takes", "voice_id", "model_id"])
+
+/** Music: ElevenLabs' own schema, the second and third length keys the pricing reads, and the composition plan. */
+const MUSIC_ARGUMENTS = new Set<string>([...COMMON_ARGUMENTS, "prompt", "music_length_ms", "duration_seconds", "duration", "composition_plan"])
+
+/** Sound effects: ElevenLabs' own schema. The rate is per generation, so a length changes nothing about the price. */
+const SOUND_EFFECT_ARGUMENTS = new Set<string>([...COMMON_ARGUMENTS, "prompt", "duration_seconds"])
+
+/** Image: ElevenLabs' own schema. The price is the server's own estimate for these arguments, so they must be these. */
+const IMAGE_ARGUMENTS = new Set<string>([...COMMON_ARGUMENTS, "prompt", "model_id"])
+
+/** Video: ElevenLabs' own schema, which states a length. */
+const VIDEO_ARGUMENTS = new Set<string>([...COMMON_ARGUMENTS, "prompt", "model_id", "duration_seconds"])
+
+/**
+ * Every priced tool's argument allowlist, by the names this plugin prices under. Ruling A gave transcription one
+ * because an argument the pricing has never seen may change what the call is billed; that is true of every tool it
+ * prices, so each one has a list, and an argument outside it is PRICE_UNKNOWN while a cap is on rather than priced
+ * as if it were not there. The names come from the schemas the plugin knows — `test/fixtures/live-tools.json` and the
+ * fake server — plus the ones the pricing itself reads. Both are provisional until the live reconcile confirms them;
+ * `docs/architecture.md` lists every one of these sets, and the checklist there carries that step.
+ *
+ * A tool with no list is a tool this plugin cannot price at all, which a cap already refuses.
+ */
+export const PRICED_ARGUMENTS: ReadonlyMap<string, ReadonlySet<string>> = new Map<string, ReadonlySet<string>>([
+  ["creative_generate_speech", SPEECH_ARGUMENTS],
+  ["creative_speech", SPEECH_ARGUMENTS],
+  ["text_to_speech", SPEECH_ARGUMENTS],
+  ["creative_transcribe_audio", TRANSCRIPTION_ARGUMENTS],
+  ["speech_to_text", TRANSCRIPTION_ARGUMENTS],
+  ["creative_transcription", TRANSCRIPTION_ARGUMENTS],
+  ["creative_generate_music", MUSIC_ARGUMENTS],
+  ["creative_compose_music", MUSIC_ARGUMENTS],
+  ["creative_generate_sound_effect", SOUND_EFFECT_ARGUMENTS],
+  ["creative_sound_effects", SOUND_EFFECT_ARGUMENTS],
+  ["creative_generate_image", IMAGE_ARGUMENTS],
+  ["creative_generate_video", VIDEO_ARGUMENTS],
+])
+
+/** The first argument a priced call carries that its tool's allowlist does not have, in words the caller can act on. */
+export function unknownArgument(name: string, input: Record<string, unknown>): string | undefined {
+  const allowed = PRICED_ARGUMENTS.get(name.toLowerCase())
+  if (allowed === undefined) return undefined
+  const unknown = Object.keys(input).find((argument) => !allowed.has(argument))
+  return unknown === undefined ? undefined : `"${unknown}" is an argument whose effect on the bill this plugin does not know`
+}
 
 /** A call that measured no file of its own. Every path it names is then one the price does not cover. */
 const NO_MEASURED_PATHS: ReadonlySet<string> = new Set<string>()
@@ -1167,9 +1259,9 @@ const isTranscription = (tool: string) => tool === "creative_transcribe_audio" |
  */
 export function priceObstacle(name: string, input: Record<string, unknown>): string | undefined {
   const tool = name.toLowerCase()
+  const unknown = unknownArgument(tool, input)
+  if (unknown !== undefined) return unknown
   if (!isTranscription(tool)) return unpriceableArgument(input, NO_MEASURED_PATHS)
-  const unknown = Object.keys(input).find((argument) => !TRANSCRIPTION_ARGUMENTS.has(argument))
-  if (unknown !== undefined) return `"${unknown}" is an argument whose effect on the bill this plugin does not know`
   const measured = measureAudio(input)
   if (measured === undefined) return "no argument names a local PCM WAV file this plugin can measure"
   return unpriceableArgument(input, measured.paths)
@@ -1181,6 +1273,10 @@ async function quote(context: GuardInput, tool: string, args: Record<string, unk
   if (caps.sessionCreditCap === null && caps.dailyCreditCap === null) {
     return { price: priceOf(tool, args) ?? { credits: 0, basis: "at-most", parts: ["cost not tracked: both caps are off"] }, tracked: false }
   }
+  // An argument no allowlist has is refused here as well as in the table, so the server's own estimate cannot price
+  // around it: the estimate answers for the arguments it is sent, and this is one whose effect nothing here knows.
+  const unknown = unknownArgument(tool, args)
+  if (unknown !== undefined) throw unknownPrice(tool, priced(tool), unknown)
   let price = priceOf(tool, args)
   if (price === undefined && mayEstimate && priced(tool) && context.estimate) {
     price = await context.estimate(tool, args, call)
@@ -1204,6 +1300,10 @@ function quoteSync(context: Omit<GuardInput, "estimate">, tool: string, args: Re
   if (caps.sessionCreditCap === null && caps.dailyCreditCap === null) {
     return { price: priceOf(tool, args) ?? { credits: 0, basis: "at-most", parts: ["cost not tracked: both caps are off"] }, tracked: false }
   }
+  // An argument no allowlist has is refused here as well as in the table, so the server's own estimate cannot price
+  // around it: the estimate answers for the arguments it is sent, and this is one whose effect nothing here knows.
+  const unknown = unknownArgument(tool, args)
+  if (unknown !== undefined) throw unknownPrice(tool, priced(tool), unknown)
   let price = priceOf(tool, args) ?? context.ledger.rememberedPrice(tool, args)
   if (price === undefined || !(price.credits > 0)) throw unknownPrice(tool, priced(tool), priceObstacle(tool, args))
   price = clamp(price, caps, args, context.ledger.spend(call.sessionID))

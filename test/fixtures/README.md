@@ -29,6 +29,9 @@ Money facts the code assumes, each measured here before the provisional label co
 7. **`external_directory`:** whether OpenCode asks for it on a plugin tool that writes with `node:fs`; the plugin asserts
    it either way.
 8. **The conversation tool names**, so the `conversations` patterns cover every one.
+9. **The argument names**: confirm each priced tool's real argument names against the live schemas, and reconcile the
+   allowlists in `docs/architecture.md` with them. A name the live schema has and the list does not refuses an ordinary
+   call while a cap is on; a name that changes the bill and is on the list prices a call for less than it costs.
 
 ## Reconciling (the one drop-in form)
 

@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url"
 import {
   Ledger,
   measureAudio,
+  PRICED_ARGUMENTS,
   priceOf,
   quoteCall,
   quoteCallSync,
@@ -334,6 +335,93 @@ describe("RR4-2 — a higher figure always raises the charge, clamped at the day
     expect(() => shapers.input("creative_generate_speech", { text: "x".repeat(1_500) }, call)).toThrow(/SPEND_CAP_REACHED/)
     now += 25 * HOUR
     expect(() => shapers.input("creative_generate_speech", { text: "x".repeat(1_500) }, call)).not.toThrow()
+  })
+})
+
+describe("RR4-3 — every priced tool has an argument allowlist, and a composition plan has a length", () => {
+  const noCaps = (tool: string, input: Record<string, unknown>) => {
+    const ledger = new Ledger()
+    const caps = () => ({ sessionCreditCap: null, dailyCreditCap: null })
+    return quoteCallSync({ ledger, caps }, tool, input, { sessionID: "ses_a", agent: "build", messageID: "m1", id: "c2" })
+  }
+
+  const section = (durationMs: number) => ({ section_name: "part", positive_local_styles: ["warm"], duration_ms: durationMs })
+
+  /** One priced call per family, each carrying one argument no allowlist has. */
+  const UNKNOWN_ARGUMENT_CALLS = [
+    ["creative_generate_speech", { text: "hello", pronunciation_dictionary_locators: ["x"] }],
+    ["creative_generate_music", { music_length_ms: 30_000, loop_count: 4 }],
+    ["creative_generate_image", { prompt: "a cat", reference_image_url_count: 2 }],
+  ] as const
+
+  test("a plan with no length field is priced at the sum of its sections", () => {
+    // A plan of two and a half minutes beside a ten-second `music_length_ms` priced at 150 credits, not 2,250: the
+    // length field was read and the plan, which is the music the server generates and bills, was not. A plan with no
+    // length field at all was refused, so this call could not run under a cap however honest it was.
+    const plan = { positive_global_styles: ["ambient"], sections: [section(90_000), section(60_000)] }
+    expect(priceOf("creative_compose_music", { composition_plan: plan })).toMatchObject({ credits: 2_250 })
+    // A stated length does not lower the plan's own sum, and a longer stated length wins over it.
+    expect(priceOf("creative_compose_music", { composition_plan: plan, music_length_ms: 10_000 })?.credits).toBe(2_250)
+    expect(priceOf("creative_compose_music", { composition_plan: plan, music_length_ms: 300_000 })?.credits).toBe(4_500)
+  })
+
+  test("a plan whose durations cannot be read is not priced at all", () => {
+    for (const plan of [{ sections: [] }, { sections: [{ section_name: "part" }] }, { sections: [section(30_000), { duration_ms: "soon" }] }, "a plan", { sections: {} }] as const) {
+      expect({ plan, price: priceOf("creative_compose_music", { composition_plan: plan }) }).toEqual({ plan, price: undefined })
+    }
+    expect(refusal("creative_compose_music", { composition_plan: { sections: [{ section_name: "part" }] } })?.code).toBe("PRICE_UNKNOWN")
+  })
+
+  test("an argument the pricing does not understand refuses the call while a cap is on", () => {
+    // Both of these were priced as if the argument were not there: 10 credits and 450, against a bill neither the
+    // plugin nor the owner knows the shape of.
+    for (const [tool, input] of UNKNOWN_ARGUMENT_CALLS.filter(([tool]) => tool !== "creative_generate_image")) {
+      const refused = refusal(tool, { ...input })
+      expect({ tool, code: refused?.code }).toEqual({ tool, code: "PRICE_UNKNOWN" })
+      expect(refused?.message).toContain("whose effect on the bill this plugin does not know")
+    }
+    // The same arguments without the unknown one are priced as they always were.
+    expect(priceOf("creative_generate_speech", { text: "hello" })?.credits).toBe(10)
+    expect(priceOf("creative_generate_music", { music_length_ms: 30_000 })?.credits).toBe(450)
+  })
+
+  test("the server's own estimate does not price around an unknown argument either", async () => {
+    // Image has no published price, so the model path asks ElevenLabs to price the call. The estimate answers for the
+    // arguments it is sent, and this is one whose effect nothing here knows, so it is not sent at all.
+    const ledger = new Ledger()
+    const caps = () => ({ sessionCreditCap: 100_000, dailyCreditCap: 100_000 })
+    let asked = 0
+    const estimate = async () => {
+      asked += 1
+      return { credits: 60, basis: "exact" as const, parts: ["ElevenLabs' estimate"] }
+    }
+    const call = { sessionID: "ses_a", agent: "build", messageID: "m1", id: "c3" }
+    const refused = await quoteCall({ ledger, caps, estimate }, "creative_generate_image", { prompt: "a cat", reference_image_url_count: 2 }, call).then(
+      () => undefined,
+      (error: unknown) => error as SpendRefused,
+    )
+    expect({ code: refused?.code, asked }).toEqual({ code: "PRICE_UNKNOWN", asked: 0 })
+    // Without it the estimate prices the call, as it always did.
+    const quoted = await quoteCall({ ledger, caps, estimate }, "creative_generate_image", { prompt: "a cat" }, { ...call, id: "c4" })
+    expect({ credits: quoted.price.credits, asked }).toEqual({ credits: 60, asked: 1 })
+  })
+
+  test("the same calls run with both caps off", () => {
+    // A cap is what makes an unknown argument a refusal: with no cap there is no bound to be wrong about.
+    for (const [tool, input] of UNKNOWN_ARGUMENT_CALLS) {
+      const quote = noCaps(tool, { ...input })
+      expect({ tool, tracked: quote.tracked }).toEqual({ tool, tracked: false })
+    }
+  })
+
+  test("every allowlist is written down in the architecture guide", () => {
+    const guide = readFileSync(join(ROOT, "docs/architecture.md"), "utf8")
+    for (const [tool, allowed] of PRICED_ARGUMENTS) {
+      expect({ tool, listed: guide.includes(tool) }).toEqual({ tool, listed: true })
+      for (const argument of allowed) expect({ tool, argument, listed: guide.includes(`\`${argument}\``) }).toEqual({ tool, argument, listed: true })
+    }
+    // And the live checklist carries the step that keeps them honest.
+    expect(readFileSync(join(ROOT, "test/fixtures/README.md"), "utf8")).toContain("confirm each priced tool's real argument names")
   })
 })
 
