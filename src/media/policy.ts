@@ -312,20 +312,43 @@ function laterDataFrom(read: ChunkReader, offset: number, fileSize: number): boo
 }
 
 /**
+ * The two readings a RIFF/WAVE file admits, and which one a price is taken at. Both are the `data` chunk's bytes at
+ * the rate the `fmt ` fields imply; they differ only in how many bytes `data` holds when the file disagrees with
+ * itself.
+ */
+export interface RiffReading {
+  /** The seconds the price is taken at: the longer of the two, except where the stated size is believed. */
+  readonly seconds: number
+  /** The seconds the `data` size field states, clamped to the bytes that really follow it. */
+  readonly stated: number
+  /** The seconds every byte after `data` comes to. */
+  readonly toTheEnd: number
+  /** True when the `data` size understates the bytes that follow and the longer reading was taken (RR4-8). */
+  readonly understated: boolean
+}
+
+/**
  * The seconds of audio a decoder reads out of a RIFF/WAVE file: the `data` chunk's bytes at the rate its `fmt `
  * fields imply. The audio is every byte that follows `data`, because a `data` size that understates the audio is
- * ordinary — a truncated file, one still being written, a bad mux — and the server reads to the end of what it is
- * sent. The stated size is believed only when a well-formed chunk begins exactly where it ends, pad byte included,
- * which is what a real trailing `LIST` or cue block looks like; then the rest is metadata, not audio.
- * A size that overstates the audio is always clamped to the bytes that really follow. Both directions leave the
- * error on the over-priced side, which is the safe one: a cap must never admit a call it could not afford.
+ * ordinary — a truncated file, one still being written, a bad mux — and a decoder that reads to the end of what it
+ * is sent bills for all of it. The stated size is believed only when a well-formed chunk begins exactly where it
+ * ends, pad byte included, which is what a real trailing `LIST` or cue block looks like; then the rest is metadata,
+ * not audio. A size that overstates the audio is always clamped to the bytes that really follow. Both directions
+ * leave the error on the over-priced side, which is the safe one: a cap must never admit a call it could not afford.
+ *
+ * How ElevenLabs' server reads such a file is not measured. Both decoders to hand stop at the stated size — macOS
+ * `afinfo` and Python's `wave` both call 480,000 bytes of audio behind a `data` size of 8,000 one second long — so
+ * on their behaviour this reading is 55 times too long for a file a cap must then afford. It is kept because it
+ * cannot under-price, and the shorter reading can; which one the server bills is item 7 of the live reconcile in
+ * `test/fixtures/README.md`. Until that is measured, the cost line names the reading it used, so an owner looking
+ * at a bill can see it.
  *
  * A second `data` chunk is not metadata, and it is not measured either. CoreAudio reads the last `data` chunk and
  * Python's `wave` the first, so how long such a file is depends on which decoder opens it, and nothing here says
  * which one ElevenLabs' server uses. A length this plugin cannot know is not one it guesses at: the file is
  * unmeasured, and a call that needs its length is refused with `PRICE_UNKNOWN` while a cap is on (RR4-7).
  */
-export function riffSecondsWith(read: ChunkReader, fileSize: number): number | undefined {
+export function riffReadingWith(read: ChunkReader, fileSize: number): RiffReading | undefined {
   const riff = riffPcmWith(read, fileSize)
   if (riff === undefined || riff.laterData) return undefined
   const following = Math.max(0, fileSize - riff.dataOffset)
@@ -333,7 +356,18 @@ export function riffSecondsWith(read: ChunkReader, fileSize: number): number | u
   const trailing = stated < following && chunkStartsAt(read, riff.dataOffset + stated + (stated % 2), fileSize)
   const bytes = trailing ? stated : following
   const perSecond = bytesPerSecondOf(riff.format)
-  return bytes > 0 && perSecond > 0 ? seconds(bytes / perSecond) : undefined
+  if (!(bytes > 0) || !(perSecond > 0)) return undefined
+  return {
+    seconds: seconds(bytes / perSecond),
+    stated: seconds(Math.min(stated, following) / perSecond),
+    toTheEnd: seconds(following / perSecond),
+    understated: bytes > stated,
+  }
+}
+
+/** The seconds a price is taken at, which is `riffReadingWith`'s own reading. */
+export function riffSecondsWith(read: ChunkReader, fileSize: number): number | undefined {
+  return riffReadingWith(read, fileSize)?.seconds
 }
 
 /** More boxes than any container the save tool writes down. Past it the file is not one this walk reads. */

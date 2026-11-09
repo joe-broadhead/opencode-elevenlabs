@@ -161,10 +161,20 @@ ElevenLabs' published maximum is priced as stated: over-pricing a call is the sa
 different things on purpose.
 
 The guard measures a local PCM WAV the way a decoder does — the `fmt ` fields and the `data` bytes — and refuses every
-other container (`PRICE_UNKNOWN`). It calls `riffSecondsWith` itself. Nothing it reads is a figure the file states
+other container (`PRICE_UNKNOWN`). It calls `riffReadingWith` itself. Nothing it reads is a figure the file states
 about itself, because a file that sets its own duration would set its own price. A WAV holding more than one `data`
 chunk is refused as well: CoreAudio reads the last such chunk and Python's `wave` the first, so its length depends on
 which decoder opens it, and a rule that picked one would be picking the cheaper reading of a file.
+
+A `data` size that understates the bytes after it — a truncated file, one still being written, a bad mux — admits two
+readings, and `riffReadingWith` returns both. The price is taken at the longer one, every byte after `data`, unless a
+well-formed chunk begins exactly where the stated size ends, which is what real trailing metadata looks like. Which
+reading ElevenLabs' server bills is not measured: both decoders to hand, macOS `afinfo` and Python's `wave`, stop at
+the stated size, so on their behaviour a file stating 8,000 bytes while holding 480,000 is priced 55 times too long.
+It is priced that way because the shorter reading can under-price a cap and the longer one cannot, and because this is
+the over-priced side a cap refuses rather than overspends on. The cost line names the reading it used, so an owner
+reading a bill can see it, and measuring the server's real behaviour is item 10 of the live reconcile in
+`test/fixtures/README.md`.
 
 A measured price is only as good as the instant it was taken, so the guard stamps every file it names — device, inode,
 size and last modification — before the measurement reads a byte, and again immediately before the hold. A stamp that

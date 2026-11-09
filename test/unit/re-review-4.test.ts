@@ -1,11 +1,12 @@
 // Reproductions from the fourth re-review. Each one failed at 6c21964 and must pass after the fix. RR4-1 to RR4-4
 // were answered in the round before this one and keep their tests in `re-review-3.test.ts`.
 import { afterAll, describe, expect, test } from "bun:test"
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { ENDPOINT } from "../../src/constants.js"
 import { audioStamps, changedFile, countValue, ESTIMATE_TOOLS, mustPrice, estimatePrice, Ledger, measureAudio, NOT_A_COUNT, priceObstacle, priceOf, PRICED_ARGUMENTS, quoteCall, quoteCallSync, RATED_TOOLS, RESERVATION_MS, settlementOf, transcriptionPrice } from "../../src/billing.js"
+import { riffReadingWith } from "../../src/media/policy.js"
 import { buildWav, understatedThenJunk, WAV_FIXTURES } from "../fixtures/wav.js"
 import { sharedStore } from "../fixtures/store.js"
 import { createElevenlabsPlugin } from "../../src/plugin.js"
@@ -479,5 +480,77 @@ describe("RR4-12 — a refusal names the argument that caused it, and never deni
     // And a rated tool really is priced from the rate, not from an estimate that happens to be remembered.
     expect(priceOf("creative_generate_music", { music_length_ms: 60_000 })?.credits).toBe(900)
     expect(priceOf("creative_generate_sound_effect", { prompt: "a door" })?.credits).toBe(200)
+  })
+})
+
+describe("RR4-8 — the reading a price was taken at is named, not assumed", () => {
+  const root = mkdtempSync(join(tmpdir(), "elevenlabs-rr4-8-"))
+  afterAll(() => rmSync(root, { recursive: true, force: true }))
+  const file = (name: string, bytes: Buffer) => {
+    const path = join(root, name)
+    writeFileSync(path, bytes)
+    return path
+  }
+  /** The same reader the pricing uses, over a buffer, so the two readings can be compared without a file. */
+  const reading = (bytes: Buffer) => riffReadingWith((offset, length) => bytes.subarray(offset, offset + length), bytes.length)
+
+  test("a `data` size that understates the file gives two readings, and the price is the longer", () => {
+    // 8 kHz mono 8-bit: the `data` header states 8,000 bytes, one second, and 480,000 follow it. `afinfo` and
+    // Python's `wave` both read the stated second. This plugin prices the sixty, because the shorter reading can
+    // under-price a cap and the longer one cannot — but which it used is no longer only in a comment.
+    const both = reading(understatedThenJunk())
+    expect(both).toEqual({ seconds: 60, stated: 1, toTheEnd: 60, understated: true })
+    expect(both!.seconds).toBe(both!.toTheEnd)
+  })
+
+  test("the cost line names the reading, so a 55x bill is visible rather than inferred", () => {
+    const path = file("understated-then-junk.wav", understatedThenJunk())
+    const price = transcriptionPrice({ path })
+    // 60 seconds at 330 a minute, where the file's own `data` size says 6.
+    expect(price?.credits).toBe(330)
+    expect(price?.parts).toContain("the data chunk states less than the file holds, so every byte after it is priced as audio")
+    // And the owner sees it through the guard, not just in the unit price.
+    const quoted = quoteCallSync(
+      { ledger: new Ledger(), caps: () => ({ sessionCreditCap: 100_000, dailyCreditCap: 100_000 }) },
+      "creative_transcribe_audio",
+      { path },
+      { sessionID: "ses_a", agent: "build", messageID: "m1", id: "c1" },
+    )
+    expect(quoted.price.parts.join(" | ")).toContain("every byte after it is priced as audio")
+  })
+
+  test("a file that does not disagree with itself says nothing about a reading", () => {
+    for (const [name, build] of [
+      // The ordinary file: the stated size is the audio, and both readings are the same.
+      ["canonical", WAV_FIXTURES.canonical],
+      // A real trailing chunk begins where the stated size ends, so the stated size is believed and is not understated.
+      ["trailing", WAV_FIXTURES.trailing],
+      // An overstated size is clamped to the bytes that follow, which is the shorter reading, not the longer.
+      ["overstated", WAV_FIXTURES.overstated],
+    ] as const) {
+      const path = file(`${name}.wav`, build())
+      const both = reading(build())
+      expect(`${name}: ${both?.understated}`).toBe(`${name}: false`)
+      expect(`${name}: ${both?.seconds}`).toBe(`${name}: ${measureAudio({ path })?.durationSeconds}`)
+      expect(`${name}: ${transcriptionPrice({ path })?.parts.join(" | ")}`).not.toContain("every byte after it")
+    }
+    // The clamp really is the short one: sixty seconds of audio under a size field claiming ten minutes.
+    expect(reading(WAV_FIXTURES.overstated())).toEqual({ seconds: 60, stated: 60, toTheEnd: 60, understated: false })
+    // And a real trailing chunk keeps the stated reading even though far more of the file follows `data`.
+    expect(reading(WAV_FIXTURES.trailing())).toEqual({ seconds: 1, stated: 1, toTheEnd: 13.501, understated: false })
+  })
+
+  test("the comment's premise is a live-checklist item, not an assertion about the server", () => {
+    // The comment wraps, so the prose is read with its line breaks and leading asterisks taken out.
+    const policy = readFileSync(new URL("../../src/media/policy.ts", import.meta.url), "utf8").replace(/\s+\*\s+/g, " ").replace(/\s+/g, " ")
+    // At 6c21964 this asserted "the server reads to the end of what it is sent", which no decoder to hand does and
+    // nothing here has measured. It now names the decoders that were tried and what they did.
+    expect(policy).not.toContain("the server reads to the end of what it is sent")
+    expect(policy).toContain("How ElevenLabs' server reads such a file is not measured")
+    expect(policy).toContain("afinfo")
+    expect(policy).toContain("Python's `wave`")
+    const checklist = readFileSync(new URL("../fixtures/README.md", import.meta.url), "utf8")
+    expect(checklist).toContain("How much of an understating `data` chunk is billed")
+    expect(checklist).toContain("riffReadingWith")
   })
 })

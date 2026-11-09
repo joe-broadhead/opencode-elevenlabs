@@ -35,6 +35,13 @@ Money facts the code assumes, each measured here before the provisional label co
 9. **The argument names**: confirm each priced tool's real argument names against the live schemas, and reconcile the
    allowlists in `docs/architecture.md` with them. A name the live schema has and the list does not refuses an ordinary
    call while a cap is on; a name that changes the bill and is on the list prices a call for less than it costs.
+10. **How much of an understating `data` chunk is billed.** Send a WAV whose `data` size states 8,000 bytes while
+    480,000 follow it — `understatedThenJunk` in `test/fixtures/wav.ts` builds one — and read the charge. Both
+    decoders to hand stop at the stated size: macOS `afinfo` and Python's `wave` each call that file one second long,
+    where this plugin prices sixty. It prices the longer reading because the shorter one can under-price and this one
+    cannot, so it is 55 times too long if the server agrees with those decoders, and right if the server reads to the
+    end of what it is sent. Measure it: if the stated size is what is billed, `riffReadingWith` can believe it, and
+    the cost line's "every byte after it is priced as audio" part goes with it.
 
 ## Reconciling (the one drop-in form)
 

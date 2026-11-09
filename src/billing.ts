@@ -3,7 +3,7 @@ import { closeSync, openSync, statSync } from "node:fs"
 import type { Plugin } from "@opencode/plugin"
 import { elevenlabsError, type PluginCode } from "./constants.js"
 import { ESTIMATE_TOOLS, mustPrice, priced, spends } from "./elevenlabs-tools.js"
-import { fileReader, riffSecondsWith } from "./media/policy.js"
+import { fileReader, type RiffReading, riffReadingWith } from "./media/policy.js"
 import type { CreditCap } from "./options.js"
 
 /**
@@ -438,8 +438,8 @@ export function unpriceableArgument(input: Record<string, unknown>, measured: Re
  * bytes clamped to the bytes that really follow it, and the seconds come from the rate the `fmt ` fields imply. Any
  * other container states no duration this plugin will trust, so it is not measured and so is not priced.
  */
-export function measureAudio(input: Record<string, unknown>): { readonly durationSeconds: number; readonly paths: ReadonlySet<string> } | undefined {
-  let longest: number | undefined
+export function measureAudio(input: Record<string, unknown>): { readonly durationSeconds: number; readonly paths: ReadonlySet<string>; readonly understated: boolean } | undefined {
+  let longest: RiffReading | undefined
   const paths = new Set<string>()
   // The fixed list is walked, not the caller's keys, so two names for two files give one price whichever order they
   // are written in. Every one of them is measured: the server may read the argument this plugin passed over.
@@ -456,13 +456,14 @@ export function measureAudio(input: Record<string, unknown>): { readonly duratio
     // A named file this plugin cannot measure is one the call may still send: a price covering the rest is no price.
     if (measured === undefined) return undefined
     paths.add(value)
-    if (longest === undefined || measured > longest) longest = measured
+    if (longest === undefined || measured.seconds > longest.seconds) longest = measured
   }
-  return longest === undefined ? undefined : { durationSeconds: longest, paths }
+  // The flag belongs to the file the price came from: that is the reading the cost line names (RR4-8).
+  return longest === undefined ? undefined : { durationSeconds: longest.seconds, paths, understated: longest.understated }
 }
 
 /** One local file's duration, or undefined when it cannot be read or its container states nothing measurable. */
-function measureFile(path: string): number | undefined {
+function measureFile(path: string): RiffReading | undefined {
   let fd: number | undefined
   try {
     const stat = statSync(path)
@@ -470,8 +471,8 @@ function measureFile(path: string): number | undefined {
     fd = openSync(path, "r")
     // The walk reads chunk headers at the offsets the chunks give, so a `data` chunk behind 100 kB of broadcast
     // metadata is reached without reading the audio, and the file's own size bounds every read.
-    const durationSeconds = riffSecondsWith(fileReader(fd, stat.size), stat.size)
-    return durationSeconds !== undefined && durationSeconds > 0 ? durationSeconds : undefined
+    const reading = riffReadingWith(fileReader(fd, stat.size), stat.size)
+    return reading !== undefined && reading.seconds > 0 ? reading : undefined
   } catch {
     return undefined
   } finally {
@@ -542,6 +543,9 @@ export function transcriptionPrice(input: Record<string, unknown>): Price | unde
   const credits = Math.ceil((seconds / 60) * RATES.sttPerMinute)
   if (!(credits > 0)) return undefined
   const parts = [`${Math.round((measured.durationSeconds / 60) * 10) / 10} minutes of audio, measured`]
+  // Which reading the figure came from, when the file states one and holds another. The decoders tried here read the
+  // stated size; this plugin reads to the end, because that cannot under-price, and the owner is told which (RR4-8).
+  if (measured.understated) parts.push("the data chunk states less than the file holds, so every byte after it is priced as audio")
   if (stated !== undefined && stated > measured.durationSeconds) parts.push(`caller duration raised the bound to ${Math.round((seconds / 60) * 10) / 10} minutes`)
   return { credits, basis: "at-most", parts }
 }

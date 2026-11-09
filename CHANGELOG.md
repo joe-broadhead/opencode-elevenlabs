@@ -58,6 +58,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and thi
 - A recorded charge only ever rises. One attested figure inside that tenth-band may settle a live hold below itself;
   every settlement after that, for the same call, may only raise the charge. A result delivered twice, and a figure
   arriving for a call whose hold expired into a charge, are ignored unless they are higher.
+- A measured file's cost line names the reading its price was taken at. A WAV whose `data` size understates the bytes
+  that follow admits two readings; the longer one is still priced, because the shorter can under-price a cap and the
+  longer cannot, but the comment no longer asserts that ElevenLabs' server reads to the end of what it is sent. It
+  names the two decoders that were tried — macOS `afinfo` and Python's `wave`, which both stop at the stated size —
+  says the server's own behaviour is unmeasured, and makes measuring it item 10 of the live reconcile.
 - The architecture guide's argument allowlists are derived from the enforced ones. The prose promised every priced call
   the five count keys, which a transcription refuses: it bills for the audio it is sent, once. The sentence now says
   so, and a test reads every name in that section back out of `PRICED_ARGUMENTS`, in both directions, so the documented
