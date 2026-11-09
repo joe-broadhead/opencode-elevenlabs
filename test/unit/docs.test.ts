@@ -4,6 +4,7 @@ import { describe, expect, test } from "bun:test"
 import { readdirSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
+import { GENERATION_KEYS, PRICED_ARGUMENTS } from "../../src/billing.js"
 import { PLUGIN_CODES, TESTED_HOSTS } from "../../src/constants.js"
 import { ALL_TOOLS, CONVERSATION_TOOLS, OWN_TOOLS, READ_TOOLS, SPEND_TOOLS, TRANSCRIPT_TOOLS } from "../../src/elevenlabs-tools.js"
 import { defaultRules } from "../../src/permissions.js"
@@ -231,5 +232,51 @@ describe("README order", () => {
     const block = /generated from[\s\S]*?```json\n([\s\S]*?)\n```/.exec(readFileSync(join(ROOT, "README.md"), "utf8"))?.[1] ?? "[]"
     const actions = (JSON.parse(block) as { action: string }[]).map((rule) => rule.action)
     for (const tool of READ_TOOLS) expect(actions).toContain(`elevenlabs_${tool}`)
+  })
+})
+
+// RR4-11: the allowlist table in the architecture guide promised four count keys that a transcription refuses. A
+// documented allowlist that is not the enforced one is a second source of truth, so every name in that section is
+// derived from `PRICED_ARGUMENTS` here, in both directions: a list that gains a name without the doc fails, and so
+// does a doc that names an argument the guard would refuse.
+describe("the priced-argument allowlists", () => {
+  const section = text("docs/architecture.md").split("### Argument allowlists")[1]?.split("\n## ")[0] ?? ""
+  const names = (line: string) => [...line.matchAll(/`([^`]+)`/g)].map((match) => match[1]!)
+  const rows = section
+    .split("\n")
+    .filter((line) => line.startsWith("| `"))
+    .map((line) => line.split("|").slice(1, 3).map(names) as [string[], string[]])
+
+  /** Argument names every priced tool allows, whatever it generates: the part the prose states once. */
+  const common = [...PRICED_ARGUMENTS.values()].reduce((kept, allowed) => kept.filter((name) => allowed.has(name)), [...(PRICED_ARGUMENTS.values().next().value ?? [])])
+
+  test("the prose states the arguments every priced tool allows, and no more", () => {
+    expect([...common].sort()).toEqual(["context", "estimateOnly", "estimate_only"])
+    const sentence = /Every priced call may carry ([^.]*)\./.exec(section.replace(/\s+/g, " "))?.[1] ?? ""
+    expect(names(sentence).sort()).toEqual([...common].sort())
+  })
+
+  test("the count keys are documented for exactly the tools that take them", () => {
+    const refuses = [...PRICED_ARGUMENTS].filter(([, allowed]) => !GENERATION_KEYS.every((key) => allowed.has(key))).map(([tool]) => tool)
+    // The one exception the prose names. If another tool ever stops taking a count, this sentence stops being true.
+    expect(refuses.sort()).toEqual(["creative_transcribe_audio", "creative_transcription", "speech_to_text"])
+    const sentence = /Every priced call \*\*except a transcription\*\* may also carry the count keys ([^.]*)\./.exec(section.replace(/\s+/g, " "))?.[1] ?? ""
+    expect(names(sentence).sort()).toEqual([...GENERATION_KEYS].sort())
+  })
+
+  test("every tool's row is its own allowlist, name for name", () => {
+    expect(rows.length).toBeGreaterThan(0)
+    const documented = new Set<string>()
+    for (const [tools, args] of rows) {
+      for (const tool of tools) {
+        const allowed = PRICED_ARGUMENTS.get(tool)
+        expect(`${tool} is priced`).toBe(allowed === undefined ? `${tool} is not priced` : `${tool} is priced`)
+        const counts = GENERATION_KEYS.every((key) => allowed!.has(key)) ? [...GENERATION_KEYS] : []
+        expect([...new Set([...common, ...counts, ...args])].sort()).toEqual([...allowed!].sort())
+        documented.add(tool)
+      }
+    }
+    // And no priced tool is left out of the table.
+    expect([...PRICED_ARGUMENTS.keys()].filter((tool) => !documented.has(tool))).toEqual([])
   })
 })

@@ -58,6 +58,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and thi
 - A recorded charge only ever rises. One attested figure inside that tenth-band may settle a live hold below itself;
   every settlement after that, for the same call, may only raise the charge. A result delivered twice, and a figure
   arriving for a call whose hold expired into a charge, are ignored unless they are higher.
+- The architecture guide's argument allowlists are derived from the enforced ones. The prose promised every priced call
+  the five count keys, which a transcription refuses: it bills for the audio it is sent, once. The sentence now says
+  so, and a test reads every name in that section back out of `PRICED_ARGUMENTS`, in both directions, so the documented
+  allowlist cannot drift from the one the guard applies again.
 - A refusal names the argument that caused it, and never denies a rate the plugin prints. A music call whose length
   field holds something no number can be read out of used to be told music had "no published credit price and no
   remembered estimate" and offered `estimate_only`, which music does not take; it now names the field and says what to

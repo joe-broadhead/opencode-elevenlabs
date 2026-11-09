@@ -129,9 +129,12 @@ the fake server in `test/host/fake-mcp.ts` — and from the names the pricing it
 checked against a live account, so confirming each priced tool's real argument names is one of the live-reconcile
 steps in `test/fixtures/README.md`.
 
-Every priced call may carry `estimate_only`, `estimateOnly`, `context`, `generations_count`, `generations`,
-`variations`, `num_generations` and `num_outputs`. The count keys all multiply the price: a call stating more than one
-is priced from the largest, and a clamp writes the allowed count into every one of them. Beyond those:
+Every priced call may carry `estimate_only`, `estimateOnly` and `context`. Every priced call **except a transcription**
+may also carry the count keys `generations_count`, `generations`, `variations`, `num_generations` and `num_outputs`,
+which all multiply the price: a call stating more than one is priced from the largest, and a clamp writes the allowed
+count into every one of them. A transcription takes none of them — it bills for the audio it is sent, once, and a count
+beside that audio is an argument whose effect on the bill this plugin does not know, so the call is refused. Beyond
+those, by tool:
 
 | Tools | Arguments |
 |---|---|
