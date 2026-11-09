@@ -65,7 +65,10 @@ Report privately through GitHub's private vulnerability reporting on
   session.
 - **Read callers' calls.** Every transcript and its extracted fields, as above.
 - **Send your audio to ElevenLabs.** `creative_transcribe_audio` and the reference-file tools upload what you point them
-  at.
+  at. A transcription is priced from that file's own bytes, and the file is stamped (device, inode, size, last
+  modification) before it is measured and again before the price is held, so a file that grew in between is refused
+  rather than sent on the shorter reading. The server opens the file after the dispatch, and nothing here can hold it
+  still until then: a file still being written when the call goes out is still billed at whatever the server reads.
 - **Write outside the project.** `elevenlabs_save_media` writes under `mediaRoot`. It asserts both its own action and
   OpenCode's `external_directory` rule for that folder before it fetches anything, so a session that denies
   `external_directory` writes nothing.

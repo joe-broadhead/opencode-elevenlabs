@@ -149,6 +149,13 @@ about itself, because a file that sets its own duration would set its own price.
 chunk is refused as well: CoreAudio reads the last such chunk and Python's `wave` the first, so its length depends on
 which decoder opens it, and a rule that picked one would be picking the cheaper reading of a file.
 
+A measured price is only as good as the instant it was taken, so the guard stamps every file it names — device, inode,
+size and last modification — before the measurement reads a byte, and again immediately before the hold. A stamp that
+moved refuses the call (`PRICE_UNKNOWN`), and nothing is reserved, because a file still being written is an ordinary
+input and a file that grew between the two readings would be dispatched on the shorter one's price. What this cannot
+reach is the window after the dispatch: ElevenLabs' server opens the file itself, and no check here holds it still
+while it reads.
+
 The saved line uses `durationOf`, which measures a WAV the same way and otherwise reads the duration an MP4 or M4A
 states in the `mvhd` box inside its `moov` — the format ElevenLabs returns, which carries no length anywhere a
 decoder-free reader can compute. That walk is bounded: every read is inside the file's own size, the number of boxes

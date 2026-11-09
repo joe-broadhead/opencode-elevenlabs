@@ -5,8 +5,8 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { ENDPOINT } from "../../src/constants.js"
-import { countValue, estimatePrice, Ledger, measureAudio, NOT_A_COUNT, priceOf, quoteCall, quoteCallSync, RESERVATION_MS, settlementOf, transcriptionPrice } from "../../src/billing.js"
-import { understatedThenJunk, WAV_FIXTURES } from "../fixtures/wav.js"
+import { audioStamps, changedFile, countValue, estimatePrice, Ledger, measureAudio, NOT_A_COUNT, priceOf, quoteCall, quoteCallSync, RESERVATION_MS, settlementOf, transcriptionPrice } from "../../src/billing.js"
+import { buildWav, understatedThenJunk, WAV_FIXTURES } from "../fixtures/wav.js"
 import { createElevenlabsPlugin } from "../../src/plugin.js"
 import { mcpEditor, pluginContext } from "./fake.js"
 
@@ -250,5 +250,81 @@ describe("RR4-7 — a WAV with more than one `data` chunk is not measured", () =
     expect(transcriptionPrice({ path: short })?.credits).toBe(330)
     const canonical = file("canonical.wav", WAV_FIXTURES.canonical())
     expect(measureAudio({ path: canonical })?.durationSeconds).toBe(60)
+  })
+})
+
+describe("RR4-9 — a price is reserved only while the file it measured is still that file", () => {
+  const root = mkdtempSync(join(tmpdir(), "elevenlabs-rr4-swap-"))
+  afterAll(() => rmSync(root, { recursive: true, force: true }))
+  const caps = { sessionCreditCap: 100_000, dailyCreditCap: 100_000 }
+  const call = (id = "c1") => ({ sessionID: "ses_a", agent: "build", messageID: "m1", id })
+
+  /** A ledger that lets the file move in the one place the guard awaits: the store read before the hold. */
+  class Swapping extends Ledger {
+    readonly swap: () => void
+    constructor(swap: () => void) {
+      super()
+      this.swap = swap
+    }
+    override refresh(): Promise<void> {
+      this.swap()
+      return super.refresh()
+    }
+  }
+
+  test("a one-second file swapped for a sixty-second one is refused, not reserved at six credits", async () => {
+    const path = join(root, "growing.wav")
+    writeFileSync(path, buildWav({ seconds: 1 }))
+    // The price the guard starts from, and the price the swapped-in file is really worth.
+    expect(transcriptionPrice({ path })?.credits).toBe(6)
+    const ledger = new Swapping(() => writeFileSync(path, WAV_FIXTURES.canonical()))
+    await expect(quoteCall({ ledger, caps: () => caps }, "creative_transcribe_audio", { path }, call())).rejects.toMatchObject({
+      code: "PRICE_UNKNOWN",
+    })
+    // At 6c21964 this resolved at 6 credits and held 6 against 330 credits of audio.
+    expect(transcriptionPrice({ path })?.credits).toBe(330)
+    // Nothing was held for a call that was never sent: the stamp is checked before the reservation, not after it.
+    expect(ledger.reservation("c1")).toBeUndefined()
+    expect(ledger.spend("ses_a")).toMatchObject({ sessionCredits: 0, dailyCredits: 0 })
+  })
+
+  test("a file deleted between the price and the hold is refused as well", async () => {
+    const path = join(root, "vanishing.wav")
+    writeFileSync(path, WAV_FIXTURES.canonical())
+    const ledger = new Swapping(() => rmSync(path))
+    await expect(quoteCall({ ledger, caps: () => caps }, "creative_transcribe_audio", { path }, call("c2")).then(() => "reserved")).rejects.toMatchObject({
+      code: "PRICE_UNKNOWN",
+    })
+    expect(ledger.spend("ses_a").dailyCredits).toBe(0)
+  })
+
+  test("a file that holds still is priced and reserved as before", async () => {
+    const path = join(root, "still.wav")
+    writeFileSync(path, WAV_FIXTURES.canonical())
+    const ledger = new Ledger()
+    const { price } = await quoteCall({ ledger, caps: () => caps }, "creative_transcribe_audio", { path }, call("c3"))
+    expect(price.credits).toBe(330)
+    expect(ledger.reservation("c3")?.credits).toBe(330)
+  })
+
+  test("a stamp is the file, not its name: its bytes, its times and the inode it lives on", () => {
+    const path = join(root, "stamped.wav")
+    writeFileSync(path, buildWav({ seconds: 1 }))
+    const first = audioStamps({ path })
+    expect([...first.keys()]).toEqual([path])
+    expect(changedFile(first, audioStamps({ path }))).toBeUndefined()
+    // Same name, different file: a rewrite at another length, and then the same length at another inode.
+    writeFileSync(path, WAV_FIXTURES.canonical())
+    expect(changedFile(first, audioStamps({ path }))).toContain("stamped.wav changed after it was measured")
+    const second = audioStamps({ path })
+    rmSync(path)
+    writeFileSync(path, WAV_FIXTURES.canonical())
+    expect(changedFile(second, audioStamps({ path }))).toContain("changed after it was measured")
+    // A file that is gone, and a second file named between the two readings, are both changes.
+    expect(changedFile(second, new Map())).toContain("changed after it was measured")
+    expect(changedFile(new Map(), second)).toContain("was named after the price was taken")
+    // Nothing local is named by a URL or an empty string, so neither is stamped.
+    expect(audioStamps({ path: "https://example.test/a.wav" }).size).toBe(0)
+    expect(audioStamps({ path: "", file: undefined }).size).toBe(0)
   })
 })

@@ -447,6 +447,46 @@ function measureFile(path: string): number | undefined {
 }
 
 /**
+ * What one local file is, at one instant: the device and inode it lives on, the bytes it holds, and when it last
+ * changed. Two readings that differ are two different files, or one file with different bytes. A path that cannot be
+ * stat'd reads as absent, which differs from every real stamp, so a file deleted between two readings is a change.
+ */
+const stampOf = (path: string): string => {
+  try {
+    const stat = statSync(path)
+    return `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}`
+  } catch {
+    return "absent"
+  }
+}
+
+/**
+ * The local files a call names, each stamped. A transcription is priced from bytes on this disk, and nothing here can
+ * hold them still: `src/media/policy.ts` calls a file still being written an ordinary input, and a file still being
+ * written is one that grows. The guard stamps them around the measurement and again immediately before the hold, so a
+ * price is never reserved for a file that is no longer the file it measured (RR4-9).
+ */
+export function audioStamps(input: Record<string, unknown>): ReadonlyMap<string, string> {
+  const stamps = new Map<string, string>()
+  for (const name of AUDIO_PATHS) {
+    const value = input[name]
+    if (typeof value !== "string" || value.length === 0) continue
+    // The same two readings `measureAudio` declines to measure: nothing local is named, so nothing is stamped.
+    if (value.includes("\0") || /^[a-z][a-z0-9+.-]*:/i.test(value)) continue
+    stamps.set(value, stampOf(value))
+  }
+  return stamps
+}
+
+/** The first file that moved between two stampings, named for a refusal. The directories are left out of the name. */
+export function changedFile(before: ReadonlyMap<string, string>, after: ReadonlyMap<string, string>): string | undefined {
+  const name = (path: string) => path.split(/[\\/]/).pop() || path
+  for (const [path, stamp] of before) if (after.get(path) !== stamp) return `${name(path)} changed after it was measured`
+  for (const path of after.keys()) if (!before.has(path)) return `${name(path)} was named after the price was taken`
+  return undefined
+}
+
+/**
  * Speech to Text, from the container duration of the file about to be sent. A duration the caller typed may raise that
  * price. It cannot lower it, it cannot win over the measured duration, and it cannot set a price when the file cannot
  * be measured. A price of 0 is not a price.
@@ -1361,6 +1401,8 @@ async function quote(context: GuardInput, tool: string, args: Record<string, unk
   // around it: the estimate answers for the arguments it is sent, and this is one whose effect nothing here knows.
   const unknown = unknownArgument(tool, args)
   if (unknown !== undefined) throw unknownPrice(tool, priced(tool), unknown)
+  // Stamped before the measurement reads a byte, and checked again below, just before the hold (RR4-9).
+  const measured = isTranscription(tool) ? audioStamps(args) : undefined
   let price = priceOf(tool, args)
   if (price === undefined && mayEstimate && priced(tool) && context.estimate) {
     price = await context.estimate(tool, args, call)
@@ -1373,6 +1415,12 @@ async function quote(context: GuardInput, tool: string, args: Record<string, unk
   // synchronous, so nothing slips between them.
   await context.ledger.refresh()
   price = clamp(price, caps, args, context.ledger.spend(call.sessionID))
+  // The last moment this plugin holds the call: the files are stamped again, and one that moved while the price was
+  // being taken or while the store was being read is refused rather than reserved at what it used to be worth.
+  if (measured !== undefined) {
+    const moved = changedFile(measured, audioStamps(args))
+    if (moved !== undefined) throw fileMoved(tool, moved)
+  }
   // The hold is in the store before the call is dispatched, so a crash cannot lose a reservation for a call that ran.
   await context.ledger.reserve(call.id, call.sessionID, price.credits, caps)
   return { price, tracked: true }
@@ -1388,8 +1436,15 @@ function quoteSync(context: Omit<GuardInput, "estimate">, tool: string, args: Re
   // around it: the estimate answers for the arguments it is sent, and this is one whose effect nothing here knows.
   const unknown = unknownArgument(tool, args)
   if (unknown !== undefined) throw unknownPrice(tool, priced(tool), unknown)
+  // The same rule on this path. It awaits nothing, so the window is the measurement's own reads: a file rewritten
+  // while its chunks were being walked is priced from two states of itself, and is refused here (RR4-9).
+  const measured = isTranscription(tool) ? audioStamps(args) : undefined
   let price = dearer(priceOf(tool, args), context.ledger.rememberedPrice(tool, args))
   if (price === undefined || !(price.credits > 0)) throw unknownPrice(tool, priced(tool), priceObstacle(tool, args))
+  if (measured !== undefined) {
+    const moved = changedFile(measured, audioStamps(args))
+    if (moved !== undefined) throw fileMoved(tool, moved)
+  }
   price = clamp(price, caps, args, context.ledger.spend(call.sessionID))
   // Synchronous by the shared shaper contract: this path cannot await the store before the call is dispatched, so it
   // decides from this process's book and the write follows. A write that fails therefore cannot refuse a call that has
@@ -1407,6 +1462,18 @@ function clamp(price: Price, caps: Caps, args: Record<string, unknown>, spend: S
   if (allowed >= generations) return price
   clampGenerations(args, allowed)
   return { ...price, credits: price.perGeneration * allowed, basis: "at-most", parts: [`${allowed} ${allowed === 1 ? "generation" : "generations"}, at ElevenLabs' estimate`] }
+}
+
+/**
+ * The refusal for a call whose file changed between the price and the hold. The call is not sent: a reservation taken
+ * for bytes that are gone is a cap checked against a file nobody will transcribe (RR4-9).
+ */
+function fileMoved(tool: string, moved: string) {
+  return new SpendRefused(
+    "PRICE_UNKNOWN",
+    `${tool} was priced from a file that changed before the call was sent: ${moved}.`,
+    "Wait until the file is finished being written, then call it again.",
+  )
 }
 
 /**

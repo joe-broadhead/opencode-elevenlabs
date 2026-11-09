@@ -83,7 +83,8 @@ Generations are billed in **credits** against the workspace you signed in with.
   900 per minute, 200 per generation, 330 per minute for Speech to Text), so their cost line says "at most". A caller
   `takes` below two does not lower the speech price. A transcription is priced from the file about to be sent, not from
   a duration the caller types; that duration may raise the price, and a file whose container duration cannot be read is
-  refused. A transcription is a read, but it bills: `access: "read-only"` denies the generations and **not** the
+  refused. The file is checked again just before the price is held, and one that changed in between is refused rather
+  than sent on the old price. A transcription is a read, but it bills: `access: "read-only"` denies the generations and **not** the
   transcription, so the caps are what bound it.
 - **A call that may spend is priced before it runs, or refused.** While either cap is on, a name that starts with creative_ is priced by the table the guard consults or refused PRICE_UNKNOWN before it is sent, unless that table classifies the name as a read, write, export or delete that does not spend.
   Image and video, which the table prices only from ElevenLabs' estimate, are the exception that asks for that estimate.

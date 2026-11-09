@@ -58,6 +58,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and thi
 - A recorded charge only ever rises. One attested figure inside that tenth-band may settle a live hold below itself;
   every settlement after that, for the same call, may only raise the charge. A result delivered twice, and a figure
   arriving for a call whose hold expired into a charge, are ignored unless they are higher.
+- A measured price is bound to the file it measured. Every file a transcription names is stamped — device, inode, size
+  and last modification — before the measurement reads a byte and again immediately before the hold; a file that moved
+  in between refuses the call with `PRICE_UNKNOWN` and reserves nothing. The window after the dispatch, while
+  ElevenLabs' server reads the file itself, is not one this plugin can close.
 - A WAV holding more than one `data` chunk is not measured. CoreAudio reads the last such chunk and Python's `wave`
   the first, so the file's length depends on which decoder opens it: a call that needs it is refused with
   `PRICE_UNKNOWN`, and a saved file shows no duration. One `data` chunk is measured as before, whatever follows it.
