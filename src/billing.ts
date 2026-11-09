@@ -168,13 +168,42 @@ const ATTESTED_MIN_RATIO = 10
 /** A raise more than this many times the reservation is still charged, and the cost line says it was. */
 const RAISE_NOTE_RATIO = 10
 
-export function attestedCreditsOf(result: { readonly output?: unknown }): number | undefined {
-  const output = result.output
-  if (output === null || typeof output !== "object" || Array.isArray(output)) return undefined
-  for (const [key, value] of Object.entries(output as Record<string, unknown>)) {
+/** One object's own attested figure: a named key, at this level, positive. No prose, no walk into what it contains. */
+function attestedIn(value: unknown): number | undefined {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined
+  for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
     if (!ATTESTED_CREDIT_KEYS.has(key.toLowerCase())) continue
-    const credits = number(value)
+    const credits = number(item)
     if (credits !== undefined && credits > 0) return credits
+  }
+  return undefined
+}
+
+export function attestedCreditsOf(result: { readonly output?: unknown }): number | undefined {
+  return attestedIn(result.output)
+}
+
+/**
+ * The figure an `estimate_only` result states, read under the rules settlement reads a charge under (RE-2): the same
+ * five named keys, at a named level, positive, in a fixed order — no prose, and no walk down four levels of whatever
+ * the server returned.
+ *
+ * `estimate.credits` is read first because that is the field the live result uses: the pass-1 estimate for four
+ * images came back as `{"estimate": {"credits": 761.5151418103446}}` (LIVE-RECONCILE-1). The top level is read next,
+ * for a server that states the figure without the wrapper.
+ *
+ * The figure sets the reservation, and where no later figure is seen it sets the charge, so it is at least as
+ * load-bearing as one that may settle below a reservation; it was being read more loosely than that one. A figure
+ * this parser does not find leaves the call with no price, which a cap turns into `PRICE_UNKNOWN` — a refusal, not a
+ * guess.
+ */
+export function estimatedCreditsOf(result: { readonly output?: unknown; readonly text?: string; readonly content?: unknown }): number | undefined {
+  for (const value of [result.output, ...textsOf(result).map((text) => parseJson(text))]) {
+    if (value === null || typeof value !== "object" || Array.isArray(value)) continue
+    const nested = attestedIn((value as Record<string, unknown>).estimate)
+    if (nested !== undefined) return nested
+    const top = attestedIn(value)
+    if (top !== undefined) return top
   }
   return undefined
 }
@@ -947,6 +976,9 @@ export function appendLine(result: { content?: unknown }, line: string) {
  * — it already counts the generations the call asked for, including the count ElevenLabs' own schema defaults to when
  * the call names none. Dividing by that batch size is what gives the clamp its unit.
  *
+ * The figure itself is read by `estimatedCreditsOf`, under settlement's own rules rather than the looser walk a
+ * reported charge is read with: `estimate.credits` first, the same five named keys, nothing out of prose (RE-2).
+ *
  * The estimate is fractional, and credits in the ledger are whole, so the total rounds up: the over-priced side. A
  * tool whose batch size cannot be known — `creative_generate_in_flow` and `creative_run_flow_nodes` name no default,
  * and `creative_transcribe_audio` has no count at all — is priced at its total with no per-generation figure, so the
@@ -957,7 +989,7 @@ export function estimatePrice(
   input: Record<string, unknown>,
   result: { readonly output?: unknown; readonly text?: string; readonly content?: unknown },
 ): Price | undefined {
-  const reported = actualCreditsOf(result)
+  const reported = estimatedCreditsOf(result)
   if (reported === undefined) return undefined
   const asked = generationsOf(input)
   if (asked === NOT_A_COUNT) return undefined

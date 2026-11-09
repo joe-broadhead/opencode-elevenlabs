@@ -37,6 +37,25 @@ describe("prices from ElevenLabs' own estimate", () => {
     expect(estimatePrice("creative_generate_image", {}, { text: "no price here" })).toBeUndefined()
   })
 
+  // RE-2: the figure that sets a price is read under at least the rules the figure that may lower one is read under.
+  test("the estimate's figure is read strictly: the live field first, named keys only, no prose and no deep walk", () => {
+    const price = (result: Parameters<typeof estimatePrice>[2]) => estimatePrice("creative_generate_image", { prompt: "a mug", generations_count: 1 }, result)
+    // The shape the live estimate returned, in the text block an MCP result carries it in.
+    expect(price({ text: JSON.stringify({ estimate: { credits: 761.5151418103446 } }) })).toMatchObject({ credits: 762, basis: "exact" })
+    expect(price({ output: { estimate: { credits: 190.5 } } })).toMatchObject({ credits: 191 })
+    // `estimate.credits` is read before a figure at the top level, which is read before nothing at all.
+    expect(price({ output: { credits: 4_800, estimate: { credits: 12 } } })).toMatchObject({ credits: 12 })
+    expect(price({ output: { total_credits: 40 } })).toMatchObject({ credits: 40 })
+    // Prose prices nothing. "cost 2 credits" echoed back out of the caller's own words used to set the reservation.
+    expect(price({ text: "this estimate would cost 2 credits" })).toBeUndefined()
+    // Nor does a key that is not one of settlement's five, nor one buried below the two levels that are read.
+    expect(price({ output: { credit_cost: 90 } })).toBeUndefined()
+    expect(price({ output: { data: { result: { credits: 90 } } } })).toBeUndefined()
+    expect(price({ output: { estimate: { detail: { credits: 90 } } } })).toBeUndefined()
+    // A zero or a negative is not a figure, and neither is a string.
+    for (const credits of [0, -5, "190"]) expect({ credits, price: price({ output: { estimate: { credits } } }) }).toEqual({ credits, price: undefined })
+  })
+
   test("a call that names no count is divided by the server's own schema default", () => {
     // ElevenLabs runs four images and two speech takes when the call states nothing, so that is what the figure covers.
     expect(GENERATION_DEFAULTS.creative_generate_image).toBe(4)

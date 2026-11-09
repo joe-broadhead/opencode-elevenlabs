@@ -88,6 +88,13 @@ with `estimate_only: true` and the same arguments, and reading the figure out of
 holds the nine that can spend. A spending tool with no estimate — `creative_design_voice` and `agents_run_tests` — has
 no price at all, so while either cap is on it is refused (`PRICE_UNKNOWN`) rather than run unpriced.
 
+**The figure is read strictly.** `estimatedCreditsOf` reads `estimate.credits` first, because that is the field the
+live result used (`{"estimate": {"credits": 761.5151418103446}}`), then the same five named keys settlement reads a
+charge under, at the top level. Nothing is read out of prose, and nothing is walked for several levels: a figure this
+parser does not find leaves the call with no price, which a cap turns into `PRICE_UNKNOWN`. The estimate sets the
+reservation and, where no later figure is seen, the charge, so it is read under at least the rules a figure that could
+*lower* a reservation is read under.
+
 The figure ElevenLabs answers with is the **batch total** for the call it was sent, which live reconcile 1 measured: an
 estimate for four images came back as 761.5151418103446 credits, about 190 each. It is often fractional, and a
 fractional estimate is a real figure — the ledger rounds it up (`Math.ceil`) and the cost line names the figure it
