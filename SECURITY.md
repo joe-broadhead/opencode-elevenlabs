@@ -104,3 +104,12 @@ One line restricts all of it: set `"access": "ask-changes"` (reads run, everythi
 `{ "action": "elevenlabs_agents_delete", "resource": "*", "effect": "deny" }`.
 
 In an unattended run such as `opencode run`, a tool that asks is refused rather than left waiting.
+
+## Scripts
+
+The tools RPC, `elevenlabs.tools`, lets a script call the same tools with no model, under the same spending guard. A
+script runs as the agent of the session it names, so it gets the same default: with `access: "all"` it can make every
+call above, spending credits included. To restrict a script, set `access` to `"ask-changes"` or `"read-only"`, or add a
+rule to its agent or session. A script never waits on a prompt: an ask is refused, and a saved "Always allow" approval
+does not authorize a script. [docs/scripting.md](https://github.com/joe-broadhead/opencode-elevenlabs/blob/HEAD/docs/scripting.md)
+has the envelope and every refusal.
