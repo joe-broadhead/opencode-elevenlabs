@@ -23,10 +23,17 @@ Every option is optional. The plugin reads them from `opencode.json`:
 
 ## Spending
 
-Nine tools can bill the workspace: `creative_generate_speech`, `creative_generate_image`, `creative_generate_video`,
+Twelve tools can bill the workspace: `creative_generate_speech`, `creative_generate_image`, `creative_generate_video`,
 `creative_edit_image`, `creative_generate_in_flow`, `creative_run_flow_nodes`, `creative_transcribe_audio`,
-`creative_design_voice` and `agents_run_tests`. Each is priced before it runs, from ElevenLabs' own figure: the plugin
+`creative_design_voice`, `agents_run_tests`, `agents_compute_kb_rag_index`, `agents_query_knowledge_base_rag` and
+`creative_create_brand_kit_from_website`. Each is priced before it runs, from ElevenLabs' own figure: the plugin
 sends the same call with `estimate_only: true` and uses what comes back. There is no rate table in this plugin.
+
+The first seven take `estimate_only`. The other five do not, so while either cap is on they are refused
+(`PRICE_UNKNOWN`) rather than run unpriced; set both caps to `null` to run them. The last three are counted as
+spending because ElevenLabs' catalogue says neither way about them and they describe server-side work it plausibly
+bills — embedding a knowledge-base document, running a RAG query, reading a public website — and the plugin counts
+silence against the owner's money rather than for it.
 
 A priced call is clamped to the number of generations the caps afford, **reserved** in the ledger before it is sent, and
 settled into a charge when its result arrives, so two calls that start together cannot both spend the same budget. A
@@ -34,7 +41,8 @@ failure is charged the reserved price. The daily cap is one total for this data 
 
 A call the plugin cannot price is refused with `PRICE_UNKNOWN` while a cap is on, never run unpriced: a failed or
 missing estimate, an argument ElevenLabs' own schema for that tool does not have, a `creative_*` name the table does not
-know, and the two spending tools ElevenLabs offers no estimate for — `creative_design_voice` and `agents_run_tests`.
+know, and the five spending tools ElevenLabs offers no estimate for — `creative_design_voice`, `agents_run_tests`,
+`agents_compute_kb_rag_index`, `agents_query_knowledge_base_rag` and `creative_create_brand_kit_from_website`.
 
 The estimate is sent only where the paid call could run, because it is a call of its own: it costs nothing, but it
 creates a flow and a node in the workspace. Under `access: "ask-changes"` the prompt you answer is the generation's own,
@@ -119,7 +127,6 @@ Every tool runs, including a tool ElevenLabs adds later, and generations spend c
   { "action": "elevenlabs_agents_list_trigger_connections", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_merge_branch_preview", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_query_analytics", "resource": "*", "effect": "allow" },
-  { "action": "elevenlabs_agents_query_knowledge_base_rag", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_read_string_field", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_rebase_branch_preview", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_resolve_conversation", "resource": "*", "effect": "allow" },
@@ -149,7 +156,6 @@ Every tool runs, including a tool ElevenLabs adds later, and generations spend c
   { "action": "elevenlabs_agents_append_to_string_field", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_bulk_move_knowledge_base", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_comment_on_merge_proposal", "resource": "*", "effect": "allow" },
-  { "action": "elevenlabs_agents_compute_kb_rag_index", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_create", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_create_branch", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_create_code_tool", "resource": "*", "effect": "allow" },
@@ -213,7 +219,6 @@ Every tool runs, including a tool ElevenLabs adds later, and generations spend c
   { "action": "elevenlabs_creative_connect_flow_nodes", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_create_asset_upload", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_create_brand_kit", "resource": "*", "effect": "allow" },
-  { "action": "elevenlabs_creative_create_brand_kit_from_website", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_create_flow", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_disconnect_flow_nodes", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_duplicate_flow_nodes", "resource": "*", "effect": "allow" },
@@ -226,7 +231,10 @@ Every tool runs, including a tool ElevenLabs adds later, and generations spend c
   { "action": "elevenlabs_creative_update_node", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_upload_flow_reference", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_get_more_tools", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_compute_kb_rag_index", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_query_knowledge_base_rag", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_run_tests", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_creative_create_brand_kit_from_website", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_design_voice", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_edit_image", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_generate_image", "resource": "*", "effect": "allow" },
@@ -325,7 +333,6 @@ can answer, an ask is refused. A tool that can spend asks once, before its estim
   { "action": "elevenlabs_agents_list_trigger_connections", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_merge_branch_preview", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_query_analytics", "resource": "*", "effect": "allow" },
-  { "action": "elevenlabs_agents_query_knowledge_base_rag", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_read_string_field", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_rebase_branch_preview", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_resolve_conversation", "resource": "*", "effect": "allow" },
@@ -355,7 +362,6 @@ can answer, an ask is refused. A tool that can spend asks once, before its estim
   { "action": "elevenlabs_agents_append_to_string_field", "resource": "*", "effect": "ask" },
   { "action": "elevenlabs_agents_bulk_move_knowledge_base", "resource": "*", "effect": "ask" },
   { "action": "elevenlabs_agents_comment_on_merge_proposal", "resource": "*", "effect": "ask" },
-  { "action": "elevenlabs_agents_compute_kb_rag_index", "resource": "*", "effect": "ask" },
   { "action": "elevenlabs_agents_create", "resource": "*", "effect": "ask" },
   { "action": "elevenlabs_agents_create_branch", "resource": "*", "effect": "ask" },
   { "action": "elevenlabs_agents_create_code_tool", "resource": "*", "effect": "ask" },
@@ -419,7 +425,6 @@ can answer, an ask is refused. A tool that can spend asks once, before its estim
   { "action": "elevenlabs_creative_connect_flow_nodes", "resource": "*", "effect": "ask" },
   { "action": "elevenlabs_creative_create_asset_upload", "resource": "*", "effect": "ask" },
   { "action": "elevenlabs_creative_create_brand_kit", "resource": "*", "effect": "ask" },
-  { "action": "elevenlabs_creative_create_brand_kit_from_website", "resource": "*", "effect": "ask" },
   { "action": "elevenlabs_creative_create_flow", "resource": "*", "effect": "ask" },
   { "action": "elevenlabs_creative_disconnect_flow_nodes", "resource": "*", "effect": "ask" },
   { "action": "elevenlabs_creative_duplicate_flow_nodes", "resource": "*", "effect": "ask" },
@@ -432,7 +437,10 @@ can answer, an ask is refused. A tool that can spend asks once, before its estim
   { "action": "elevenlabs_creative_update_node", "resource": "*", "effect": "ask" },
   { "action": "elevenlabs_creative_upload_flow_reference", "resource": "*", "effect": "ask" },
   { "action": "elevenlabs_get_more_tools", "resource": "*", "effect": "ask" },
+  { "action": "elevenlabs_agents_compute_kb_rag_index", "resource": "*", "effect": "ask" },
+  { "action": "elevenlabs_agents_query_knowledge_base_rag", "resource": "*", "effect": "ask" },
   { "action": "elevenlabs_agents_run_tests", "resource": "*", "effect": "ask" },
+  { "action": "elevenlabs_creative_create_brand_kit_from_website", "resource": "*", "effect": "ask" },
   { "action": "elevenlabs_creative_design_voice", "resource": "*", "effect": "ask" },
   { "action": "elevenlabs_creative_edit_image", "resource": "*", "effect": "ask" },
   { "action": "elevenlabs_creative_generate_image", "resource": "*", "effect": "ask" },
@@ -531,7 +539,6 @@ too.
   { "action": "elevenlabs_agents_list_trigger_connections", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_merge_branch_preview", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_query_analytics", "resource": "*", "effect": "allow" },
-  { "action": "elevenlabs_agents_query_knowledge_base_rag", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_read_string_field", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_rebase_branch_preview", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_resolve_conversation", "resource": "*", "effect": "allow" },
@@ -561,7 +568,6 @@ too.
   { "action": "elevenlabs_agents_append_to_string_field", "resource": "*", "effect": "deny" },
   { "action": "elevenlabs_agents_bulk_move_knowledge_base", "resource": "*", "effect": "deny" },
   { "action": "elevenlabs_agents_comment_on_merge_proposal", "resource": "*", "effect": "deny" },
-  { "action": "elevenlabs_agents_compute_kb_rag_index", "resource": "*", "effect": "deny" },
   { "action": "elevenlabs_agents_create", "resource": "*", "effect": "deny" },
   { "action": "elevenlabs_agents_create_branch", "resource": "*", "effect": "deny" },
   { "action": "elevenlabs_agents_create_code_tool", "resource": "*", "effect": "deny" },
@@ -625,7 +631,6 @@ too.
   { "action": "elevenlabs_creative_connect_flow_nodes", "resource": "*", "effect": "deny" },
   { "action": "elevenlabs_creative_create_asset_upload", "resource": "*", "effect": "deny" },
   { "action": "elevenlabs_creative_create_brand_kit", "resource": "*", "effect": "deny" },
-  { "action": "elevenlabs_creative_create_brand_kit_from_website", "resource": "*", "effect": "deny" },
   { "action": "elevenlabs_creative_create_flow", "resource": "*", "effect": "deny" },
   { "action": "elevenlabs_creative_disconnect_flow_nodes", "resource": "*", "effect": "deny" },
   { "action": "elevenlabs_creative_duplicate_flow_nodes", "resource": "*", "effect": "deny" },
@@ -638,7 +643,10 @@ too.
   { "action": "elevenlabs_creative_update_node", "resource": "*", "effect": "deny" },
   { "action": "elevenlabs_creative_upload_flow_reference", "resource": "*", "effect": "deny" },
   { "action": "elevenlabs_get_more_tools", "resource": "*", "effect": "deny" },
+  { "action": "elevenlabs_agents_compute_kb_rag_index", "resource": "*", "effect": "deny" },
+  { "action": "elevenlabs_agents_query_knowledge_base_rag", "resource": "*", "effect": "deny" },
   { "action": "elevenlabs_agents_run_tests", "resource": "*", "effect": "deny" },
+  { "action": "elevenlabs_creative_create_brand_kit_from_website", "resource": "*", "effect": "deny" },
   { "action": "elevenlabs_creative_design_voice", "resource": "*", "effect": "deny" },
   { "action": "elevenlabs_creative_edit_image", "resource": "*", "effect": "deny" },
   { "action": "elevenlabs_creative_generate_image", "resource": "*", "effect": "deny" },

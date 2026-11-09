@@ -69,7 +69,6 @@ export const READ_TOOLS: readonly string[] = [
   "agents_list_trigger_connections",
   "agents_merge_branch_preview",
   "agents_query_analytics",
-  "agents_query_knowledge_base_rag",
   "agents_read_string_field",
   "agents_rebase_branch_preview",
   "agents_resolve_conversation",
@@ -140,7 +139,6 @@ export const WRITE_TOOLS: readonly string[] = [
   "agents_append_to_string_field",
   "agents_bulk_move_knowledge_base",
   "agents_comment_on_merge_proposal",
-  "agents_compute_kb_rag_index",
   "agents_create",
   "agents_create_branch",
   "agents_create_code_tool",
@@ -204,7 +202,6 @@ export const WRITE_TOOLS: readonly string[] = [
   "creative_connect_flow_nodes",
   "creative_create_asset_upload",
   "creative_create_brand_kit",
-  "creative_create_brand_kit_from_website",
   "creative_create_flow",
   "creative_disconnect_flow_nodes",
   "creative_duplicate_flow_nodes",
@@ -229,12 +226,24 @@ export const WRITE_TOOLS: readonly string[] = [
  * same tool with `estimate_only: true` and the same arguments; a tool without that flag is refused `PRICE_UNKNOWN`
  * under a cap. A name missing from this list would spend unguarded, while the model was told it would not (DR-3).
  *
- * `creative_design_voice` spends (it renders three previews) and has no `estimate_only`. `agents_run_tests` is a
- * judgement call: no description says it charges, but a test run holds conversations ElevenLabs bills, and a loud
- * refusal is better than a silent spend (docs/architecture.md).
+ * `creative_design_voice` spends (it renders three previews) and has no `estimate_only`.
+ *
+ * One rule decides every tool the catalogue is silent about (RE-4): a tool whose description says it does server-side
+ * work ElevenLabs plausibly bills, and does not say it spends nothing, is counted as spending. The tools that really
+ * do not spend say so unprompted — `creative_upload_flow_reference` ends "This starts no generation and spends no
+ * credits", `creative_update_node` ends "This never starts a generation" — so silence beside billable work is the
+ * signal, and a loud refusal is better than a silent spend. Four names are here on that rule and nothing else:
+ * `agents_run_tests` (a test run holds conversations ElevenLabs bills), `agents_compute_kb_rag_index` (embedding a
+ * document), `agents_query_knowledge_base_rag` (a RAG query, which embeds the query), and
+ * `creative_create_brand_kit_from_website` (fetching a site and extracting its logo, colours, typography and tone).
+ * None of the four declares `estimate_only`, so while either cap is on each is refused rather than run unpriced.
+ * Live pass 2 measures whether they bill; whichever way it comes back, the rule above is what gets applied.
  */
 export const SPEND_TOOLS: readonly string[] = [
+  "agents_compute_kb_rag_index",
+  "agents_query_knowledge_base_rag",
   "agents_run_tests",
+  "creative_create_brand_kit_from_website",
   "creative_design_voice",
   "creative_edit_image",
   "creative_generate_image",

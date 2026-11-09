@@ -127,7 +127,13 @@ describe("RR5-2 — one list decides what is priced", () => {
     for (const tool of SPEND_TOOLS) expect({ tool, gated: mustPrice(tool) }).toEqual({ tool, gated: true })
     // The names the gate holds with no allowlist are the spending tools ElevenLabs gives no estimate: a cap refuses
     // them outright, because there is no figure to check one against before they run.
-    expect(ALL_TOOLS.filter(mustPrice).filter((tool) => !PRICED_ARGUMENTS.has(tool)).sort()).toEqual(["agents_run_tests", "creative_design_voice"])
+    expect(ALL_TOOLS.filter(mustPrice).filter((tool) => !PRICED_ARGUMENTS.has(tool)).sort()).toEqual([
+      "agents_compute_kb_rag_index",
+      "agents_query_knowledge_base_rag",
+      "agents_run_tests",
+      "creative_create_brand_kit_from_website",
+      "creative_design_voice",
+    ])
     expect(outcome("creative_design_voice", { voice_description: "a warm narrator" })).toEqual({ refused: "PRICE_UNKNOWN" })
   })
 

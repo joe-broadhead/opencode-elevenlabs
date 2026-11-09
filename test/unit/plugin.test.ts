@@ -173,7 +173,7 @@ describe("setup", () => {
   test("the namespace text says what the default does: spending, live updates, expiring links, personal data", () => {
     for (const rule of [
       "Read the elevenlabs skill before the first call",
-      "Nine tools spend the workspace's credits",
+      "Twelve tools spend the workspace's credits",
       "a retry is a second charge",
       "each paid call prints its cost",
       "ElevenLabs is the only source of a price",

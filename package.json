@@ -432,12 +432,6 @@
         "readOnly": true
       },
       {
-        "name": "elevenlabs_agents_query_knowledge_base_rag",
-        "permission": "elevenlabs_agents_query_knowledge_base_rag",
-        "effect": "allow",
-        "readOnly": true
-      },
-      {
         "name": "elevenlabs_agents_read_string_field",
         "permission": "elevenlabs_agents_read_string_field",
         "effect": "allow",
@@ -608,12 +602,6 @@
       {
         "name": "elevenlabs_agents_comment_on_merge_proposal",
         "permission": "elevenlabs_agents_comment_on_merge_proposal",
-        "effect": "allow",
-        "readOnly": false
-      },
-      {
-        "name": "elevenlabs_agents_compute_kb_rag_index",
-        "permission": "elevenlabs_agents_compute_kb_rag_index",
         "effect": "allow",
         "readOnly": false
       },
@@ -996,12 +984,6 @@
         "readOnly": false
       },
       {
-        "name": "elevenlabs_creative_create_brand_kit_from_website",
-        "permission": "elevenlabs_creative_create_brand_kit_from_website",
-        "effect": "allow",
-        "readOnly": false
-      },
-      {
         "name": "elevenlabs_creative_create_flow",
         "permission": "elevenlabs_creative_create_flow",
         "effect": "allow",
@@ -1074,8 +1056,26 @@
         "readOnly": false
       },
       {
+        "name": "elevenlabs_agents_compute_kb_rag_index",
+        "permission": "elevenlabs_agents_compute_kb_rag_index",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
+        "name": "elevenlabs_agents_query_knowledge_base_rag",
+        "permission": "elevenlabs_agents_query_knowledge_base_rag",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
         "name": "elevenlabs_agents_run_tests",
         "permission": "elevenlabs_agents_run_tests",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
+        "name": "elevenlabs_creative_create_brand_kit_from_website",
+        "permission": "elevenlabs_creative_create_brand_kit_from_website",
         "effect": "allow",
         "readOnly": false
       },

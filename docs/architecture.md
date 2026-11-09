@@ -85,8 +85,9 @@ succeeds.
 or per minute, and no measurement of a local file. A call that can spend is priced by sending ElevenLabs the same call
 with `estimate_only: true` and the same arguments, and reading the figure out of its answer (`estimatePrice` in
 `src/billing.ts`). `ESTIMATE_TOOLS` holds the seven tools whose live schema declares `estimate_only`; `SPEND_TOOLS`
-holds the nine that can spend. A spending tool with no estimate — `creative_design_voice` and `agents_run_tests` — has
-no price at all, so while either cap is on it is refused (`PRICE_UNKNOWN`) rather than run unpriced.
+holds the twelve that can spend. A spending tool with no estimate — `creative_design_voice`, `agents_run_tests`,
+`agents_compute_kb_rag_index`, `agents_query_knowledge_base_rag` and `creative_create_brand_kit_from_website` — has no
+price at all, so while either cap is on it is refused (`PRICE_UNKNOWN`) rather than run unpriced.
 
 **The figure is read strictly.** `estimatedCreditsOf` reads `estimate.credits` first, because that is the field the
 live result used (`{"estimate": {"credits": 761.5151418103446}}`), then the same five named keys settlement reads a
@@ -196,21 +197,36 @@ transcribes the node it is connected to, once.
 not a file on this machine. `creative_transcribe_audio` has no file or path argument at all — its audio comes from the
 node it is connected to, and the server never sees anything on this disk.
 
-The two spending tools with no list are `creative_design_voice` and `agents_run_tests`, because their live schemas
-declare no `estimate_only` and nothing here can price them; a cap refuses them outright, so a list of arguments would
-decide nothing.
+The five spending tools with no list are `creative_design_voice`, `agents_run_tests`, `agents_compute_kb_rag_index`,
+`agents_query_knowledge_base_rag` and `creative_create_brand_kit_from_website`, because their live schemas declare no
+`estimate_only` and nothing here can price them; a cap refuses them outright, so a list of arguments would decide
+nothing.
 
 ### What each tool is allowed to do
 
-`classify()` puts each of the 190 live tools in one class, from its own name, description and schema: 83 reads, 2
-exports, 82 writes, 9 that can spend and 14 destructive. Nothing is left unclassified. The class is the worst thing a
+`classify()` puts each of the 190 live tools in one class, from its own name, description and schema: 82 reads, 2
+exports, 80 writes, 12 that can spend and 14 destructive. Nothing is left unclassified. The class is the worst thing a
 tool can do; it never decides whether a call runs, only what the generated default rules give it.
 
-Two of them are judgement calls, recorded here because nothing in the catalogue settles them:
+Some of them are judgement calls, recorded here because nothing in the catalogue settles them. **One rule decides every
+tool the catalogue is silent about:** a tool whose own description says it does server-side work ElevenLabs plausibly
+bills, and does not say it spends nothing, is counted as spending. The tools that genuinely do not spend say so
+unprompted — `creative_upload_flow_reference` ends *"This starts no generation and spends no credits"*,
+`creative_update_node`, `creative_update_flow_nodes` and `creative_duplicate_flow_nodes` each end *"This never starts a
+generation"*, `creative_get_voice_design_previews` says it reads previews *"without spending credits"* — so silence
+beside billable work is the signal, and a refusal the owner can switch off is better than a charge they did not see.
+Four tools are classed as spending on that rule and nothing else; none of the four declares `estimate_only`, so while
+either cap is on each is refused rather than run unpriced, and live pass 2 measures whether they bill:
 
-- **`agents_run_tests` is counted as spending.** A test run makes the agent hold conversations, which bills the agent's
-  own LLM usage. ElevenLabs gives no estimate for it, so while a cap is on it is refused rather than run unpriced.
+- **`agents_run_tests`.** A test run makes the agent hold conversations, which bills the agent's own LLM usage.
   `agents_create_test` and the other test tools only describe a test, and are ordinary writes.
+- **`agents_compute_kb_rag_index`.** It starts RAG indexing of a knowledge-base document for an embedding model:
+  embedding a whole document is server-side work with a unit ElevenLabs could bill.
+- **`agents_query_knowledge_base_rag`.** A RAG query embeds the query and searches the index. It was classed a read
+  until this release, which made the table hold two standards for the same silence: this is the read whose own
+  description names the same kind of work `agents_compute_kb_rag_index` does.
+- **`creative_create_brand_kit_from_website`.** It fetches a public website and extracts its logo, colours,
+  typography and tone — *"best-effort and takes a while"*, which is the shape of a billed extraction.
 - **`creative_design_voice` is counted as spending** and `creative_save_designed_voice` is a write: designing previews
   is the part that generates audio.
 - **`creative_create_asset_upload` is a write, not an export.** It opens an upload into the workspace; nothing leaves

@@ -13,9 +13,10 @@ credits**, so read this first. Every tool takes a `context` parameter: one short
 
 ## What spends
 
-Nine tools bill the workspace: `creative_generate_speech`, `creative_generate_image`, `creative_generate_video`,
+Twelve tools bill the workspace: `creative_generate_speech`, `creative_generate_image`, `creative_generate_video`,
 `creative_edit_image`, `creative_generate_in_flow`, `creative_run_flow_nodes`, `creative_transcribe_audio`,
-`creative_design_voice` and `agents_run_tests`. Everything else on a flow is free to call.
+`creative_design_voice`, `agents_run_tests`, `agents_compute_kb_rag_index`, `agents_query_knowledge_base_rag` and
+`creative_create_brand_kit_from_website`. Everything else on a flow is free to call.
 
 ## Price it before you spend
 

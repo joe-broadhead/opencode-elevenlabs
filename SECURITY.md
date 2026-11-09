@@ -38,15 +38,19 @@ Report privately through GitHub's private vulnerability reporting on
 
 **Every tool is allowed by default.** With `access: "all"` an agent can, without asking:
 
-- **Spend your credits.** Nine tools bill the workspace you signed in with: speech, images, video, image editing,
-  generating inside a flow, running a flow's nodes, transcription, voice design and running an agent test. An image or
+- **Spend your credits.** Twelve tools bill the workspace you signed in with: speech, images, video, image editing,
+  generating inside a flow, running a flow's nodes, transcription, voice design, running an agent test, indexing a
+  knowledge-base document, running a RAG query, and building a brand kit from a website. The last three are counted as
+  spending because ElevenLabs' catalogue says neither way and each describes work it plausibly bills; silence is read
+  against your money rather than for it. An image or
   video call returns **four variations by default** and speech returns **two takes**, so one call can be four billable
   generations, and asking for a retry starts and charges another. **Transcription bills too**, and it is a *change*,
   not a read: `access: "read-only"` denies it along with every other tool that can spend. The plugin prices each call
   before sending it by asking ElevenLabs for an estimate of that exact call, reserves the figure, and prints a cost
   line; the caps (`sessionCreditCap`, `dailyCreditCap`) are the only bound, and they bound this plugin, not your
-  account. `creative_design_voice` and `agents_run_tests` have no estimate, so while a cap is on they are refused
-  rather than run unpriced.
+  account. Five of the twelve have no estimate — `creative_design_voice`, `agents_run_tests`,
+  `agents_compute_kb_rag_index`, `agents_query_knowledge_base_rag` and `creative_create_brand_kit_from_website` — so
+  while a cap is on they are refused rather than run unpriced.
 - **An estimate is a call of its own.** It costs nothing — measured against a real workspace, two of them moved the
   balance by zero — but each one creates a flow and a node in the workspace. The plugin asks for one per set of
   arguments, keeps it for ten minutes, and sends it only where the paid call is permitted: under `ask-changes` you are

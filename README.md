@@ -81,11 +81,14 @@ Generations are billed in **credits** against the workspace you signed in with.
   limit on the account. Two machines share nothing: the store cannot see them.
 - **Every price comes from ElevenLabs, never from this plugin.** There is no rate table here: no credits per character,
   per second or per minute, and nothing measures a file on this machine. Before a call that can spend, the plugin sends
-  ElevenLabs the **same call with `estimate_only: true`** and uses the figure that comes back. Nine tools can spend:
+  ElevenLabs the **same call with `estimate_only: true`** and uses the figure that comes back. Twelve tools can spend:
   `creative_generate_speech`, `creative_generate_image`, `creative_generate_video`, `creative_edit_image`,
-  `creative_generate_in_flow`, `creative_run_flow_nodes`, `creative_transcribe_audio`, `creative_design_voice` and
-  `agents_run_tests`. The first seven take `estimate_only`; the last two do not, so while a cap is on they are refused
-  rather than run unpriced.
+  `creative_generate_in_flow`, `creative_run_flow_nodes`, `creative_transcribe_audio`, `creative_design_voice`,
+  `agents_run_tests`, `agents_compute_kb_rag_index`, `agents_query_knowledge_base_rag` and
+  `creative_create_brand_kit_from_website`. The first seven take `estimate_only`; the other five do not, so while a cap
+  is on they are refused rather than run unpriced. The last three are counted as spending because ElevenLabs' catalogue
+  says neither way and the work they describe — embedding a document, running a RAG query, reading a website — is work
+  it plausibly bills; a refusal you can turn off is better than a charge you did not see.
 - **An estimate is free, but it is not nothing.** Measured against a real workspace: two estimates moved the balance by
   zero credits, and each left a flow and a node behind in the workspace. So one estimate is asked per set of arguments,
   the figure is kept for ten minutes, and the paid call reuses it instead of creating a second flow. The estimate is
@@ -96,7 +99,7 @@ Generations are billed in **credits** against the workspace you signed in with.
   four-image estimate came back as 761.5151418103446 credits, about 190 an image. Credits are charged as whole numbers,
   so a fractional figure is rounded up. A batch that does not fit is cut to the number of generations the budget
   affords, and a call that named no count is refused whole rather than quietly given a smaller batch.
-- **A call that cannot be priced is refused, not guessed.** While either cap is on, each of the 9 tools that can spend is priced by ElevenLabs' own estimate or refused PRICE_UNKNOWN before it is sent, and so is any name this table does not classify, whatever it starts with.
+- **A call that cannot be priced is refused, not guessed.** While either cap is on, each of the 12 tools that can spend is priced by ElevenLabs' own estimate or refused PRICE_UNKNOWN before it is sent, and so is any name this table does not classify, whatever it starts with.
   A failed or missing estimate, an argument ElevenLabs' own schema for that tool does not have, and a tool with no
   estimate at all each end there. The refusal says what to do: send the same call with `estimate_only: true`, or set
   both caps to `null`. A price of 0 is a refusal, not a free call.
@@ -264,7 +267,6 @@ The plugin inserts this block directly after each agent's base rule that allows 
   { "action": "elevenlabs_agents_list_trigger_connections", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_merge_branch_preview", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_query_analytics", "resource": "*", "effect": "allow" },
-  { "action": "elevenlabs_agents_query_knowledge_base_rag", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_read_string_field", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_rebase_branch_preview", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_resolve_conversation", "resource": "*", "effect": "allow" },
@@ -294,7 +296,6 @@ The plugin inserts this block directly after each agent's base rule that allows 
   { "action": "elevenlabs_agents_append_to_string_field", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_bulk_move_knowledge_base", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_comment_on_merge_proposal", "resource": "*", "effect": "allow" },
-  { "action": "elevenlabs_agents_compute_kb_rag_index", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_create", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_create_branch", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_create_code_tool", "resource": "*", "effect": "allow" },
@@ -358,7 +359,6 @@ The plugin inserts this block directly after each agent's base rule that allows 
   { "action": "elevenlabs_creative_connect_flow_nodes", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_create_asset_upload", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_create_brand_kit", "resource": "*", "effect": "allow" },
-  { "action": "elevenlabs_creative_create_brand_kit_from_website", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_create_flow", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_disconnect_flow_nodes", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_duplicate_flow_nodes", "resource": "*", "effect": "allow" },
@@ -371,7 +371,10 @@ The plugin inserts this block directly after each agent's base rule that allows 
   { "action": "elevenlabs_creative_update_node", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_upload_flow_reference", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_get_more_tools", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_compute_kb_rag_index", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_query_knowledge_base_rag", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_run_tests", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_creative_create_brand_kit_from_website", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_design_voice", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_edit_image", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_generate_image", "resource": "*", "effect": "allow" },
