@@ -492,9 +492,11 @@ in your config shadows the plugin's. **Rename or move** that file, then restart 
 - **No dollar figure is derived from credits.**
 - **Prices come from ElevenLabs' own estimate.** If the estimate is unavailable the call is refused rather than
   guessed, and a tool ElevenLabs offers no estimate for cannot run while a cap is on.
-- **One fact about a paid call stays unverified until the live reconcile:** whether a finished generation reports what
-  it really cost, and in which field of its result. Until that is measured a call is charged the estimate it was
-  reserved at, and a later figure can only raise that charge, never lower it. What the live pass did settle is on the
+- **One fact about a paid call stays unverified until the live reconcile measures it:** whether a finished generation
+  reports what it really cost, and in which field of its result. Pass 1 did not measure it: it spent nothing. Pass 2
+  does, as step 2 of the checklist in `test/fixtures/README.md`, on the two cheapest paid calls this plugin can make.
+  Until then a call is charged the estimate it was reserved at, and a later figure can only raise that charge, never
+  lower it. What the live pass did settle is on the
   estimate's side: an estimate moved the balance by nothing, its figure covers the whole batch rather than one
   generation, it can be fractional, and it leaves a flow and a node behind in the workspace.
 - **Durations are read from the container, and only for display.** WAV and MP4/M4A state one; MP3, Ogg and WebM do not,
