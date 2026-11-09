@@ -160,16 +160,69 @@ export async function writeMedia(options: WriteOptions): Promise<Written> {
   }
 }
 
+/** What a RIFF/WAVE file's own chunks say about its audio. Found by walking, never by a fixed offset. */
+export interface RiffAudio {
+  /** Bytes of audio per second, from the `fmt ` chunk. */
+  readonly byteRate: number
+  /** Where the `data` chunk's bytes begin in the file. */
+  readonly dataOffset: number
+  /** The size the `data` chunk's own header states, which the file need not honour. */
+  readonly statedDataBytes: number
+}
+
+const seconds = (value: number) => Math.round(value * 1000) / 1000
+const CHUNK_ID = /^[\x20-\x7e]{4}$/
+
 /**
- * The duration a container header states, in seconds. A RIFF/WAVE header, or an MP4/M4A `mvhd` in the buffer. Anything
- * else is undefined: a guess from a bitrate would under-price a codec that sits under that floor.
+ * Walks a RIFF/WAVE file's chunks for `fmt ` and `data`, wherever they sit. A `JUNK` pad, a `LIST`, a `bext` and a
+ * `fmt ` of 16, 18 or 40 bytes are all ordinary, so none of them may be read from a fixed offset: the canonical
+ * 44-byte header is one layout of many. Undefined when the chunks do not walk, when `fmt ` or `data` is not among
+ * them, or when either is past the buffer read: such a file is not measured and so is not priced.
  */
-export function durationIn(chunk: Buffer): number | undefined {
-  if (chunk.length >= 44 && chunk.toString("ascii", 0, 4) === "RIFF" && chunk.toString("ascii", 8, 12) === "WAVE") {
-    const byteRate = chunk.readUInt32LE(28)
-    const dataBytes = chunk.readUInt32LE(40)
-    if (byteRate > 0 && dataBytes > 0) return Math.round((dataBytes / byteRate) * 1000) / 1000
-    return undefined
+export function riffAudioIn(chunk: Buffer): RiffAudio | undefined {
+  if (chunk.length < 12 || chunk.toString("ascii", 0, 4) !== "RIFF" || chunk.toString("ascii", 8, 12) !== "WAVE") return undefined
+  let byteRate: number | undefined
+  let offset = 12
+  while (offset + 8 <= chunk.length) {
+    const id = chunk.toString("ascii", offset, offset + 4)
+    if (!CHUNK_ID.test(id)) return undefined
+    const size = chunk.readUInt32LE(offset + 4)
+    const body = offset + 8
+    if (id === "data") {
+      return byteRate !== undefined && byteRate > 0 ? { byteRate, dataOffset: body, statedDataBytes: size } : undefined
+    }
+    // `fmt ` is 16 bytes of PCM fields, 18 with `cbSize`, 40 when it is WAVE_FORMAT_EXTENSIBLE. Only the first 16 are read.
+    if (id === "fmt " && size >= 16 && body + 16 <= chunk.length) byteRate ??= chunk.readUInt32LE(body + 8)
+    // An odd chunk is padded to an even boundary.
+    const next = body + size + (size % 2)
+    if (!Number.isSafeInteger(next) || next <= offset) return undefined
+    offset = next
+  }
+  return undefined
+}
+
+/**
+ * The duration of a RIFF/WAVE file, bounded by the file itself: the larger of what its `data` header states (clamped
+ * to the bytes that actually follow it) and what those bytes are worth at the stated byte rate. A `data` size field
+ * cannot lower the price below the audio that is really there, and it cannot raise it above it either.
+ */
+export function riffSecondsIn(chunk: Buffer, fileSize: number): number | undefined {
+  const riff = riffAudioIn(chunk)
+  if (riff === undefined) return undefined
+  const following = Math.max(0, fileSize - riff.dataOffset)
+  const stated = Math.min(riff.statedDataBytes, following)
+  const bytes = Math.max(stated, following)
+  return bytes > 0 ? seconds(bytes / riff.byteRate) : undefined
+}
+
+/**
+ * The duration of a container, in seconds: a RIFF/WAVE file measured against its own bytes, or an MP4/M4A `mvhd` in
+ * the buffer. Anything else is undefined: a guess from a bitrate would under-price a codec that sits under that floor.
+ * `fileSize` is the whole file's size, which the RIFF path needs; with only the buffer it is the buffer's length.
+ */
+export function durationIn(chunk: Buffer, fileSize = chunk.length): number | undefined {
+  if (chunk.length >= 12 && chunk.toString("ascii", 0, 4) === "RIFF" && chunk.toString("ascii", 8, 12) === "WAVE") {
+    return riffSecondsIn(chunk, fileSize)
   }
   const box = chunk.indexOf(Buffer.from("mvhd", "ascii"))
   if (box < 0) return undefined
@@ -193,9 +246,10 @@ export function durationIn(chunk: Buffer): number | undefined {
 export async function durationOf(file: string): Promise<number | undefined> {
   const handle = await fs.open(file, "r")
   try {
+    const size = (await handle.stat()).size
     const chunk = Buffer.alloc(64 * 1024)
     const read = await handle.read(chunk, 0, chunk.length, 0)
-    return durationIn(chunk.subarray(0, read.bytesRead))
+    return durationIn(chunk.subarray(0, read.bytesRead), size)
   } finally {
     await handle.close()
   }

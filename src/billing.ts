@@ -122,8 +122,11 @@ export function priceOf(tool: string, input: Record<string, unknown>): Price | u
 const AUDIO_PATHS = ["path", "file", "file_path", "audio_path", "filename", "audio_file", "input_file"] as const
 
 /**
- * The file a transcription is about to send, measured here. Container duration only. A format whose header does not
- * state one is not measured: pricing it from a byte floor would under-price Opus, which sits under 32 kbit/s.
+ * The file a transcription is about to send, measured here. A RIFF/WAVE file is measured against its own bytes, so no
+ * single header field can set the price: the chunks are walked for `fmt ` and `data`, and a `data` size that
+ * understates or overstates the audio behind it is clamped to the bytes that really follow it. A format whose header
+ * states no duration is not measured at all: pricing it from a byte floor would under-price Opus, which sits under
+ * 32 kbit/s.
  */
 export function measureAudio(input: Record<string, unknown>): { readonly durationSeconds: number; readonly bytes: number } | undefined {
   for (const name of AUDIO_PATHS) {
@@ -137,7 +140,8 @@ export function measureAudio(input: Record<string, unknown>): { readonly duratio
       fd = openSync(value, "r")
       const head = Buffer.alloc(Math.min(stat.size, 64 * 1024))
       const read = readSync(fd, head, 0, head.length, 0)
-      const durationSeconds = durationIn(head.subarray(0, read))
+      // The whole file's size is what bounds a RIFF `data` header, so it is passed with the head that was read.
+      const durationSeconds = durationIn(head.subarray(0, read), stat.size)
       if (durationSeconds === undefined || !(durationSeconds > 0)) return undefined
       return { durationSeconds, bytes: stat.size }
     } catch {

@@ -74,7 +74,10 @@ describe("a caller-typed number cannot set a low price", () => {
   })
 })
 
-/** A RIFF/WAVE header whose data-size and byte-rate state `seconds`. The body itself is not required. */
+/**
+ * A RIFF/WAVE file holding `seconds` of audio. The body is required: since RR2-1 the price comes from the bytes that
+ * follow the `data` chunk, so a bare 44-byte header states a duration it does not have and is not measured.
+ */
 function wavHeader(seconds: number, byteRate = 16_000) {
   const dataBytes = byteRate * seconds
   const header = Buffer.alloc(44)
@@ -91,7 +94,7 @@ function wavHeader(seconds: number, byteRate = 16_000) {
   header.writeUInt16LE(8, 34)
   header.write("data", 36)
   header.writeUInt32LE(dataBytes, 40)
-  return header
+  return Buffer.concat([header, Buffer.alloc(dataBytes, 7)])
 }
 
 describe("a creative_ name the table does not price is refused on both paths", () => {
