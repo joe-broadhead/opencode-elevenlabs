@@ -308,7 +308,11 @@ export function createElevenlabsPlugin(seam: ElevenlabsSeam = {}) {
         }
         const floor = before?.credits ?? ledger.reservation(event.id)?.credits ?? 0
         const settled = settlementOf(event.result, floor)
-        const price: Price = settled.credits === floor && before ? before : { credits: settled.credits, basis: settled.credits > 0 && settled.credits !== floor ? "exact" : "at-most", parts: settled.credits === floor ? before?.parts ?? ["cost not reported"] : [] }
+        // A figure the plugin would not settle on says so in the cost line: the owner sees why the reservation stands.
+        const kept = settled.credits === floor ? [...(before?.parts ?? ["cost not reported"]), ...(settled.note === undefined ? [] : [settled.note])] : []
+        const price: Price = settled.credits === floor && before && settled.note === undefined
+          ? before
+          : { credits: settled.credits, basis: settled.credits > 0 && settled.credits !== floor ? "exact" : "at-most", parts: kept }
         const spend = settled.credits <= 0 && floor <= 0 ? ledger.spend(event.sessionID) : ledger.settle(event.id, event.sessionID, settled.credits, settled.attested)
         const line = costLine(price, spend, caps())
         appendLine(event.result, line)

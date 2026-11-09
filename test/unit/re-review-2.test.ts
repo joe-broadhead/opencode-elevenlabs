@@ -3,7 +3,7 @@ import { afterAll, describe, expect, test } from "bun:test"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { Ledger, MUSIC_MIN_MS, measureAudio, priceOf, quoteCall, quoteCallSync, RATES, RESERVATION_MS, SpendRefused, transcriptionPrice } from "../../src/billing.js"
+import { Ledger, MUSIC_MIN_MS, measureAudio, priceOf, quoteCall, quoteCallSync, RATES, RESERVATION_MS, settlementOf, SpendRefused, transcriptionPrice } from "../../src/billing.js"
 import { shapersFor } from "../../src/host/tools-rpc.js"
 import { brokenRiff, buildWav, WAV_FIXTURES } from "../fixtures/wav.js"
 
@@ -194,8 +194,8 @@ describe("RR2-4 — a late result cannot settle the call that replaced it", () =
     advance(RESERVATION_MS + 1)
     // The orphan is gone, so the next call is an ordinary one: its own attested figure settles it.
     shapers.input("creative_generate_speech", speech(2_000), call)
-    shapers.result("creative_generate_speech", { output: { credits: 10 }, text: "" }, call)
-    expect(ledger.daily()).toBe(4_510)
+    shapers.result("creative_generate_speech", { output: { credits: 500 }, text: "" }, call)
+    expect(ledger.daily()).toBe(5_000)
   })
 
   test("with nothing in flight, a late result is still ignored", () => {
@@ -333,5 +333,51 @@ describe("RR2-6 — an estimate with no money behind it cannot block a method fo
     shapers.result("creative_generate_speech", { output: { credits: 42 }, text: "" }, call)
     shapers.input("creative_generate_speech", paid, call)
     expect(ledger.spend("ses_a").sessionCredits).toBe(1_500)
+  })
+})
+
+describe("RR2-7 — an attested figure may lower a reservation only when it reads as this call's charge", () => {
+  const result = (output: Record<string, unknown>) => ({ output, text: "" })
+
+  test("a fraction of a credit never lowers a reservation", () => {
+    // d107a11 settled 0.5 against 3,000 reserved. Credits are whole; a fraction is a rate the plugin misread.
+    const settled = settlementOf(result({ credits: 0.5 }), 3_000)
+    expect(settled).toMatchObject({ credits: 3_000, attested: false })
+    expect(settled.note).toContain("not a whole number")
+  })
+
+  test("a figure orders of magnitude below the reservation never lowers it", () => {
+    // This is how 3,000 credits became 1.
+    for (const credits of [1, 2, 29]) {
+      const settled = settlementOf(result({ credits }), 3_000)
+      expect({ credits, settled: settled.credits, attested: settled.attested }).toEqual({ credits, settled: 3_000, attested: false })
+      expect(settled.note).toContain("too far below")
+    }
+    // Within a hundredfold it is a charge this call could have: it is honoured, as the design intends.
+    expect(settlementOf(result({ credits: 30 }), 3_000)).toEqual({ credits: 30, attested: true })
+    expect(settlementOf(result({ total_credits: 1_500 }), 3_000)).toEqual({ credits: 1_500, attested: true })
+    // And a higher figure still replaces the reservation, whatever its size.
+    expect(settlementOf(result({ credits: 48_000 }), 3_000)).toEqual({ credits: 48_000, attested: true })
+  })
+
+  test("credit_cost is no longer read as a charge", () => {
+    // It reads as readily as a per-unit rate, and no live call has been seen to carry a charge in it.
+    expect(settlementOf(result({ credit_cost: 0.5 }), 3_000)).toEqual({ credits: 3_000, attested: false })
+    expect(settlementOf(result({ credit_cost: 1 }), 3_000)).toEqual({ credits: 3_000, attested: false })
+    // The fields that do name this call's charge still work.
+    for (const key of ["credits", "credits_used", "credits_charged", "billed_credits", "total_credits"]) {
+      expect({ key, ...settlementOf(result({ [key]: 2_000 }), 3_000) }).toEqual({ key, credits: 2_000, attested: true })
+    }
+  })
+
+  test("the cost line says the reservation stands, rather than reporting a figure it refused", () => {
+    let now = 0
+    const ledger = new Ledger({ now: () => now })
+    const shapers = shapersFor({ ledger, caps: () => ({ sessionCreditCap: 100_000, dailyCreditCap: 100_000 }) })
+    const call = { sessionID: "ses_a", agent: "build", action: "elevenlabs_creative_generate_speech" }
+    shapers.input("creative_generate_speech", { text: "x".repeat(1_500) }, call)
+    const settled = shapers.result("creative_generate_speech", { output: { credits: 1 }, text: "" }, call)
+    expect(ledger.spend("ses_a").sessionCredits).toBe(3_000)
+    expect(settled.text).toContain("too far below")
   })
 })

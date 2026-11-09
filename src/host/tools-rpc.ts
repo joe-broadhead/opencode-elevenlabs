@@ -281,8 +281,9 @@ export function shapersFor(runtime: ToolRuntime): LocationShapers {
       // A figure that may belong to the other call may raise this one's price and may not lower it: whichever call it
       // came from, the slot as a whole spent at least that much, and over-counting is the safe side of a pairing this
       // path cannot make. The reservation stands otherwise.
-      const settled = (stray || flight.strayRisk) && reported.credits < flight.price.credits ? { credits: flight.price.credits, attested: false } : reported
-      const price: Price = settled.credits === flight.price.credits ? flight.price : { credits: settled.credits, basis: "exact", parts: [] }
+      const settled = (stray || flight.strayRisk) && reported.credits < flight.price.credits ? { credits: flight.price.credits, attested: false, note: reported.note } : reported
+      const parts = settled.note === undefined ? flight.price.parts : [...flight.price.parts, settled.note]
+      const price: Price = settled.credits === flight.price.credits ? { ...flight.price, parts } : { credits: settled.credits, basis: "exact", parts: [] }
       const spend = runtime.ledger.settle(flight.id, call.sessionID, price.credits, settled.attested)
       const line = costLine(price, spend, caps)
       const value = costValue(price, spend, caps)

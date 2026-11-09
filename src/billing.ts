@@ -234,9 +234,18 @@ export function actualCreditsOf(result: { readonly output?: unknown; readonly te
 
 /**
  * Top-level charge fields a result may attest. A nested `credit: 0` is not one of them, and neither is prose. Only an
- * attested positive figure may settle below the reserved price.
+ * attested positive figure may settle below the reserved price. Each name here says *this call's charge*:
+ * `credit_cost` is not one of them, because it reads as readily as a per-unit rate, and until the live reconcile
+ * observes it carrying a charge, a rate that lowered a reservation would be the plugin's own parse error.
  */
-const ATTESTED_CREDIT_KEYS = new Set(["credits", "credits_used", "credits_charged", "billed_credits", "credit_cost", "total_credits"])
+const ATTESTED_CREDIT_KEYS = new Set(["credits", "credits_used", "credits_charged", "billed_credits", "total_credits"])
+
+/**
+ * How far below a reservation an attested figure may settle. A result that reports 1 credit against 3,000 reserved is
+ * not this call's charge in any pricing this plugin knows: it is a count, a rate, or another call's figure. Keep the
+ * reservation and say so, rather than free a budget on a field the plugin may have read wrong.
+ */
+const ATTESTED_MIN_RATIO = 100
 
 export function attestedCreditsOf(result: { readonly output?: unknown }): number | undefined {
   const output = result.output
@@ -253,9 +262,27 @@ export function attestedCreditsOf(result: { readonly output?: unknown }): number
  * The figure a completed call is settled at. Never below the reserved price unless one attested field says so. A prose
  * match and a zero keep the reservation. A higher figure, attested or not, may replace it.
  */
-export function settlementOf(result: { readonly output?: unknown; readonly text?: string; readonly content?: unknown }, reserved: number): { readonly credits: number; readonly attested: boolean } {
+export function settlementOf(
+  result: { readonly output?: unknown; readonly text?: string; readonly content?: unknown },
+  reserved: number,
+): { readonly credits: number; readonly attested: boolean; readonly note?: string } {
   const attested = attestedCreditsOf(result)
-  if (attested !== undefined) return { credits: attested, attested: true }
+  if (attested !== undefined) {
+    if (attested >= reserved) return { credits: attested, attested: true }
+    // Lowering a reservation is the one thing a figure the plugin may have misread can do with the owner's money, so
+    // it has to look like a charge for this call: a whole number of credits, within reach of what was reserved.
+    if (!Number.isSafeInteger(attested)) {
+      return { credits: reserved, attested: false, note: `the result reported ${attested} credits, which is not a whole number, so the reserved price stands` }
+    }
+    if (attested * ATTESTED_MIN_RATIO < reserved) {
+      return {
+        credits: reserved,
+        attested: false,
+        note: `the result reported ${count(attested)} against ${count(reserved)} reserved, too far below to be this call's charge, so the reserved price stands`,
+      }
+    }
+    return { credits: attested, attested: true }
+  }
   const parsed = actualCreditsOf(result)
   if (parsed !== undefined && parsed > reserved) return { credits: parsed, attested: false }
   return { credits: reserved, attested: false }
