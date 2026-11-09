@@ -1,7 +1,7 @@
 # Jelly
 
 Jelly reads the `jelly` section of `package.json` without loading the plugin, so that section must describe the plugin
-exactly. 43 tools are declared (18 read-only): the 40 ElevenLabs tools this plugin classifies, and the plugin's own
+exactly. 190 tools are declared (83 read-only): the 189 ElevenLabs tools this plugin classifies, and the plugin's own
 `elevenlabs_save_media`.
 
 Every declared effect is `allow`, because that is what the default rules give each tool in OpenCode: every tool is
@@ -14,7 +14,7 @@ The declaration holds:
   states no policy, because what asks first is on the plugin's card.
 - `icon`: `assets/icon.svg`, the mark Jelly draws. The same file names the one line in `jelly.summary`, and beside it the
   mark in `jelly.icon`.
-- `tools`: the 40 ElevenLabs tools plus `elevenlabs_save_media`, each with its permission action and `readOnly`, which is
+- `tools`: the 189 ElevenLabs tools plus `elevenlabs_save_media`, each with its permission action and `readOnly`, which is
   true exactly for the reads. `elevenlabs_save_media` is not read-only: it writes a file.
 - `skills`: `elevenlabs`, `elevenlabs-creative`, `elevenlabs-calls`.
 - `signIns`: one, `elevenlabs`, on the `elevenlabs` server.
