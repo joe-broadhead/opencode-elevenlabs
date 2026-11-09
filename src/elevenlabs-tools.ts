@@ -5,7 +5,7 @@
 //
 // These are the 190 names the hosted server's own `tools/list` returned on 2026-11-09, reconciled against
 // test/fixtures/live-tools.json. `npm run drift` compares the two. The classes are read from what each tool's own
-// description says it does; docs/architecture.md records the two judgement calls and the one name left unclassified.
+// description and schema say it does; docs/architecture.md records the judgement calls. Every live name has a class.
 
 /** Reads. They run without a prompt, and they are the tools RPC's methods. */
 export const READ_TOOLS: readonly string[] = [
@@ -216,6 +216,12 @@ export const WRITE_TOOLS: readonly string[] = [
   "creative_update_flow_nodes",
   "creative_update_node",
   "creative_upload_flow_reference",
+  // Not a catalogue read. Its one required argument is a free-text `capability` string, and what it does with it is
+  // ask ElevenLabs to build a tool: "Describe the capability you were looking for, so it can inform which tools get
+  // built next." It returns no tool definitions and adds nothing at run time. It changes what the server will offer,
+  // and it carries the model's own words out of the workspace, so it asks under `ask-changes` and `read-only` denies
+  // it (docs/architecture.md, SECURITY.md).
+  "get_more_tools",
 ]
 
 /**
@@ -249,11 +255,24 @@ export const SPEND_READS: readonly string[] = []
 /** Every call the guard must price, whether it writes or reads. */
 export const SPEND_ANY: readonly string[] = [...SPEND_TOOLS, ...SPEND_READS]
 
+/** True when this table classifies the name: one of the five lists, or the plugin's own tool. Case is folded. */
+export const known = (raw: string) => {
+  const name = raw.toLowerCase()
+  return ALL_TOOLS.includes(name) || OWN_TOOLS.includes(name)
+}
+
 /**
- * True when a cap must price this call or refuse it, before dispatch: every name in `SPEND_ANY`, and every other name
- * that starts with `creative_` except one this table classifies as a read, write, export or delete that does not
- * spend. A `creative_` name this table does not know is priced from its own `estimate_only` call or refused. There
- * is no keyword list.
+ * True when a cap must price this call or refuse it, before dispatch: every name in `SPEND_ANY`, and every name this
+ * table does not classify at all, whatever it starts with. A classified name that does not spend — a read, a write, an
+ * export, a delete — runs as it always did, and so does the plugin's own `save_media`, which is not ElevenLabs' to
+ * bill.
+ *
+ * The unknown half is the money residual made real (RE-3). The gate used to be the `creative_` prefix, so a spending
+ * tool ElevenLabs shipped tomorrow under any other name was allowed by `rule("*", other)` and never priced; and
+ * `get_more_tools` exists to ask ElevenLabs for new tools, so that chain starts inside the catalogue rather than
+ * outside it. Nothing here can price a tool it has never seen: there is no schema to check its arguments against and
+ * no `estimate_only` flag to call. So while either cap is on it is refused `PRICE_UNKNOWN`, and the owner either
+ * turns both caps off or waits for a release that classifies it.
  *
  * Case is folded, as the permission rules fold it (RR2-8): ElevenLabs' live names are lowercase, but the money gate
  * must not be the weaker of the two, and `Creative_Generate_Speech` spends exactly what its lowercase form spends.
@@ -261,19 +280,13 @@ export const SPEND_ANY: readonly string[] = [...SPEND_TOOLS, ...SPEND_READS]
 export const mustPrice = (raw: string) => {
   const name = raw.toLowerCase()
   if (SPEND_ANY.includes(name)) return true
-  if (!name.startsWith("creative_")) return false
-  if (READ_TOOLS.includes(name) || WRITE_TOOLS.includes(name) || EXPORT_TOOLS.includes(name) || DESTRUCTIVE_TOOLS.includes(name)) return false
-  return true
+  return !known(name)
 }
 
-/**
- * The README sentence for that rule, from the same predicate. A classified non-spending `creative_` name is the only
- * exception, and only while the table still has one.
- */
+/** The README sentence for that rule, counted from the same predicate rather than written beside it. */
 export function creativeGuardSentence() {
-  const exempt = ALL_TOOLS.some((name) => name.startsWith("creative_") && !mustPrice(name))
-  const rule = "While either cap is on, a name that starts with creative_ is priced by ElevenLabs' own estimate or refused PRICE_UNKNOWN before it is sent"
-  return exempt ? `${rule}, unless the tool table classifies the name as a read, write, export or delete that does not spend.` : `${rule}.`
+  const spenders = ALL_TOOLS.filter(mustPrice).length
+  return `While either cap is on, each of the ${spenders} tools that can spend is priced by ElevenLabs' own estimate or refused PRICE_UNKNOWN before it is sent, and so is any name this table does not classify, whatever it starts with.`
 }
 
 /**
@@ -311,14 +324,15 @@ export const DESTRUCTIVE_TOOLS: readonly string[] = [
 ]
 
 /**
- * Names the live catalogue returned that this table does not classify. `get_more_tools` sends the caller's own words
- * to ElevenLabs to search the catalogue and changes nothing in the workspace, so neither a read nor a write describes
- * it; the `rule("*", other)` default already asks for it under `ask-changes` and denies it under `read-only`.
- * Status reports the count, and it is deliberately not in `ALL_TOOLS`.
+ * Names the live catalogue returned that this table does not classify. Empty: all 190 have a class.
+ *
+ * `get_more_tools` was held here, as a catalogue pager that returned tool definitions and changed nothing. Its live
+ * schema says otherwise — one required free-text `capability` string, and a description that asks ElevenLabs to build
+ * tools with it — so it is a write (RE-1). Nothing is held on a guess about what a tool does: a name stays here only
+ * while its own schema and description genuinely fit no class, and `npm run drift` reports whatever is here as known
+ * rather than as drift.
  */
-export const UNCLASSIFIED_TOOLS: readonly string[] = [
-  "get_more_tools",
-]
+export const UNCLASSIFIED_TOOLS: readonly string[] = []
 
 export const ALL_TOOLS: readonly string[] = [
   ...READ_TOOLS,

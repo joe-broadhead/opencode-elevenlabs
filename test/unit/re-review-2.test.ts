@@ -161,12 +161,20 @@ describe("RR2-3 — a length the caller types prices nothing at all", () => {
   })
 
   test("the refusal for a tool with no estimate says so, and its next step is the caps", async () => {
-    const failure = await refusal(quoteCall({ ledger: new Ledger(), caps: () => caps() }, "creative_generate_music", { music_length_ms: 300_000 }, call("m")))
+    // A tool this table classifies as spending, whose live schema declares no `estimate_only`: the refusal names the
+    // flag it does not accept, because there is a schema here to say so.
+    const failure = await refusal(quoteCall({ ledger: new Ledger(), caps: () => caps() }, "creative_design_voice", { voice_description: "a warm alto" }, call("m")))
     expect(failure.message).toContain(`does not accept "estimate_only"`)
     expect(failure.nextStep).toContain(`Set both "sessionCreditCap" and "dailyCreditCap" to null`)
-    // And with both caps off there is nothing to price it against, so it runs untracked rather than refused.
-    const untracked = await quoteCall({ ledger: new Ledger(), caps: () => caps(null, null) }, "creative_generate_music", { music_length_ms: 300_000 }, call("m"))
-    expect(untracked.tracked).toBe(false)
+    // A name the table does not classify at all gets the other shape: nothing here knows whether it spends (RE-1).
+    const unknown = await refusal(quoteCall({ ledger: new Ledger(), caps: () => caps() }, "creative_generate_music", { music_length_ms: 300_000 }, call("m")))
+    expect(unknown.message).toContain("is not in this plugin's tool table")
+    expect(unknown.nextStep).toContain("wait for a release that classifies it")
+    // And with both caps off there is nothing to price either against, so each runs untracked rather than refused.
+    for (const name of ["creative_design_voice", "creative_generate_music"]) {
+      const untracked = await quoteCall({ ledger: new Ledger(), caps: () => caps(null, null) }, name, { music_length_ms: 300_000 }, call("m"))
+      expect({ name, tracked: untracked.tracked }).toEqual({ name, tracked: false })
+    }
   })
 })
 
@@ -420,8 +428,10 @@ describe("RR2-8 — the money gate folds case, as the permission gate does", () 
     for (const name of ["Creative_Upscale", "Creative_Generate_Speech", "CREATIVE_GENERATE_SPEECH", "creative_Edit_Image"]) {
       expect({ name, priced: mustPrice(name) }).toEqual({ name, priced: true })
     }
-    // The exemptions fold with it: a classified non-spending creative name does not become a refusal in another case.
-    for (const name of ["CREATIVE_GET_FLOW", "Creative_Create_Flow", "AGENTS_LIST_AGENTS"]) {
+    // The exemption folds with it too: a name this table classifies as something that cannot spend runs unpriced in
+    // any case. `Creative_Upscale` above is in neither half — it is not a live name at all — so it is priced as an
+    // unknown rather than exempted by its prefix (RE-1).
+    for (const name of ["CREATIVE_GET_FLOW", "Creative_Create_Flow", "AGENTS_LIST", "Get_More_Tools"]) {
       expect({ name, priced: mustPrice(name) }).toEqual({ name, priced: false })
     }
   })

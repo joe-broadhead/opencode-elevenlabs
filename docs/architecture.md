@@ -13,7 +13,7 @@ known tools through a tools RPC. It adds one tool of its own and has no runtime 
 | `src/plugin.ts` | Setup: the server, the namespace, the rules, the guard's hooks, the commands, the tools RPC |
 | `src/constants.ts` | Ids, the region table, the scope pin, the media host, the host range, `TESTED_HOSTS` and the codes |
 | `src/options.ts` | Option parsing and validation |
-| `src/elevenlabs-tools.ts` | The one tool table: the 189 classified tools — reads, export, writes, spending tools, deletes — the transcript lists and `classify()` |
+| `src/elevenlabs-tools.ts` | The one tool table: all 190 live tools — reads, export, writes, spending tools, deletes — the transcript lists and `classify()` |
 | `src/permissions.ts` | The generated default rules, their placement, and the agents that need them |
 | `src/billing.ts` | ElevenLabs' estimate as the only price, the argument allowlists, the rolling ledger, the pre-call refusal, the cost line, the RPC `cost` object |
 | `src/media/policy.ts` | The export-root path policy and the file write |
@@ -109,15 +109,22 @@ estimate never creates a flow for a generation the user is about to refuse. Unde
 tool is denied, the assert fails, and no estimate is sent either. A declined or failed assert leaves the call with no
 price, which a cap turns into `PRICE_UNKNOWN`.
 
-While either cap is on, a name that starts with `creative_` and is not classified as something that cannot spend is
-priced or refused before dispatch. There is no keyword list. A price that does not fit is refused before dispatch
-(`SPEND_CAP_REACHED`), and a count the caller named is first cut to what the budget affords; a call that named no count
-is refused at its whole figure rather than quietly given a smaller batch than it asked for.
+While either cap is on, two kinds of call are priced or refused before dispatch: the ones the table classifies as
+spending, and **any name the table does not classify at all, whatever it starts with**. There is no keyword list and
+no prefix. A price that does not fit is refused (`SPEND_CAP_REACHED`), and a count the caller named is first cut to
+what the budget affords; a call that named no count is refused at its whole figure rather than quietly given a smaller
+batch than it asked for.
 
-Each refusal names what it could not price and what to do about it, in two shapes. A tool that takes `estimate_only` is
-told to send the same call with `estimate_only: true` first. A tool that does not — `creative_design_voice`,
-`agents_run_tests`, and any `creative_*` name the table does not know — is told that ElevenLabs offers no estimate for
-it and that both caps must be `null` to run it.
+The unknown half is what closes the chain that starts at `get_more_tools`: a tool asks ElevenLabs to build more tools,
+and a tool this release has never seen has no schema to check its arguments against and no `estimate_only` flag to
+call, so nothing here could price it. A read the table already classifies still runs without a price, as it always
+did, and so does the plugin's own `elevenlabs_save_media`.
+
+Each refusal names what it could not price and what to do about it, in three shapes. A tool that takes `estimate_only`
+is told to send the same call with `estimate_only: true` first. A classified spending tool that does not —
+`creative_design_voice` and `agents_run_tests` — is told that ElevenLabs offers no estimate for it and that both caps
+must be `null` to run it. A name the table does not know is told that nothing here can tell whether it spends, and to
+set both caps to `null` or wait for a release that classifies it.
 
 A price is **reserved** in the ledger before the call is sent and settled into a charge when its result arrives, so a
 parallel turn cannot spend one budget twice. A call that fails, and a hold still open after ten minutes, is charged the
@@ -189,8 +196,8 @@ decide nothing.
 ### What each tool is allowed to do
 
 `classify()` puts each of the 190 live tools in one class, from its own name, description and schema: 83 reads, 2
-exports, 81 writes, 9 that can spend, 14 destructive, and one left unclassified. The class is the worst thing a tool
-can do; it never decides whether a call runs, only what the generated default rules give it.
+exports, 82 writes, 9 that can spend and 14 destructive. Nothing is left unclassified. The class is the worst thing a
+tool can do; it never decides whether a call runs, only what the generated default rules give it.
 
 Two of them are judgement calls, recorded here because nothing in the catalogue settles them:
 
@@ -203,11 +210,19 @@ Two of them are judgement calls, recorded here because nothing in the catalogue 
   it. The two exports are `agents_get_link`, which mints a link usable outside the workspace, and
   `creative_get_generations`, which returns the signed links a flow's generations can be downloaded from.
 
-**`get_more_tools` is deliberately unclassified.** It is ElevenLabs' own catalogue-paging tool: it returns tool
-definitions rather than doing anything to the workspace, and what it returns is whatever the server decides to hand
-back next, which is not a class. It is not in `ALL_TOOLS`, so it gets no default rule of its own and no tools-RPC
-method; under the `elevenlabs_*` rule the model can still call it. `/elevenlabs-status` counts it in its unknown row,
-and `npm run drift` reports it as known-and-unclassified rather than as drift.
+- **`get_more_tools` is a write.** It is not a catalogue pager and it returns no tool definitions. Its live schema has
+  one required argument, a free-text string named `capability`, and its description says what the server does with it:
+  *"Call this when the user's request cannot be completed with any of the available tools. Describe the capability you
+  were looking for, so it can inform which tools get built next."* So it changes what ElevenLabs will offer, which is a
+  change like any other, and it is the one tool that sends words the model composed itself out of the workspace. It
+  asks under `ask-changes`, `read-only` denies it, and SECURITY.md lists it with the other things `access: "all"`
+  allows without a prompt. This release classified it from its own schema after live reconcile 1; until then the table
+  held it unclassified and described it as something it never was.
+
+Nothing is left unclassified, so `/elevenlabs-status` reports `0 unknown` against this catalogue. A name that really
+fits no class would go in `UNCLASSIFIED_TOOLS`, where `npm run drift` reports it as known rather than as drift — but
+while either credit cap is on, a name the table does not classify is refused before dispatch, so holding one there is
+not free.
 
 ### The one duration, and what it is not
 

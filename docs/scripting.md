@@ -8,13 +8,13 @@ Every live tool is a method, in one of five classes. `/elevenlabs-status` and `d
 | Class | How many | What it covers |
 | --- | --- | --- |
 | read | 83 | reads the workspace and changes nothing |
-| write | 81 | creates or changes something, and spends nothing |
+| write | 82 | creates or changes something, and spends nothing |
 | write (billed) | 9 | changes something **and** can spend credits: priced before it runs, or refused |
 | export | 3 | sends something out of the workspace: `agents_get_link` mints a link usable outside it, `creative_get_generations` returns the signed links a flow's generations download from, and `elevenlabs_save_media` writes a file to this machine |
 | destructive | 14 | deletes something, often without an undo |
 | `describe` | — | not a tool: lists the methods, their classes and permission actions, whether OpenCode lists each tool now, each tool's input as JSON Schema, and — with a session — that session's permission for each |
 
-The nine billed methods, each priced from ElevenLabs' own `estimate_only` figure before it runs:
+The 9 billed methods, each priced from ElevenLabs' own `estimate_only` figure before it runs:
 
 `agents_run_tests`, `creative_design_voice`, `creative_edit_image`, `creative_generate_image`, `creative_generate_in_flow`, `creative_generate_speech`, `creative_generate_video`, `creative_run_flow_nodes`, `creative_transcribe_audio`
 
@@ -26,9 +26,9 @@ The nine billed methods, each priced from ElevenLabs' own `estimate_only` figure
 </details>
 
 <details>
-<summary>The 81 write methods</summary>
+<summary>The 82 write methods</summary>
 
-`agents_add_triage_ticket_comment`, `agents_add_triage_ticket_turn_comment`, `agents_append_to_string_field`, `agents_bulk_move_knowledge_base`, `agents_comment_on_merge_proposal`, `agents_compute_kb_rag_index`, `agents_create`, `agents_create_branch`, `agents_create_code_tool`, `agents_create_deployment`, `agents_create_draft`, `agents_create_kb_crawl`, `agents_create_kb_folder`, `agents_create_kb_text`, `agents_create_kb_url`, `agents_create_manual_triage_ticket`, `agents_create_mcp_server`, `agents_create_merge_proposal`, `agents_create_procedure`, `agents_create_test`, `agents_create_test_folder`, `agents_create_tool`, `agents_create_triage_ticket`, `agents_disable_built_in_tool`, `agents_duplicate`, `agents_edit_string_field`, `agents_merge_branch`, `agents_merge_merge_proposal`, `agents_move_tests`, `agents_rebase_branch`, `agents_review_merge_proposal`, `agents_update`, `agents_update_agent_behavior`, `agents_update_analysis`, `agents_update_branch`, `agents_update_client_overrides`, `agents_update_code_tool`, `agents_update_conversation`, `agents_update_end_call_tool`, `agents_update_guardrails`, `agents_update_kb_document`, `agents_update_keypad_tone_tool`, `agents_update_language_detection_tool`, `agents_update_language_presets`, `agents_update_mcp_server`, `agents_update_merge_proposal`, `agents_update_operations`, `agents_update_phone_number`, `agents_update_procedure_draft`, `agents_update_prompt_settings`, `agents_update_skip_turn_tool`, `agents_update_speech_recognition`, `agents_update_test`, `agents_update_tool`, `agents_update_transfer_to_agent_tool`, `agents_update_transfer_to_number_tool`, `agents_update_triage_ticket`, `agents_update_turn_taking`, `agents_update_voice`, `agents_update_voicemail_detection_tool`, `agents_update_widget`, `agents_update_workflow`, `creative_add_brand_kit_item`, `creative_add_flow_asset_node`, `creative_add_flow_node`, `creative_attach_reference_file`, `creative_connect_flow_nodes`, `creative_create_asset_upload`, `creative_create_brand_kit`, `creative_create_brand_kit_from_website`, `creative_create_flow`, `creative_disconnect_flow_nodes`, `creative_duplicate_flow_nodes`, `creative_finalize_asset_upload`, `creative_save_designed_voice`, `creative_save_view_state`, `creative_update_brand_kit`, `creative_update_brand_kit_item`, `creative_update_flow_nodes`, `creative_update_node`, `creative_upload_flow_reference`
+`agents_add_triage_ticket_comment`, `agents_add_triage_ticket_turn_comment`, `agents_append_to_string_field`, `agents_bulk_move_knowledge_base`, `agents_comment_on_merge_proposal`, `agents_compute_kb_rag_index`, `agents_create`, `agents_create_branch`, `agents_create_code_tool`, `agents_create_deployment`, `agents_create_draft`, `agents_create_kb_crawl`, `agents_create_kb_folder`, `agents_create_kb_text`, `agents_create_kb_url`, `agents_create_manual_triage_ticket`, `agents_create_mcp_server`, `agents_create_merge_proposal`, `agents_create_procedure`, `agents_create_test`, `agents_create_test_folder`, `agents_create_tool`, `agents_create_triage_ticket`, `agents_disable_built_in_tool`, `agents_duplicate`, `agents_edit_string_field`, `agents_merge_branch`, `agents_merge_merge_proposal`, `agents_move_tests`, `agents_rebase_branch`, `agents_review_merge_proposal`, `agents_update`, `agents_update_agent_behavior`, `agents_update_analysis`, `agents_update_branch`, `agents_update_client_overrides`, `agents_update_code_tool`, `agents_update_conversation`, `agents_update_end_call_tool`, `agents_update_guardrails`, `agents_update_kb_document`, `agents_update_keypad_tone_tool`, `agents_update_language_detection_tool`, `agents_update_language_presets`, `agents_update_mcp_server`, `agents_update_merge_proposal`, `agents_update_operations`, `agents_update_phone_number`, `agents_update_procedure_draft`, `agents_update_prompt_settings`, `agents_update_skip_turn_tool`, `agents_update_speech_recognition`, `agents_update_test`, `agents_update_tool`, `agents_update_transfer_to_agent_tool`, `agents_update_transfer_to_number_tool`, `agents_update_triage_ticket`, `agents_update_turn_taking`, `agents_update_voice`, `agents_update_voicemail_detection_tool`, `agents_update_widget`, `agents_update_workflow`, `creative_add_brand_kit_item`, `creative_add_flow_asset_node`, `creative_add_flow_node`, `creative_attach_reference_file`, `creative_connect_flow_nodes`, `creative_create_asset_upload`, `creative_create_brand_kit`, `creative_create_brand_kit_from_website`, `creative_create_flow`, `creative_disconnect_flow_nodes`, `creative_duplicate_flow_nodes`, `creative_finalize_asset_upload`, `creative_save_designed_voice`, `creative_save_view_state`, `creative_update_brand_kit`, `creative_update_brand_kit_item`, `creative_update_flow_nodes`, `creative_update_node`, `creative_upload_flow_reference`, `get_more_tools`
 
 </details>
 
@@ -131,6 +131,10 @@ them is a change: under `access: "read-only"` all nine are denied, `creative_tra
   flight; a second, estimate or not, is refused until the first settles.
 - **Only the arguments ElevenLabs' schema for that tool has may be sent while a cap is on.** One it does not have is
   refused `PRICE_UNKNOWN` by name, because nothing here can account for what it would change about the price.
+- **A method this release does not know is refused while a cap is on**, whatever it is called. The RPC serves the
+  methods in the table above, so this is about a tool ElevenLabs ships later: nothing here has its schema or its
+  `estimate_only` flag, so nothing here can say whether it spends. Set both caps to `null` to run it unpriced, or wait
+  for a release that classifies it.
 
 ```sh
 opencode api post /api/rpc/elevenlabs.tools/creative_generate_image -H "x-opencode-directory:$PWD" -d '{"input":{"sessionID":"ses_…","input":{"prompt":"a ceramic mug on marble","model_id":"gpt-image-2","generations_count":1,"estimate_only":true,"context":"price one mug image"}}}'

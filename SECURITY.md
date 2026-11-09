@@ -28,7 +28,9 @@ Report privately through GitHub's private vulnerability reporting on
 - **The optional API key** is stored by OpenCode's credential store, is used for one read (`GET /v1/user/subscription`),
   and is never printed: not in status, not in an error, not in a log. Remove it in `/connect` at any time.
 - **Nothing is sent anywhere else.** The plugin's only outbound requests are the media download you ask for and that
-  subscription read; the doctor fetches ElevenLabs' own discovery documents.
+  subscription read; the doctor fetches ElevenLabs' own discovery documents. What the *model* sends to ElevenLabs is a
+  separate matter: its tool calls go to ElevenLabs' own server, and one of those tools, `get_more_tools`, exists to
+  carry a free-text sentence the model wrote itself. See Permissions below.
 - **Redaction.** Text from OpenCode or the network is cut to one line, at most 160 characters, with URL credentials,
   queries and fragments removed and token shapes replaced, before it reaches status, the dialog or the session.
 
@@ -80,9 +82,15 @@ Report privately through GitHub's private vulnerability reporting on
 - **Write outside the project.** `elevenlabs_save_media` writes under `mediaRoot`. It asserts both its own action and
   OpenCode's `external_directory` rule for that folder before it fetches anything, so a session that denies
   `external_directory` writes nothing.
-- **Use a tool ElevenLabs adds later.** The `elevenlabs_*` rule allows it, and status names it as unknown. A new
-  `creative_*` tool is priced or refused while a cap is on, so it does not spend unpriced. A new deleting tool still runs
-  until it is classified.
+- **Ask ElevenLabs to build new tools, in words the model writes itself.** `get_more_tools` takes one free-text
+  argument, `capability`, and ElevenLabs uses it to decide which tools get built next. It is the one tool that carries
+  a sentence the model composed out of the workspace. It carries no workspace data, returns no tool and adds nothing at
+  run time, but under `access: "all"` it goes out without a prompt. `ask-changes` asks for it; `read-only` denies it.
+- **Use a tool ElevenLabs adds later.** The `elevenlabs_*` rule allows it, and status names it as unknown. While either
+  credit cap is on it cannot spend unpriced: a name this release does not classify is refused `PRICE_UNKNOWN` before it
+  is sent, whatever it is called — the money gate is the tool table, not a name prefix. With **both caps set to
+  `null`** that gate is off, and a new tool runs unpriced. A new deleting tool still runs until it is classified,
+  because permission is a separate axis from money: `ask-changes` and `read-only` are what bound it.
 
 One line restricts all of it: set `"access": "ask-changes"` (reads run, everything else asks) or `"access": "read-only"`
 (reads run, everything else is denied), or add a rule for one tool, such as

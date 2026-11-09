@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto"
 import type { Plugin } from "@opencode/plugin"
 import { elevenlabsError, type PluginCode } from "./constants.js"
-import { ESTIMATE_TOOLS, mustPrice, priced, spends } from "./elevenlabs-tools.js"
+import { ESTIMATE_TOOLS, known, mustPrice, priced, spends } from "./elevenlabs-tools.js"
 import type { CreditCap } from "./options.js"
 
 /**
@@ -1118,6 +1118,15 @@ function clamp(price: Price, caps: Caps, args: Record<string, unknown>, spend: S
  */
 function unknownPrice(tool: string, estimable: boolean, obstacle?: string) {
   const because = obstacle === undefined ? "" : `: ${obstacle}`
+  // A name this release has never seen. There is no schema to price it from and no way to tell whether it spends, so
+  // the next step is the owner's decision rather than another call: no estimate exists to suggest (RE-1, RE-3).
+  if (!known(tool)) {
+    return new SpendRefused(
+      "PRICE_UNKNOWN",
+      `${tool} is not in this plugin's tool table, so nothing here can tell whether it spends credits or what it would cost${because}.`,
+      `Set both "sessionCreditCap" and "dailyCreditCap" to null to run it unpriced, or wait for a release that classifies it.`,
+    )
+  }
   if (estimable) {
     return new SpendRefused(
       "PRICE_UNKNOWN",

@@ -96,7 +96,7 @@ Generations are billed in **credits** against the workspace you signed in with.
   four-image estimate came back as 761.5151418103446 credits, about 190 an image. Credits are charged as whole numbers,
   so a fractional figure is rounded up. A batch that does not fit is cut to the number of generations the budget
   affords, and a call that named no count is refused whole rather than quietly given a smaller batch.
-- **A call that cannot be priced is refused, not guessed.** While either cap is on, a name that starts with creative_ is priced by ElevenLabs' own estimate or refused PRICE_UNKNOWN before it is sent, unless the tool table classifies the name as a read, write, export or delete that does not spend.
+- **A call that cannot be priced is refused, not guessed.** While either cap is on, each of the 9 tools that can spend is priced by ElevenLabs' own estimate or refused PRICE_UNKNOWN before it is sent, and so is any name this table does not classify, whatever it starts with.
   A failed or missing estimate, an argument ElevenLabs' own schema for that tool does not have, and a tool with no
   estimate at all each end there. The refusal says what to do: send the same call with `estimate_only: true`, or set
   both caps to `null`. A price of 0 is a refusal, not a free call.
@@ -196,10 +196,10 @@ spend your credits without asking, and so can a tool ElevenLabs adds later. Rest
    ```
 
 The plugin inserts this block directly after each agent's base rule that allows everything, generated from
-`defaultRules("all")` in `src/permissions.ts`. It is one rule per live tool, 190 of them, so it is folded here:
+`defaultRules("all")` in `src/permissions.ts`. It is one rule per live tool, 191 of them, so it is folded here:
 
 <details>
-<summary>The 190 rules <code>access: "all"</code> inserts</summary>
+<summary>The 191 rules <code>access: "all"</code> inserts</summary>
 
 ```json
 [
@@ -370,6 +370,7 @@ The plugin inserts this block directly after each agent's base rule that allows 
   { "action": "elevenlabs_creative_update_flow_nodes", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_update_node", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_upload_flow_reference", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_get_more_tools", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_run_tests", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_design_voice", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_edit_image", "resource": "*", "effect": "allow" },

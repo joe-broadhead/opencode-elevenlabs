@@ -3,9 +3,12 @@ import {
   ALL_TOOLS,
   classify,
   CONVERSATION_TOOLS,
+  creativeGuardSentence,
   DESTRUCTIVE_TOOLS,
   ESTIMATE_TOOLS,
   EXPORT_TOOLS,
+  known,
+  mustPrice,
   OWN_TOOLS,
   priced,
   READ_TOOLS,
@@ -48,14 +51,39 @@ describe("the tool table", () => {
     expect(ALL_TOOLS.filter((tool) => UNCLASSIFIED_TOOLS.includes(tool))).toEqual([])
   })
 
-  test("leaves a name unclassified only on purpose, and the namespace rule still decides it", () => {
-    // `get_more_tools` searches the catalogue with the caller's own words and changes nothing in the workspace, so no
-    // class fits it. It stays out of `ALL_TOOLS`, which means `rule("*", other)` decides it: ask, or read-only denies.
-    expect([...UNCLASSIFIED_TOOLS]).toEqual(["get_more_tools"])
-    for (const tool of UNCLASSIFIED_TOOLS) {
-      expect({ tool, cls: classify(tool) }).toEqual({ tool, cls: "unknown" })
-      expect({ tool, spends: spends(tool) }).toEqual({ tool, spends: false })
+  // This test used to assert that `get_more_tools` was held unclassified on purpose, as a catalogue pager that
+  // returned tool definitions. Its live schema says otherwise — one required free-text `capability` string, and a
+  // description that asks ElevenLabs to build tools with it — so it is a write, and nothing is held (RE-1).
+  test("classifies every live name, and get_more_tools is the write its own schema describes", () => {
+    expect([...UNCLASSIFIED_TOOLS]).toEqual([])
+    expect(classify("get_more_tools")).toBe("write")
+    expect(WRITE_TOOLS).toContain("get_more_tools")
+    // It asks ElevenLabs to build a tool; it does not spend credits and it is not priced.
+    expect(spends("get_more_tools")).toBe(false)
+    expect(mustPrice("get_more_tools")).toBe(false)
+    // The live definition this class was read from, so a catalogue that changes it fails here rather than in prose.
+    const live = LIVE.get("get_more_tools")!
+    expect(live.description).toContain("inform which tools get built next")
+    expect(live.required).toEqual(["capability"])
+  })
+
+  test("a name the table does not classify must be priced, so a cap refuses it whatever it starts with", () => {
+    // The money gate is the table, not the `creative_` prefix: a spending tool ElevenLabs ships under any other name
+    // would otherwise be allowed by `rule("*", other)` and never priced, and `get_more_tools` exists to ask for new
+    // tools (RE-1, RE-3).
+    for (const tool of ["agents_new_spender", "foo_bar", "creative_whatever_new", "", "SHINY_NEW_TOOL"]) {
+      expect({ tool, mustPrice: mustPrice(tool) }).toEqual({ tool, mustPrice: true })
+      expect({ tool, known: known(tool) }).toEqual({ tool, known: false })
     }
+    // Everything the table does classify keeps running unpriced unless it spends, the plugin's own tool included.
+    for (const tool of ALL_TOOLS) expect({ tool, mustPrice: mustPrice(tool) }).toEqual({ tool, mustPrice: spends(tool) })
+    for (const tool of OWN_TOOLS) expect({ tool, mustPrice: mustPrice(tool) }).toEqual({ tool, mustPrice: false })
+    expect(mustPrice("Creative_Generate_Speech")).toBe(true)
+  })
+
+  test("the README sentence counts the spending tools from the predicate itself", () => {
+    expect(creativeGuardSentence()).toContain(`each of the ${SPEND_TOOLS.length} tools that can spend`)
+    expect(creativeGuardSentence()).toContain("any name this table does not classify, whatever it starts with")
   })
 
   test("the saved annotations agree with the classes where the fixture records them", () => {

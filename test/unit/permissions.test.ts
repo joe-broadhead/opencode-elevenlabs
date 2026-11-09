@@ -38,6 +38,20 @@ describe("the default rules", () => {
     }
   })
 
+  // It carries a sentence the model wrote itself out of the workspace and asks ElevenLabs to build a tool from it, so
+  // it is a write with a rule of its own rather than a name left to `rule("*", other)` (RE-1).
+  test("get_more_tools has its own rule: allowed by default, asked for under ask-changes, denied under read-only", () => {
+    expect(WRITE_TOOLS).toContain("get_more_tools")
+    for (const [access, effect] of [["all", "allow"], ["ask-changes", "ask"], ["read-only", "deny"]] as const) {
+      const rules = defaultRules(access)
+      expect({ access, rule: rules.find((item) => item.action === "elevenlabs_get_more_tools") }).toEqual({
+        access,
+        rule: { action: "elevenlabs_get_more_tools", resource: "*", effect },
+      })
+      expect({ access, effect: evaluate([allow("*"), ...rules], "elevenlabs_get_more_tools") }).toEqual({ access, effect })
+    }
+  })
+
   test("read-only denies every tool that is not a read", () => {
     const rules = defaultRules("read-only")
     expect(rules[0]).toEqual({ action: "elevenlabs_*", resource: "*", effect: "deny" })

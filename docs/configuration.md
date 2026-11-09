@@ -54,7 +54,7 @@ each agent's base `* * allow`. Everything later wins: the agent's own rules, you
 Every tool runs, including a tool ElevenLabs adds later, and generations spend credits within the caps.
 
 <details>
-<summary>The 190 rules it inserts</summary>
+<summary>The 191 rules it inserts</summary>
 
 ```json
 [
@@ -225,6 +225,7 @@ Every tool runs, including a tool ElevenLabs adds later, and generations spend c
   { "action": "elevenlabs_creative_update_flow_nodes", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_update_node", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_upload_flow_reference", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_get_more_tools", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_run_tests", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_design_voice", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_edit_image", "resource": "*", "effect": "allow" },
@@ -259,7 +260,7 @@ The reads run; every other tool asks first, and a tool ElevenLabs adds later ask
 can answer, an ask is refused. A tool that can spend asks once, before its estimate is sent.
 
 <details>
-<summary>The 190 rules it inserts</summary>
+<summary>The 191 rules it inserts</summary>
 
 ```json
 [
@@ -430,6 +431,7 @@ can answer, an ask is refused. A tool that can spend asks once, before its estim
   { "action": "elevenlabs_creative_update_flow_nodes", "resource": "*", "effect": "ask" },
   { "action": "elevenlabs_creative_update_node", "resource": "*", "effect": "ask" },
   { "action": "elevenlabs_creative_upload_flow_reference", "resource": "*", "effect": "ask" },
+  { "action": "elevenlabs_get_more_tools", "resource": "*", "effect": "ask" },
   { "action": "elevenlabs_agents_run_tests", "resource": "*", "effect": "ask" },
   { "action": "elevenlabs_creative_design_voice", "resource": "*", "effect": "ask" },
   { "action": "elevenlabs_creative_edit_image", "resource": "*", "effect": "ask" },
@@ -464,7 +466,7 @@ The reads run; everything else is denied, including every tool that can spend. A
 too.
 
 <details>
-<summary>The 190 rules it inserts</summary>
+<summary>The 191 rules it inserts</summary>
 
 ```json
 [
@@ -635,6 +637,7 @@ too.
   { "action": "elevenlabs_creative_update_flow_nodes", "resource": "*", "effect": "deny" },
   { "action": "elevenlabs_creative_update_node", "resource": "*", "effect": "deny" },
   { "action": "elevenlabs_creative_upload_flow_reference", "resource": "*", "effect": "deny" },
+  { "action": "elevenlabs_get_more_tools", "resource": "*", "effect": "deny" },
   { "action": "elevenlabs_agents_run_tests", "resource": "*", "effect": "deny" },
   { "action": "elevenlabs_creative_design_voice", "resource": "*", "effect": "deny" },
   { "action": "elevenlabs_creative_edit_image", "resource": "*", "effect": "deny" },

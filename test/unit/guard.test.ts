@@ -45,6 +45,51 @@ describe("nothing that may spend runs unguarded (DR-3)", () => {
     const untracked = await quoteCall({ ledger, caps: () => caps(null, null) }, "creative_generate_tomorrows_thing", {}, call())
     expect(untracked.tracked).toBe(false)
   })
+
+  // The gate used to be the `creative_` prefix, so a spending tool under any other name ran unpriced with both caps on,
+  // and `get_more_tools` is a tool whose whole job is to ask ElevenLabs for more tools (RE-1, RE-3).
+  test("an unknown name is refused under a cap whatever its prefix, on the model path and the script path alike", async () => {
+    for (const tool of ["agents_new_spender", "foo_bar"]) {
+      const ledger = new Ledger()
+      const refused = await quoteCall({ ledger, caps: () => caps() }, tool, { context: "a test" }, call(tool)).then(
+        () => undefined,
+        (error: unknown) => error as SpendRefused,
+      )
+      expect({ tool, code: refused?.code }).toEqual({ tool, code: "PRICE_UNKNOWN" })
+      // The next step is the owner's decision, not another call: there is no estimate to suggest for a tool with no
+      // schema here.
+      expect(refused?.message).toContain("is not in this plugin's tool table")
+      expect(refused?.nextStep).toContain('"dailyCreditCap" to null')
+      expect(refused?.nextStep).toContain("wait for a release that classifies it")
+      expect(refused?.nextStep).not.toContain("estimate_only")
+
+      // The script path cannot await an estimate, and refuses the same way.
+      const sync = new Ledger()
+      const syncRefused = (() => {
+        try {
+          quoteCallSync({ ledger: sync, caps: () => caps() }, tool, { context: "a test" }, call(tool))
+          return undefined
+        } catch (error) {
+          return error as SpendRefused
+        }
+      })()
+      expect({ tool, code: syncRefused?.code }).toEqual({ tool, code: "PRICE_UNKNOWN" })
+      expect(syncRefused?.message).toContain("is not in this plugin's tool table")
+
+      // With both caps off there is nothing to enforce: it runs, untracked, on both paths.
+      const off = new Ledger()
+      expect((await quoteCall({ ledger: off, caps: () => caps(null, null) }, tool, { context: "a test" }, call(tool))).tracked).toBe(false)
+      expect(quoteCallSync({ ledger: off, caps: () => caps(null, null) }, tool, { context: "a test" }, call(tool)).tracked).toBe(false)
+    }
+  })
+
+  test("a classified read still runs with a cap on, and so does the plugin's own tool", async () => {
+    const ledger = new Ledger()
+    for (const tool of ["agents_list", "agents_get_conversation", "get_more_tools", "save_media"]) {
+      const { tracked, price } = await quoteCall({ ledger, caps: () => caps() }, tool, { context: "a test" }, call(tool))
+      expect({ tool, tracked, credits: price.credits }).toEqual({ tool, tracked: false, credits: 0 })
+    }
+  })
 })
 
 describe("two ledgers handed one storage object share one cap", () => {
