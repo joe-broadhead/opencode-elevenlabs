@@ -102,8 +102,9 @@ export async function startFakeMcp(options: FakeMcpOptions = {}): Promise<FakeMc
         const asked = String(args.query ?? args.text ?? args.prompt ?? "")
         if (asked.startsWith("fail")) return reply({ content: [{ type: "text", text: UPSTREAM_FAILURE }], isError: true })
         if (args.estimate_only === true) {
-          const generations = typeof args.generations_count === "number" ? args.generations_count : 1
-          return reply({ content: [{ type: "text", text: `Estimated ${IMAGE_CREDITS * generations} credits.` }], structuredContent: { estimate: { credits: IMAGE_CREDITS * generations } } })
+          // One generation's figure, which is how the plugin reads an estimate: the count multiplies it (RR4-6).
+          // Whether ElevenLabs' own estimate is this or a batch total is measured at the live reconcile.
+          return reply({ content: [{ type: "text", text: `Estimated ${IMAGE_CREDITS} credits.` }], structuredContent: { estimate: { credits: IMAGE_CREDITS } } })
         }
         if (SPEND_TOOLS.includes(tool)) {
           const charged = options.reportsCreditsInText ? " Charged 120 credits." : ""

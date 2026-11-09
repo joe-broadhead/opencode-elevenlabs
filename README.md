@@ -316,8 +316,10 @@ in your config shadows the plugin's. **Rename or move** that file, then restart 
 - **No dollar figure is derived from credits.**
 - **Image and video prices come from ElevenLabs.** If the estimate is unavailable the call is refused rather than guessed.
 - **Two facts about that estimate are unverified until the live reconcile:** that `estimate_only: true` costs nothing, and
-  that its figure is the batch total for the generations asked for. The cost line therefore says "at most" whenever it is
-  divided, and the reconcile measures both against a real workspace before this line is removed.
+  whether its figure is one generation's or the total for the generations asked for. The plugin reads it as one
+  generation's and multiplies by the count, which over-states a batch total rather than under-stating a per-generation
+  figure; the cost line therefore says "at most" whenever a count multiplies it, and the reconcile measures both against
+  a real workspace before this line is removed.
 - **Durations are read from the container.** WAV and MP4/M4A state one; MP3, Ogg and WebM do not, and the field is left
   out rather than estimated.
 

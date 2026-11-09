@@ -58,6 +58,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and thi
 - A recorded charge only ever rises. One attested figure inside that tenth-band may settle a live hold below itself;
   every settlement after that, for the same call, may only raise the charge. A result delivered twice, and a figure
   arriving for a call whose hold expired into a charge, are ignored unless they are higher.
+- A generation count multiplies the price of every priced tool, not sound effects alone: speech, music and ElevenLabs'
+  own estimate are all priced per generation. `num_outputs` joins the count keys; a call naming two counts is priced
+  from the larger and clamped in both; a count written as a string is read as the number it spells, and one nothing can
+  be read out of refuses the call. Where a published rate and a remembered estimate both price a call, the dearer of
+  the two is what the cap sees.
 - One priced call per session and method is in flight on the script path.
 - The daily cap is one total for this data directory. Two machines do not share it.
 - Conversation denies match without regard to case, and cover `get_call`, `list_calls` and `export_history`.

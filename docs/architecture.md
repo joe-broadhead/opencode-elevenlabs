@@ -116,7 +116,8 @@ checked against a live account, so confirming each priced tool's real argument n
 steps in `test/fixtures/README.md`.
 
 Every priced call may carry `estimate_only`, `estimateOnly`, `context`, `generations_count`, `generations`,
-`variations` and `num_generations`. Beyond those:
+`variations`, `num_generations` and `num_outputs`. The count keys all multiply the price: a call stating more than one
+is priced from the largest, and a clamp writes the allowed count into every one of them. Beyond those:
 
 | Tools | Arguments |
 |---|---|

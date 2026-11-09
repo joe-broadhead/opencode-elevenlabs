@@ -20,11 +20,14 @@ Money facts the code assumes, each measured here before the provisional label co
 1. **Is `estimate_only: true` free?** Read the workspace balance (`GET /v1/user/subscription` with the optional API key),
    make one `estimate_only` call, and read the balance again. Any movement means the guard pays for its own estimate.
 2. **Is the estimate the batch total?** Make one estimate with `generations_count: 1` and one with `4`, and compare: four
-   times the first means a batch total, the same figure means one generation.
+   times the first means a batch total, the same figure means one generation. The plugin assumes one generation and
+   multiplies, so a batch total means it over-prices a multi-generation call by the count.
 3. **Which field carries the figure**, and whether a paid result reports one (structured content, text, or neither).
 4. **Does `creative_transcribe_audio` bill?** If it does not, remove `SPEND_READS` and the rate; if it does, confirm 330
    credits a minute and that a duration can be passed.
-5. **The generation field:** `generations_count`, `variations`, or both. The clamp writes into whichever the caller used.
+5. **The generation field:** `generations_count`, `variations`, `num_generations`, `num_outputs`, or several. The clamp
+   writes into every one the caller used, and the price multiplies by the largest. Confirm the server generates what the
+   largest asks for when a call names two.
 6. **`creative_edit_image`:** whether it accepts `estimate_only`.
 7. **`external_directory`:** whether OpenCode asks for it on a plugin tool that writes with `node:fs`; the plugin asserts
    it either way.

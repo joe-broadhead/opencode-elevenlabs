@@ -49,29 +49,69 @@ const field = (input: Record<string, unknown>, names: readonly string[]) => {
   }
   return undefined
 }
-const whole = (value: unknown) => (typeof value === "number" && Number.isSafeInteger(value) && value >= 1 ? value : undefined)
 const count = (value: number) => value.toLocaleString("en-US")
 
+/** The cost line's word for a count, left out when the call asks for one generation and the count changes nothing. */
+const generationParts = (generations: number) => (generations > 1 ? [`${count(generations)} generations`] : [])
+
 /** The generation-count keys a generating call may use, in the order the plugin writes one back. */
-export const GENERATION_KEYS = ["generations_count", "generations", "variations", "num_generations"] as const
+export const GENERATION_KEYS = ["generations_count", "generations", "variations", "num_generations", "num_outputs"] as const
+
+/** A count field holding something no number can be read out of. The whole call's price multiplies by it (RR4-6). */
+export const NOT_A_COUNT = Symbol("not a count")
+
+/**
+ * The count a field states. A caller that wrote `"4"` asked for four, so a numeric string is read as the number it
+ * spells rather than passed over, which would price the call as if the field were not there (RR3-9, for counts).
+ * Anything a number cannot be read out of is a multiplier this plugin cannot know, and so is PRICE_UNKNOWN. A zero or
+ * a negative states nothing and leaves the count to the server, which is its own default of one.
+ */
+export const countValue = (value: unknown): number | undefined | typeof NOT_A_COUNT => {
+  if (value === undefined || value === null) return undefined
+  const parsed = typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value.trim()) : Number.NaN
+  if (!Number.isFinite(parsed)) return NOT_A_COUNT
+  return parsed >= 1 ? parsed : undefined
+}
+
+/** Every generation count a call states, largest first, or `NOT_A_COUNT` when one of them cannot be read. */
+const generationCountsOf = (input: Record<string, unknown>): [string, number][] | typeof NOT_A_COUNT => {
+  const counts: [string, number][] = []
+  for (const key of GENERATION_KEYS) {
+    const value = countValue(input[key])
+    if (value === NOT_A_COUNT) return NOT_A_COUNT
+    if (value !== undefined) counts.push([key, value])
+  }
+  return counts.sort((a, b) => b[1] - a[1])
+}
 
 /**
  * The key the caller used for its generation count, or `undefined` when it named none. One helper for every path, so a
- * clamp never writes a second key beside the first (DR-6).
+ * clamp never writes a second key beside the first (DR-6). A call that names more than one count is keyed by the one
+ * asking for the most, which is the one its price came from.
  */
-export const generationsKeyOf = (input: Record<string, unknown>): (typeof GENERATION_KEYS)[number] | undefined =>
-  GENERATION_KEYS.find((key) => input[key] !== undefined)
-
-/** The `generations_count` a generating call asks for, when it names one. */
-export const generationsOf = (input: Record<string, unknown>) => {
-  const key = generationsKeyOf(input)
-  return key === undefined ? undefined : whole(input[key])
+export const generationsKeyOf = (input: Record<string, unknown>): string | undefined => {
+  const counts = generationCountsOf(input)
+  return counts === NOT_A_COUNT ? GENERATION_KEYS.find((key) => input[key] !== undefined) : counts[0]?.[0]
 }
 
-/** Writes the clamped count into the key the caller used, creating `generations_count` only when it used none. */
+/**
+ * The generations a call asks for, when it names any: the largest it states. A call naming two counts generates what
+ * the larger of them asks for as far as this plugin knows, and a price that believed the smaller would be the one
+ * that under-counts. `NOT_A_COUNT` when a count field holds something no number can be read out of.
+ */
+export const generationsOf = (input: Record<string, unknown>): number | undefined | typeof NOT_A_COUNT => {
+  const counts = generationCountsOf(input)
+  return counts === NOT_A_COUNT ? NOT_A_COUNT : counts[0]?.[1]
+}
+
+/**
+ * Writes the clamped count into every key the caller used for one, creating `generations_count` only when it used
+ * none: a clamp that bounded one key and left a larger count in another would bound nothing.
+ */
 export function clampGenerations(input: Record<string, unknown>, allowed: number): string {
-  const key = generationsKeyOf(input) ?? "generations_count"
-  input[key] = allowed
+  const named = GENERATION_KEYS.filter((key) => input[key] !== undefined)
+  const key = generationsKeyOf(input) ?? named[0] ?? "generations_count"
+  for (const name of named.length === 0 ? [key] : named) input[name] = allowed
   return key
 }
 
@@ -91,21 +131,28 @@ export function priceOf(name: string, input: Record<string, unknown>): Price | u
   // tool measures none, so any argument naming a file or a URL is audio the server will read and the price will not
   // cover (RR3-7).
   if (!isTranscription(tool) && unpriceableArgument(input, NO_MEASURED_PATHS) !== undefined) return undefined
-  const generations = generationsOf(input) ?? 1
+  // A count asks for the work to be done that many times, so it multiplies whatever one pass costs — on every priced
+  // tool, not sound effects alone (RR4-6). A count no number can be read out of is a multiplier this plugin does not
+  // know, which is PRICE_UNKNOWN rather than a price that assumes one.
+  const asked = generationsOf(input)
+  if (asked === NOT_A_COUNT) return undefined
+  const generations = asked ?? 1
   if (tool === "creative_generate_speech" || tool === "creative_speech" || tool === "text_to_speech") {
     const text = field(input, ["text", "script", "message"])
     if (typeof text !== "string") return undefined
     // The server is not attested to honour `takes`. Two takes is the bound until a live call proves otherwise. A
     // caller figure below two must not halve the price; a higher one may raise it.
-    const takes = Math.max(whole(field(input, ["takes", "num_takes"])) ?? 0, RATES.speechTakes)
+    const stated = countValue(field(input, ["takes", "num_takes"]))
+    if (stated === NOT_A_COUNT) return undefined
+    const takes = Math.max(stated ?? 0, RATES.speechTakes)
     const characters = Array.from(text).length
     if (characters === 0) return undefined
-    const credits = Math.ceil(characters * RATES.speechPerCharacter * takes)
+    const credits = Math.ceil(characters * RATES.speechPerCharacter * takes * generations)
     if (!(credits > 0)) return undefined
     return {
       credits,
       basis: "at-most",
-      parts: [`${count(characters)} ${characters === 1 ? "character" : "characters"}`, `${takes} ${takes === 1 ? "take" : "takes"}`],
+      parts: [`${count(characters)} ${characters === 1 ? "character" : "characters"}`, `${takes} ${takes === 1 ? "take" : "takes"}`, ...generationParts(generations)],
     }
   }
   if (tool === "creative_transcribe_audio" || tool === "speech_to_text" || tool === "creative_transcription") {
@@ -124,13 +171,14 @@ export function priceOf(name: string, input: Record<string, unknown>): Price | u
     if (lengths.length === 0) return undefined
     // A caller number may raise a price and may not lower one (RR-1). A call that states a length twice may generate
     // the longer of them, so the longer is what it is priced at, whichever key holds it and in whichever order.
-    const asked = Math.max(...lengths)
-    const milliseconds = Math.max(asked, MUSIC_MIN_MS)
+    const longest = Math.max(...lengths)
+    const milliseconds = Math.max(longest, MUSIC_MIN_MS)
     const minutes = milliseconds / 60_000
-    const credits = Math.ceil(minutes * RATES.musicPerMinute)
+    const credits = Math.ceil(minutes * RATES.musicPerMinute * generations)
     if (!(credits > 0)) return undefined
     const parts = [milliseconds < 60_000 ? `${Math.round(milliseconds / 100) / 10} seconds` : `${Math.round(minutes * 10) / 10} minutes`]
-    if (milliseconds > asked) parts.push(`${MUSIC_MIN_MS / 1_000} second minimum`)
+    if (milliseconds > longest) parts.push(`${MUSIC_MIN_MS / 1_000} second minimum`)
+    parts.push(...generationParts(generations))
     return { credits, basis: "at-most", parts }
   }
   if (tool === "creative_generate_sound_effect" || tool === "creative_sound_effects") {
@@ -1214,20 +1262,23 @@ export function appendLine(result: { content?: unknown }, line: string) {
 
 /**
  * Parses an `estimate_only` result for its price. Whether the estimate costs nothing, and whether its figure is the
- * batch total or one generation, are unverified until the live reconcile (DR-4): the figure is therefore `at-most`
- * when it is divided across generations, and the docs say so.
+ * batch total or one generation, are unverified until the live reconcile (DR-4). So the count multiplies the figure,
+ * as it multiplies every other price here (RR4-6): if the figure is already the batch total this over-prices a call
+ * asking for several, and if it is one generation, taking it as the total under-prices one N-fold. The clamp's unit
+ * is the figure itself, so a count the budget cannot afford is cut rather than refused, and the basis says `at-most`.
  */
 export function estimatePrice(input: Record<string, unknown>, result: { readonly output?: unknown; readonly text?: string; readonly content?: unknown }): Price | undefined {
-  const total = actualCreditsOf(result)
-  if (total === undefined) return undefined
-  const generations = generationsOf(input) ?? 1
-  const perGeneration = generations > 1 ? total / generations : total
+  const reported = actualCreditsOf(result)
+  if (reported === undefined) return undefined
+  const asked = generationsOf(input)
+  if (asked === NOT_A_COUNT) return undefined
+  const generations = asked ?? 1
   return {
-    credits: total,
+    credits: reported * generations,
     // ElevenLabs' own estimate, not a bill: a bound until the reconcile proves the unit.
     basis: generations > 1 ? "at-most" : "exact",
-    parts: [`${generations} ${generations === 1 ? "generation" : "generations"}, estimated by ElevenLabs`],
-    perGeneration,
+    parts: [`${count(generations)} ${generations === 1 ? "generation" : "generations"}, estimated by ElevenLabs`],
+    perGeneration: reported,
   }
 }
 
@@ -1276,6 +1327,17 @@ export function quoteCallSync(input: Omit<GuardInput, "estimate">, tool: string,
 const isTranscription = (tool: string) => tool === "creative_transcribe_audio" || tool === "speech_to_text" || tool === "creative_transcription"
 
 /**
+ * The dearer of two prices for one call. A published rate and the server's own estimate for the same arguments are
+ * two readings of the same bill, and the plugin has no way to tell which the server will charge, so a cap is checked
+ * against the larger (RR4-6). Either may be absent, and the one that is there stands alone.
+ */
+const dearer = (first: Price | undefined, second: Price | undefined): Price | undefined => {
+  if (first === undefined) return second
+  if (second === undefined) return first
+  return second.credits > first.credits ? second : first
+}
+
+/**
  * Which argument stopped a priced call from being priced, in words the caller can act on. `priceOf` returns nothing in
  * each of these cases; this says which one it was, so a refusal names the argument rather than the tool.
  */
@@ -1304,7 +1366,7 @@ async function quote(context: GuardInput, tool: string, args: Record<string, unk
     price = await context.estimate(tool, args, call)
     if (price) context.ledger.rememberPrice(tool, args, price)
   }
-  price ??= context.ledger.rememberedPrice(tool, args)
+  price = dearer(price, context.ledger.rememberedPrice(tool, args))
   if (price === undefined || !(price.credits > 0)) throw unknownPrice(tool, priced(tool), priceObstacle(tool, args))
   // This path can await, so it decides from the store rather than from this process's memory: a charge another
   // location or another OpenCode recorded is merged in first. The check and the hold inside `reserve` stay
@@ -1326,7 +1388,7 @@ function quoteSync(context: Omit<GuardInput, "estimate">, tool: string, args: Re
   // around it: the estimate answers for the arguments it is sent, and this is one whose effect nothing here knows.
   const unknown = unknownArgument(tool, args)
   if (unknown !== undefined) throw unknownPrice(tool, priced(tool), unknown)
-  let price = priceOf(tool, args) ?? context.ledger.rememberedPrice(tool, args)
+  let price = dearer(priceOf(tool, args), context.ledger.rememberedPrice(tool, args))
   if (price === undefined || !(price.credits > 0)) throw unknownPrice(tool, priced(tool), priceObstacle(tool, args))
   price = clamp(price, caps, args, context.ledger.spend(call.sessionID))
   // Synchronous by the shared shaper contract: this path cannot await the store before the call is dispatched, so it
@@ -1339,7 +1401,7 @@ function quoteSync(context: Omit<GuardInput, "estimate">, tool: string, args: Re
 /** Cuts a request for more variations than the budget affords to what it can pay for, and prices what will run. */
 function clamp(price: Price, caps: Caps, args: Record<string, unknown>, spend: Spend): Price {
   const generations = generationsOf(args)
-  if (price.perGeneration === undefined || generations === undefined || generations <= 1) return price
+  if (price.perGeneration === undefined || generations === undefined || generations === NOT_A_COUNT || generations <= 1) return price
   const left = remaining(caps, spend).available
   const allowed = Math.max(1, Math.min(generations, Math.floor(left / price.perGeneration)))
   if (allowed >= generations) return price

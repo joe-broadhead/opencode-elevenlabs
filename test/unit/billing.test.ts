@@ -78,10 +78,12 @@ describe("prices from ElevenLabs' published rates", () => {
     expect(unnamed).toEqual({ prompt: "a mug", generations_count: 2 })
   })
 
-  test("an estimate's total becomes a per-generation price, and is a bound once it is divided", () => {
+  test("an estimate's figure is one generation's, and the count multiplies it", () => {
     const one = estimatePrice({ generations_count: 1 }, { output: { credits: 500 } })!
     expect(one).toMatchObject({ credits: 500, basis: "exact", perGeneration: 500 })
-    const four = estimatePrice({ generations_count: 4 }, { output: { credits: 4000 } })!
+    // RR4-6: the unit is unverified, so the count multiplies the figure rather than dividing it. Reading a figure
+    // that turns out to be one generation's as the batch total under-prices a call asking for four, four-fold.
+    const four = estimatePrice({ generations_count: 4 }, { output: { credits: 1000 } })!
     expect(four).toMatchObject({ credits: 4000, basis: "at-most", perGeneration: 1000 })
     expect(four.parts.join(" ")).toContain("estimated by ElevenLabs")
     expect(estimatePrice({}, { text: "no price here" })).toBeUndefined()
@@ -242,7 +244,7 @@ describe("quoteCall", () => {
 
   test("clamps a request to what the budget affords, in the key the caller used", async () => {
     const ledger = new Ledger()
-    const estimate = async (_tool: string, input: Record<string, unknown>) => estimatePrice(input, { output: { credits: 4000 } })
+    const estimate = async (_tool: string, input: Record<string, unknown>) => estimatePrice(input, { output: { credits: 1000 } })
     const aliased: Record<string, unknown> = { prompt: "a mug", variations: 4 }
     const { price } = await quoteCall({ ledger, caps: () => caps(2000, 10000), estimate }, "creative_generate_image", aliased, call())
     expect(aliased).toEqual({ prompt: "a mug", variations: 2 })

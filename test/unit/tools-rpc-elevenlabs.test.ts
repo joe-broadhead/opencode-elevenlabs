@@ -59,8 +59,8 @@ describe("ElevenLabs' tools RPC", () => {
     // DR-6: the caller used `variations`, so the clamp must land there and nowhere else.
     const args: Record<string, unknown> = { prompt: "a mug", variations: 4, context: "price it" }
     shapeInput("creative_generate_image", { ...args, estimate_only: true }, call)
-    const estimated = shapeResult("creative_generate_image", { output: { estimate: { credits: 4000 } }, text: "" }, call)
-    expect(estimated.output).toMatchObject({ estimate: { credits: 4000 } })
+    const estimated = shapeResult("creative_generate_image", { output: { estimate: { credits: 1000 } }, text: "" }, call)
+    expect(estimated.output).toMatchObject({ estimate: { credits: 1000 } })
 
     // 2,000 credits of cap and 1,000 per generation: four become two, and the price follows what will run.
     const clamped = { ...args }

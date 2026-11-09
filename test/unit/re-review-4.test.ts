@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { ENDPOINT } from "../../src/constants.js"
-import { Ledger, RESERVATION_MS, settlementOf } from "../../src/billing.js"
+import { countValue, estimatePrice, Ledger, NOT_A_COUNT, priceOf, quoteCall, quoteCallSync, RESERVATION_MS, settlementOf } from "../../src/billing.js"
 import { createElevenlabsPlugin } from "../../src/plugin.js"
 import { mcpEditor, pluginContext } from "./fake.js"
 
@@ -118,5 +118,86 @@ describe("RR4-5 — a recorded charge never goes down after its first settlement
     })
     // The same figure against a live hold is this call's charge, as it was before.
     expect(settlementOf({ output: { credits: 900 } }, 1_500, null)).toEqual({ credits: 900, attested: true })
+  })
+})
+
+describe("RR4-6 — a count multiplies the price, for every priced tool", () => {
+  const caps = { sessionCreditCap: 50_000, dailyCreditCap: 50_000 }
+  const call = (id = "c1") => ({ sessionID: "ses_a", agent: "build", messageID: "m1", id })
+  const speech = (extra: Record<string, unknown> = {}) => ({ text: "x".repeat(600), ...extra })
+
+  test("speech is priced per generation, in whichever count key the caller used", () => {
+    // At 6c21964 every one of these priced 1,200: the count was computed and then read only by sound effects.
+    expect(priceOf("creative_generate_speech", speech())?.credits).toBe(1_200)
+    expect(priceOf("creative_generate_speech", speech({ generations_count: 2 }))?.credits).toBe(2_400)
+    expect(priceOf("creative_generate_speech", speech({ generations_count: 10 }))?.credits).toBe(12_000)
+    expect(priceOf("creative_generate_speech", speech({ generations_count: 100 }))?.credits).toBe(120_000)
+    expect(priceOf("creative_generate_speech", speech({ generations: 5 }))?.credits).toBe(6_000)
+    expect(priceOf("creative_generate_speech", speech({ variations: 5 }))?.credits).toBe(6_000)
+    expect(priceOf("creative_generate_speech", speech({ num_generations: 5 }))?.credits).toBe(6_000)
+    expect(priceOf("creative_generate_speech", speech({ num_outputs: 5 }))?.credits).toBe(6_000)
+    // The cost line says what it multiplied by, so an owner reading it can check the figure.
+    expect(priceOf("creative_generate_speech", speech({ generations_count: 5 }))?.parts.join(", ")).toContain("5 generations")
+  })
+
+  test("600 characters a hundred times is refused under a 50,000 cap, on both guard paths", async () => {
+    const args = speech({ generations_count: 100 })
+    await expect(quoteCall({ ledger: new Ledger(), caps: () => caps }, "creative_generate_speech", { ...args }, call())).rejects.toMatchObject({
+      code: "SPEND_CAP_REACHED",
+    })
+    expect(() => quoteCallSync({ ledger: new Ledger(), caps: () => caps }, "creative_generate_speech", { ...args }, call())).toThrow("SPEND_CAP_REACHED")
+    // A count the budget does afford still goes through, at the multiplied price.
+    const { price } = await quoteCall({ ledger: new Ledger(), caps: () => caps }, "creative_generate_speech", speech({ generations_count: 10 }), call())
+    expect(price.credits).toBe(12_000)
+  })
+
+  test("music multiplies too, and twenty takes of five minutes does not fit", async () => {
+    expect(priceOf("creative_generate_music", { prompt: "a waltz", music_length_ms: 300_000 })?.credits).toBe(4_500)
+    expect(priceOf("creative_generate_music", { prompt: "a waltz", music_length_ms: 300_000, generations_count: 20 })?.credits).toBe(90_000)
+    await expect(
+      quoteCall({ ledger: new Ledger(), caps: () => caps }, "creative_generate_music", { prompt: "a waltz", music_length_ms: 300_000, generations_count: 20 }, call()),
+    ).rejects.toMatchObject({ code: "SPEND_CAP_REACHED" })
+    // Sound effects multiplied before this fix and still does, at the same figure.
+    expect(priceOf("creative_generate_sound_effect", { prompt: "a door", generations_count: 5 })?.credits).toBe(1_000)
+  })
+
+  test("a call naming two counts is priced from the larger, and a clamp bounds both keys", async () => {
+    // Nothing says which key the server reads, so the larger is the one a price must not be below.
+    expect(priceOf("creative_generate_speech", speech({ generations_count: 2, variations: 7 }))?.credits).toBe(8_400)
+    expect(priceOf("creative_generate_speech", speech({ generations_count: 7, variations: 2 }))?.credits).toBe(8_400)
+    // An estimate-priced tool clamps rather than refuses: both keys are cut, so the smaller cannot be left behind.
+    const ledger = new Ledger()
+    const estimate = async (_tool: string, input: Record<string, unknown>) => estimatePrice(input, { output: { credits: 1_000 } })
+    const args: Record<string, unknown> = { prompt: "a mug", generations_count: 2, variations: 7 }
+    const { price } = await quoteCall({ ledger, caps: () => ({ sessionCreditCap: 3_000, dailyCreditCap: 50_000 }), estimate }, "creative_generate_image", args, call())
+    expect(args).toEqual({ prompt: "a mug", generations_count: 3, variations: 3 })
+    expect(price.credits).toBe(3_000)
+  })
+
+  test("a count is read as the number it spells, and one nothing can be read out of refuses the call", () => {
+    expect(countValue("4")).toBe(4)
+    expect(countValue(4)).toBe(4)
+    expect(countValue(0)).toBeUndefined()
+    expect(countValue(undefined)).toBeUndefined()
+    expect(countValue("a few")).toBe(NOT_A_COUNT)
+    expect(countValue({})).toBe(NOT_A_COUNT)
+    // A string count multiplies, as a string length raises a price (RR3-9).
+    expect(priceOf("creative_generate_speech", speech({ generations_count: "4" }))?.credits).toBe(4_800)
+    // Prose in a count field is a multiplier this plugin does not know: PRICE_UNKNOWN, not a price that assumes one.
+    expect(priceOf("creative_generate_speech", speech({ generations_count: "a few" }))).toBeUndefined()
+    expect(estimatePrice({ generations_count: "a few" }, { output: { credits: 1_000 } })).toBeUndefined()
+    expect(() => quoteCallSync({ ledger: new Ledger(), caps: () => caps }, "creative_generate_speech", speech({ generations_count: "a few" }), call())).toThrow("PRICE_UNKNOWN")
+  })
+
+  test("where a published rate and a remembered estimate disagree, the dearer one is reserved", async () => {
+    const ledger = new Ledger()
+    // The estimate is remembered for these arguments, then the formula prices them lower. The cap must see the larger.
+    ledger.rememberPrice("creative_generate_speech", speech(), { credits: 9_000, basis: "exact", parts: ["estimated by ElevenLabs"] })
+    const { price } = await quoteCall({ ledger, caps: () => caps }, "creative_generate_speech", speech(), call())
+    expect(price.credits).toBe(9_000)
+    // And the other way around: a formula price above the estimate stands.
+    const second = new Ledger()
+    second.rememberPrice("creative_generate_speech", speech({ generations_count: 10 }), { credits: 500, basis: "exact", parts: [] })
+    expect(quoteCallSync({ ledger: second, caps: () => caps }, "creative_generate_speech", speech({ generations_count: 10 }), call("c2")).price.credits).toBe(12_000)
   })
 })
