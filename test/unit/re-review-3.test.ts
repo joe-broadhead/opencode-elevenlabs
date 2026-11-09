@@ -3,7 +3,18 @@ import { afterAll, describe, expect, test } from "bun:test"
 import { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { Ledger, measureAudio, priceOf, quoteCallSync, SpendRefused, transcriptionPrice } from "../../src/billing.js"
+import {
+  Ledger,
+  measureAudio,
+  priceOf,
+  quoteCallSync,
+  RATES,
+  RESERVATION_MS,
+  settlementOf,
+  SpendRefused,
+  transcriptionPrice,
+} from "../../src/billing.js"
+import { shapersFor } from "../../src/host/tools-rpc.js"
 import { buildMp4, buildWav, hostileChunkSize, WAV_FIXTURES, zeroSizeChunks } from "../fixtures/wav.js"
 
 const root = mkdtempSync(join(tmpdir(), "elevenlabs-rr3-"))
@@ -159,6 +170,122 @@ describe("RR3-9 — a length field is read as the number it spells", () => {
     const short = file("stated.wav", buildWav({ seconds: 1 }))
     expect(transcriptionPrice({ path: short, duration_seconds: "60" })?.credits).toBe(330)
     expect(transcriptionPrice({ path: short, duration_seconds: "a minute" })).toBeUndefined()
+  })
+})
+
+describe("RR3-3 — on the script path a result raises a charge and never lowers one", () => {
+  const caps = () => ({ sessionCreditCap: 100_000, dailyCreditCap: 100_000 })
+  const shape = (action = "elevenlabs_creative_generate_speech") => ({ sessionID: "ses_a", agent: "build", action })
+  /** A speech call of `credits` credits: one character is one credit, and the bound is two takes. */
+  const speech = (credits: number) => ({ text: "x".repeat(credits / RATES.speechTakes) })
+
+  test("a late result from an abandoned call cannot settle the call in flight now", () => {
+    // 96db0ed: A's honest-looking late figure of 30 settled C's live 3,000-credit hold and the day read 4,530
+    // against a true 7,500 — 2,970 credits of a call that ran, gone from the cap.
+    let now = 0
+    const ledger = new Ledger({ now: () => now })
+    const shapers = shapersFor({ ledger, caps })
+    const call = shape()
+    shapers.input("creative_generate_speech", speech(1_500), call)
+    now += RESERVATION_MS + 1
+    shapers.input("creative_generate_speech", speech(3_000), call)
+    expect(ledger.daily()).toBe(4_500)
+    shapers.result("creative_generate_speech", { output: { credits: 3_000 }, text: "" }, call)
+    expect(ledger.daily()).toBe(4_500)
+    shapers.input("creative_generate_speech", speech(3_000), call)
+    expect(ledger.daily()).toBe(7_500)
+    shapers.result("creative_generate_speech", { output: { credits: 30 }, text: "" }, call)
+    expect(ledger.daily()).toBe(7_500)
+  })
+
+  test("no figure lowers a charge on this path, in or out of the band", () => {
+    // An expired hold was charged at its reservation when it expired, so a late answer to it changes nothing; and a
+    // figure this path cannot pair with a call may only ever raise.
+    for (const figure of [1, 30, 1_500, 2_999, 0.5, 0]) {
+      let now = 0
+      const ledger = new Ledger({ now: () => now })
+      const shapers = shapersFor({ ledger, caps })
+      const call = shape()
+      shapers.input("creative_generate_speech", speech(3_000), call)
+      shapers.result("creative_generate_speech", { output: { credits: figure }, text: "" }, call)
+      expect({ figure, daily: ledger.daily() }).toEqual({ figure, daily: 3_000 })
+    }
+  })
+
+  test("a figure above the reservation still raises it, and the cost line says when one did not", () => {
+    const ledger = new Ledger()
+    const shapers = shapersFor({ ledger, caps })
+    const call = shape()
+    shapers.input("creative_generate_speech", speech(3_000), call)
+    const raised = shapers.result("creative_generate_speech", { output: { credits: 4_000 }, text: "" }, call)
+    expect(ledger.daily()).toBe(4_000)
+    expect(raised.text).toContain("4,000")
+    shapers.input("creative_generate_speech", speech(3_000), call)
+    const outOfBand = shapers.result("creative_generate_speech", { output: { credits: 30 }, text: "" }, call)
+    expect(ledger.daily()).toBe(7_000)
+    expect(outOfBand.text).toContain("too far below to be this call's charge")
+    // A figure the band would have accepted still does not lower a charge here, and the line says why.
+    shapers.input("creative_generate_speech", speech(3_000), call)
+    const inBand = shapers.result("creative_generate_speech", { output: { credits: 1_500 }, text: "" }, call)
+    expect(ledger.daily()).toBe(10_000)
+    expect(inBand.text).toContain("cannot tell apart from another call's")
+  })
+})
+
+describe("RR3-8 — a reported figure is read only inside a band around the reservation", () => {
+  const reserved = 3_000
+  const settle = (credits: unknown) => settlementOf({ output: { credits } }, reserved)
+
+  test("a figure far below the reservation is not this call's charge", () => {
+    // 96db0ed accepted a hundredth of the reservation: 30 against 3,000 settled at 30, a 99% discount on the
+    // server's word alone.
+    for (const credits of [0.5, 1, 29, 30, 299]) {
+      expect({ credits, settled: settle(credits).credits }).toEqual({ credits, settled: reserved })
+    }
+    expect(settle(29).note).toContain("too far below")
+  })
+
+  test("a figure far above the reservation is not this call's charge either", () => {
+    // 96db0ed had no upper bound at all: one absurd figure poisoned the daily total for 24 hours and refused every
+    // later call with SPEND_CAP_REACHED.
+    for (const credits of [30_001, 1_000_000_000, Number.MAX_SAFE_INTEGER]) {
+      expect({ credits, settled: settle(credits).credits }).toEqual({ credits, settled: reserved })
+    }
+    expect(settle(1_000_000_000).note).toContain("too far above")
+  })
+
+  test("inside the band the figure settles, above and below the reservation", () => {
+    for (const [credits, expected] of [[300, 300], [1_500, 1_500], [3_000, 3_000], [12_000, 12_000], [30_000, 30_000]] as const) {
+      expect({ credits, settled: settle(credits).credits }).toEqual({ credits, settled: expected })
+    }
+    expect(settle(300).attested).toBe(true)
+  })
+
+  test("the upper bound holds for a figure under a key nothing attests", () => {
+    // Otherwise the band is stepped around by writing the same absurd number under another name.
+    expect(settlementOf({ output: { usage: { credits_cost: 1_000_000_000 } } }, reserved).credits).toBe(reserved)
+    expect(settlementOf({ text: "Charged 1000000000 credits" }, reserved).credits).toBe(reserved)
+    // A figure inside the band still raises the price, as it always did.
+    expect(settlementOf({ text: "Charged 4,000 credits" }, reserved).credits).toBe(4_000)
+  })
+})
+
+describe("RR3-10 — two spellings of one method are one flight", () => {
+  test("a mixed-case name does not open a second priced call beside the first", () => {
+    // 96db0ed admitted all three at once — 1,500 / 3,000 / 4,500 — where one is the rule.
+    const ledger = new Ledger()
+    const shapers = shapersFor({ ledger, caps: () => ({ sessionCreditCap: 100_000, dailyCreditCap: 100_000 }) })
+    const call = { sessionID: "ses_a", agent: "build", action: "elevenlabs_creative_generate_speech" }
+    shapers.input("creative_generate_speech", { text: "x".repeat(750) }, call)
+    for (const name of ["Creative_Generate_Speech", "CREATIVE_GENERATE_SPEECH"]) {
+      expect(() => shapers.input(name, { text: "x".repeat(750) }, call)).toThrow(SpendRefused)
+    }
+    expect(ledger.daily()).toBe(1_500)
+    // And the result of either spelling settles the one flight that is open.
+    shapers.result("CREATIVE_GENERATE_SPEECH", { output: { credits: 1_500 }, text: "" }, call)
+    expect(ledger.daily()).toBe(1_500)
+    shapers.input("Creative_Generate_Speech", { text: "x".repeat(750) }, call)
+    expect(ledger.daily()).toBe(3_000)
   })
 })
 

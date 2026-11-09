@@ -361,11 +361,16 @@ export function actualCreditsOf(result: { readonly output?: unknown; readonly te
 const ATTESTED_CREDIT_KEYS = new Set(["credits", "credits_used", "credits_charged", "billed_credits", "total_credits"])
 
 /**
- * How far below a reservation an attested figure may settle. A result that reports 1 credit against 3,000 reserved is
- * not this call's charge in any pricing this plugin knows: it is a count, a rate, or another call's figure. Keep the
- * reservation and say so, rather than free a budget on a field the plugin may have read wrong.
+ * The band a reported figure has to sit in to be read as this call's charge. A result that reports 1 credit against
+ * 3,000 reserved is not this call's charge in any pricing this plugin knows — it is a count, a rate, or another call's
+ * figure — and neither is one reporting 45,300 against 7,500. Outside the band the reservation stands and the cost
+ * line says why, rather than a budget being freed, or spent, on a field the plugin may have read wrong.
+ *
+ * A tenth and ten times is what ElevenLabs' own published prices span around a reservation: a bound computed from two
+ * takes settles at one, a minimum-length charge rounds up, and a generation count the server clamped settles below.
  */
-const ATTESTED_MIN_RATIO = 100
+const ATTESTED_MIN_RATIO = 10
+const ATTESTED_MAX_RATIO = 10
 
 export function attestedCreditsOf(result: { readonly output?: unknown }): number | undefined {
   const output = result.output
@@ -388,24 +393,33 @@ export function settlementOf(
 ): { readonly credits: number; readonly attested: boolean; readonly note?: string } {
   const attested = attestedCreditsOf(result)
   if (attested !== undefined) {
-    if (attested >= reserved) return { credits: attested, attested: true }
-    // Lowering a reservation is the one thing a figure the plugin may have misread can do with the owner's money, so
-    // it has to look like a charge for this call: a whole number of credits, within reach of what was reserved.
+    // Moving a reservation is the one thing a figure the plugin may have misread can do with the owner's money, so it
+    // has to look like a charge for this call: a whole number of credits, inside the band around what was reserved.
     if (!Number.isSafeInteger(attested)) {
       return { credits: reserved, attested: false, note: `the result reported ${attested} credits, which is not a whole number, so the reserved price stands` }
     }
-    if (attested * ATTESTED_MIN_RATIO < reserved) {
-      return {
-        credits: reserved,
-        attested: false,
-        note: `the result reported ${count(attested)} against ${count(reserved)} reserved, too far below to be this call's charge, so the reserved price stands`,
-      }
-    }
-    return { credits: attested, attested: true }
+    const outside = outsideBand(attested, reserved)
+    return outside === undefined ? { credits: attested, attested: true } : { credits: reserved, attested: false, note: outside }
   }
   const parsed = actualCreditsOf(result)
-  if (parsed !== undefined && parsed > reserved) return { credits: parsed, attested: false }
+  // A figure under a key nothing attests may still raise a price, but it is held to the same upper bound: otherwise
+  // the band an attested figure obeys could be stepped around by the same absurd number under another name.
+  if (parsed !== undefined && parsed > reserved) {
+    const outside = outsideBand(parsed, reserved)
+    return outside === undefined ? { credits: parsed, attested: false } : { credits: reserved, attested: false, note: outside }
+  }
   return { credits: reserved, attested: false }
+}
+
+/** Why a reported figure is not this call's charge, or undefined when it sits in the band around the reservation. */
+function outsideBand(reported: number, reserved: number): string | undefined {
+  if (reported * ATTESTED_MIN_RATIO < reserved) {
+    return `the result reported ${count(reported)} against ${count(reserved)} reserved, too far below to be this call's charge, so the reserved price stands`
+  }
+  if (reported > reserved * ATTESTED_MAX_RATIO) {
+    return `the result reported ${count(reported)} against ${count(reserved)} reserved, too far above to be this call's charge, so the reserved price stands`
+  }
+  return undefined
 }
 
 /** The text parts of a host tool result, whichever shape the content has. */

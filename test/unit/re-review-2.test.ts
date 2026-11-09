@@ -216,10 +216,15 @@ describe("RR2-4 — a late result cannot settle the call that replaced it", () =
     const { ledger, shapers, call, advance } = abandonedThenNext(1_500, 3_000)
     shapers.result("creative_generate_speech", { output: { credits: 3_000 }, text: "" }, call)
     advance(RESERVATION_MS + 1)
-    // The orphan is gone, so the next call is an ordinary one: its own attested figure settles it.
+    // Nothing is held against the slot, so the next call is an ordinary one, settled by its own result. Since RR3-3 a
+    // result may only raise a charge, so the 500 it attests leaves the 2,000 it reserved standing.
     shapers.input("creative_generate_speech", speech(2_000), call)
     shapers.result("creative_generate_speech", { output: { credits: 500 }, text: "" }, call)
-    expect(ledger.daily()).toBe(5_000)
+    expect(ledger.daily()).toBe(6_500)
+    // A figure above the reservation still lands, which is what shows the slot is not stuck being conservative.
+    shapers.input("creative_generate_speech", speech(2_000), call)
+    shapers.result("creative_generate_speech", { output: { credits: 4_000 }, text: "" }, call)
+    expect(ledger.daily()).toBe(10_500)
   })
 
   test("with nothing in flight, a late result is still ignored", () => {
@@ -372,16 +377,19 @@ describe("RR2-7 — an attested figure may lower a reservation only when it read
 
   test("a figure orders of magnitude below the reservation never lowers it", () => {
     // This is how 3,000 credits became 1.
-    for (const credits of [1, 2, 29]) {
+    for (const credits of [1, 2, 29, 299]) {
       const settled = settlementOf(result({ credits }), 3_000)
       expect({ credits, settled: settled.credits, attested: settled.attested }).toEqual({ credits, settled: 3_000, attested: false })
       expect(settled.note).toContain("too far below")
     }
-    // Within a hundredfold it is a charge this call could have: it is honoured, as the design intends.
-    expect(settlementOf(result({ credits: 30 }), 3_000)).toEqual({ credits: 30, attested: true })
+    // Since RR3-8 the band is a tenth to ten times, so 300 is the lowest figure that can settle a 3,000-credit hold.
+    expect(settlementOf(result({ credits: 300 }), 3_000)).toEqual({ credits: 300, attested: true })
     expect(settlementOf(result({ total_credits: 1_500 }), 3_000)).toEqual({ credits: 1_500, attested: true })
-    // And a higher figure still replaces the reservation, whatever its size.
-    expect(settlementOf(result({ credits: 48_000 }), 3_000)).toEqual({ credits: 48_000, attested: true })
+    // A higher figure replaces the reservation up to tenfold; past that it is as unlike this call's charge as one far below.
+    expect(settlementOf(result({ credits: 30_000 }), 3_000)).toEqual({ credits: 30_000, attested: true })
+    const far = settlementOf(result({ credits: 48_000 }), 3_000)
+    expect(far).toMatchObject({ credits: 3_000, attested: false })
+    expect(far.note).toContain("too far above")
   })
 
   test("credit_cost is no longer read as a charge", () => {
