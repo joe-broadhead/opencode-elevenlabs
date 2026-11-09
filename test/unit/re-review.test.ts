@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
-import { Ledger, priceOf, quoteCall, quoteCallSync, SpendRefused, actualCreditsOf, RATES } from "../../src/billing.js"
+import { Ledger, quoteCall, quoteCallSync, SpendRefused, actualCreditsOf } from "../../src/billing.js"
 import { creativeGuardSentence } from "../../src/elevenlabs-tools.js"
 import { shapersFor } from "../../src/host/tools-rpc.js"
 import { defaultRules, evaluate } from "../../src/permissions.js"
@@ -26,6 +26,9 @@ const storage = () => {
   return { stored, ...storageOver(stored) }
 }
 
+/** A speech call in the live schema's own argument names. The spoken words go in `prompt`, as every creative tool's do. */
+const speechArgs = (prompt = "x".repeat(750)) => ({ prompt, voice_id: "voice_example", model_id: "model_example", context: "a test" })
+
 /** What a restart reads: the whole store as it stands on disk, which the append-only ledger spreads over many keys. */
 const coldCopy = (store: { stored: Map<string, unknown> }) => {
   const cold = storage()
@@ -33,53 +36,38 @@ const coldCopy = (store: { stored: Map<string, unknown> }) => {
   return cold
 }
 
-describe("a caller-typed number cannot set a low price", () => {
-  test("duration_seconds 0 is not sent, and duration 1 plus 50 MB is not priced as 1 second", async () => {
-    const zero = new Ledger()
-    await expect(quoteCall({ ledger: zero, caps: () => caps() }, "creative_transcribe_audio", { duration_seconds: 0 }, call("z"))).rejects.toMatchObject({ code: "PRICE_UNKNOWN" })
-    expect(zero.daily()).toBe(0)
-    expect(() => shapersFor({ ledger: new Ledger(), caps: () => caps() }).input("creative_transcribe_audio", { duration_seconds: 0 }, shape("ses_z", "elevenlabs_creative_transcribe_audio"))).toThrow("PRICE_UNKNOWN")
-
-    const args = { duration_seconds: 1, size_bytes: 50_000_000 }
-    expect(priceOf("creative_transcribe_audio", args)?.credits).not.toBe(6)
-    const large = new Ledger()
-    await expect(quoteCall({ ledger: large, caps: () => caps(100_000, 100_000) }, "creative_transcribe_audio", args, call("big"))).rejects.toMatchObject({ code: "PRICE_UNKNOWN" })
-    expect(large.daily()).toBe(0)
+describe("a caller-typed number cannot set a price at all", () => {
+  // The original reproductions were about a formula reading a number out of the arguments. Since live reconcile 1
+  // there is no formula: ElevenLabs' own estimate is the only price, so a number the caller typed cannot set one —
+  // high or low — and an argument the live schema does not have refuses the call outright.
+  test("a duration, a byte count or a path prices nothing, and none of them is sent", async () => {
+    for (const args of [{ duration_seconds: 0 }, { duration_seconds: 1, size_bytes: 50_000_000 }, { path: join(root, "clip.wav") }]) {
+      const ledger = new Ledger()
+      await expect(quoteCall({ ledger, caps: () => caps(100_000, 100_000) }, "creative_transcribe_audio", args, call("t"))).rejects.toMatchObject({ code: "PRICE_UNKNOWN" })
+      expect(ledger.daily()).toBe(0)
+      expect(() => shapersFor({ ledger: new Ledger(), caps: () => caps() }).input("creative_transcribe_audio", args, shape("ses_z", "elevenlabs_creative_transcribe_audio"))).toThrow("PRICE_UNKNOWN")
+    }
   })
 
-  test("music at duration 0 is refused, and speech takes 1 does not undercut the two-take price", async () => {
-    const music = new Ledger()
-    expect(priceOf("creative_generate_music", { duration_seconds: 0 })).toBeUndefined()
-    await expect(quoteCall({ ledger: music, caps: () => caps() }, "creative_generate_music", { duration_seconds: 0 }, call("m"))).rejects.toMatchObject({ code: "PRICE_UNKNOWN" })
-    expect(music.daily()).toBe(0)
-
-    expect(priceOf("creative_generate_speech", { text: "x".repeat(600), takes: 1 })?.credits).toBe(1200)
-    const speech = quoteCallSync({ ledger: new Ledger(), caps: () => caps() }, "creative_generate_speech", { text: "x".repeat(600), takes: 1 }, call("s"))
-    expect(speech.price.credits).toBe(1200)
-    expect(speech.price.credits).toBe(600 * RATES.speechTakes)
-  })
-
-  test("a measured file sets the price, a stated duration can only raise it, and an unreadable container is refused", async () => {
+  test("a file on disk is never measured to price a call, whatever it holds", async () => {
+    // A real minute of audio used to set the transcription price. Nothing reads it now: the only figure is the
+    // server's, which prices what the flow will transcribe rather than what sits in this process's filesystem.
     const minute = join(root, "minute.wav")
     writeFileSync(minute, wavHeader(60))
-    expect(priceOf("creative_transcribe_audio", { path: minute, duration_seconds: 1 })?.credits).toBe(RATES.sttPerMinute)
-    expect(priceOf("creative_transcribe_audio", { path: minute, duration_seconds: 120 })?.credits).toBe(RATES.sttPerMinute * 2)
     const ledger = new Ledger()
-    const quoted = quoteCallSync({ ledger, caps: () => caps(10_000, 10_000) }, "creative_transcribe_audio", { path: minute, duration_seconds: 1 }, call("wav"))
-    expect(quoted.price.credits).toBe(RATES.sttPerMinute)
-    expect(quoted.tracked).toBe(true)
+    await expect(quoteCall({ ledger, caps: () => caps(10_000, 10_000) }, "creative_transcribe_audio", { path: minute }, call("wav"))).rejects.toMatchObject({ code: "PRICE_UNKNOWN" })
+    expect(ledger.daily()).toBe(0)
+  })
 
-    const ogg = join(root, "clip.ogg")
-    writeFileSync(ogg, Buffer.from("OggS"))
-    expect(priceOf("creative_transcribe_audio", { path: ogg, duration_seconds: 1, size_bytes: 7_200_000 })).toBeUndefined()
-    await expect(quoteCall({ ledger: new Ledger(), caps: () => caps() }, "creative_transcribe_audio", { path: ogg, duration_seconds: 1, size_bytes: 7_200_000 }, call("ogg"))).rejects.toMatchObject({ code: "PRICE_UNKNOWN" })
+  test("a generation count that is not a number stops the call, since it multiplies whatever one costs", async () => {
+    const ledger = new Ledger()
+    const estimate = async () => ({ credits: 300, basis: "exact" as const, parts: [] })
+    await expect(quoteCall({ ledger, caps: () => caps(), estimate }, "creative_generate_image", { prompt: "x", generations_count: "lots" }, call("n"))).rejects.toMatchObject({ code: "PRICE_UNKNOWN" })
+    expect(ledger.daily()).toBe(0)
   })
 })
 
-/**
- * A RIFF/WAVE file holding `seconds` of audio. The body is required: since RR2-1 the price comes from the bytes that
- * follow the `data` chunk, so a bare 44-byte header states a duration it does not have and is not measured.
- */
+/** A RIFF/WAVE file holding `seconds` of audio, to show that having one changes no price. */
 function wavHeader(seconds: number, byteRate = 16_000) {
   const dataBytes = byteRate * seconds
   const header = Buffer.alloc(44)
@@ -115,12 +103,12 @@ describe("a creative_ name the table does not price is refused on both paths", (
       const shapers = shapersFor({ ledger: new Ledger(), caps: () => caps() })
       expect(() => shapers.input(name, { prompt: "x" }, shape("ses_a", `elevenlabs_${name}`))).toThrow("PRICE_UNKNOWN")
     }
-    const music = quoteCallSync({ ledger: new Ledger(), caps: () => caps() }, "creative_compose_music", { duration_seconds: 60 }, call("compose"))
-    expect(music.tracked).toBe(true)
-    expect(music.price.credits).toBe(900)
-    const effects = quoteCallSync({ ledger: new Ledger(), caps: () => caps() }, "creative_sound_effects", {}, call("sfx"))
-    expect(effects.tracked).toBe(true)
-    expect(effects.price.credits).toBe(200)
+    // A price the ledger already holds for exactly these arguments is the one thing that lets such a name through,
+    // and it is ElevenLabs' own figure rather than anything this plugin worked out.
+    const ledger = new Ledger()
+    ledger.rememberPrice("creative_upscale", { prompt: "x" }, { credits: 900, basis: "exact", parts: [] })
+    const quoted = quoteCallSync({ ledger, caps: () => caps() }, "creative_upscale", { prompt: "x" }, call("upscale"))
+    expect(quoted).toMatchObject({ tracked: true, price: { credits: 900 } })
     expect(readFileSync(join(repo, "README.md"), "utf8")).toContain(creativeGuardSentence())
   })
 })
@@ -146,11 +134,15 @@ describe("a hold lasts for the call, and a failure does not forget a charge", ()
   test("an RPC shapeInput whose call never returns is still charged after 10 minutes", () => {
     let now = 0
     const ledger = new Ledger({ now: () => now })
+    const args = speechArgs()
+    ledger.rememberPrice("creative_generate_speech", args, { credits: 1500, basis: "exact", parts: [] })
     const shapers = shapersFor({ ledger, caps: () => caps(2000, 10_000) })
     const speech = shape()
-    shapers.input("creative_generate_speech", { text: "x".repeat(750) }, speech)
+    shapers.input("creative_generate_speech", { ...args }, speech)
     now += 10 * 60 * 1000 + 1
-    expect(() => shapers.input("creative_generate_speech", { text: "x".repeat(750) }, speech)).toThrow(SpendRefused)
+    // The remembered price has gone stale with the hold, so the second call cannot be priced either way: what must
+    // hold is that the first call's credits are still counted, and a second 1,500 does not fit under 2,000.
+    expect(() => shapers.input("creative_generate_speech", { ...args }, speech)).toThrow(SpendRefused)
     expect(ledger.spend("ses_a")).toEqual({ sessionCredits: 1500, dailyCredits: 1500 })
   })
 })
@@ -158,11 +150,14 @@ describe("a hold lasts for the call, and a failure does not forget a charge", ()
 describe("an estimate must not settle a paid hold", () => {
   test("the second shapeInput is refused, and an estimate figure cannot replace the paid charge", () => {
     const ledger = new Ledger()
+    const args = speechArgs()
+    ledger.rememberPrice("creative_generate_speech", args, { credits: 3000, basis: "exact", parts: [] })
     const shapers = shapersFor({ ledger, caps: () => caps(10_000, 10_000) })
     const speech = shape("ses_script")
-    shapers.input("creative_generate_speech", { text: "x".repeat(1500) }, speech)
+    shapers.input("creative_generate_speech", { ...args }, speech)
     expect(ledger.spend("ses_script").sessionCredits).toBe(3000)
-    expect(() => shapers.input("creative_generate_speech", { text: "hi", estimate_only: true }, speech)).toThrow()
+    // The estimate probe is free and unpriced, but it cannot reuse this call's id: one call, one hold.
+    expect(() => shapers.input("creative_generate_speech", { ...args, estimate_only: true }, speech)).toThrow()
     shapers.result("creative_generate_speech", { output: { credits: 3000 }, text: "" }, speech)
     shapers.result("creative_generate_speech", { output: { credits: 10 }, text: "" }, speech)
     expect(ledger.spend("ses_script").sessionCredits).toBe(3000)
@@ -172,12 +167,14 @@ describe("an estimate must not settle a paid hold", () => {
 describe("one daily cap in the store", () => {
   test("two ledgers on one storage share the cap, and a restart keeps the charge", async () => {
     const store = storage()
+    const args = speechArgs("x".repeat(600))
     const first = new Ledger({ storage: store })
     const second = new Ledger({ storage: store })
+    for (const ledger of [first, second]) ledger.rememberPrice("creative_generate_speech", args, { credits: 1200, basis: "exact", parts: [] })
     await first.hydrate()
     await second.hydrate()
-    quoteCallSync({ ledger: first, caps: () => caps(2000, 2000) }, "creative_generate_speech", { text: "x".repeat(600) }, call("a", "ses_a"))
-    expect(() => quoteCallSync({ ledger: second, caps: () => caps(2000, 2000) }, "creative_generate_speech", { text: "x".repeat(600) }, call("b", "ses_b"))).toThrow(SpendRefused)
+    quoteCallSync({ ledger: first, caps: () => caps(2000, 2000) }, "creative_generate_speech", { ...args }, call("a", "ses_a"))
+    expect(() => quoteCallSync({ ledger: second, caps: () => caps(2000, 2000) }, "creative_generate_speech", { ...args }, call("b", "ses_b"))).toThrow(SpendRefused)
     first.settle("a", "ses_a", 1200)
     await first.flush()
     const restarted = new Ledger({ storage: coldCopy(store) })

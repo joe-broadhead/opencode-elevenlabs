@@ -62,7 +62,14 @@ export function agentEditor(agents: FakeAgent[]) {
 
 type SetupContext = Pick<Plugin.Context, "app" | "options" | "mcp" | "agent" | "skill" | "command" | "session" | "tool" | "integration" | "rpc" | "permission" | "location" | "event" | "storage">
 
-/** A context with only what setup touches. Each transform is collected so the test can replay it. */
+/** One tool as the host lists it: what `estimatorFor` looks its executor up in. */
+export type FakeTool = { id: string; execute: (input: unknown, context: unknown) => Promise<unknown> }
+
+/**
+ * A context with only what setup touches. Each transform is collected so the test can replay it. `toolList` is the
+ * list `ctx.tool.list()` answers with, and is mutable: a test that needs the spending guard to reach ElevenLabs' own
+ * estimate pushes an executor for the tool it is pricing.
+ */
 export function pluginContext(options: unknown, version = "2.2.3") {
   const mcp = transforms<McpEditor>()
   const agent = transforms<Parameters<Parameters<Plugin.Context["agent"]["transform"]>[0]>[0]>()
@@ -74,6 +81,7 @@ export function pluginContext(options: unknown, version = "2.2.3") {
   const handlers = new Map<string, Record<string, (input: unknown, context: unknown) => Promise<unknown>>>()
   const hooks: string[] = []
   const hookFns = new Map<string, (event: never) => Promise<void>>()
+  const toolList: FakeTool[] = [{ id: `elevenlabs_${READ_TOOLS[0]}`, execute: async () => ({ content: [{ type: "text", text: "ok" }] }) }]
   const stored = new Map<string, unknown>()
   const store = {
     get: async (key: string) => stored.get(key) as never,
@@ -99,7 +107,7 @@ export function pluginContext(options: unknown, version = "2.2.3") {
     agent: { transform: agent.transform, list: async () => ({ data: [] }), get: async () => ({ data: { id: "build", permissions: [{ action: "*", resource: "*", effect: "allow" }] } }) },
     tool: {
       transform: tool.transform,
-      list: async () => [{ id: `elevenlabs_${READ_TOOLS[0]}`, execute: async () => ({ content: [{ type: "text", text: "ok" }] }) }],
+      list: async () => toolList,
       hook: async (name: string, callback?: (event: never) => Promise<void>) => {
         hooks.push(name)
         if (callback) hookFns.set(name, callback)
@@ -115,5 +123,5 @@ export function pluginContext(options: unknown, version = "2.2.3") {
     permission: { assert: async () => undefined, hook: async () => ({ dispose: async () => undefined }) },
     event: { subscribe: ({ signal }: { signal: AbortSignal }) => ({ [Symbol.asyncIterator]: () => ({ next: () => new Promise((resolve) => signal.addEventListener("abort", () => resolve({ done: true, value: undefined }))) }) }) },
   } as unknown as SetupContext
-  return { ctx: ctx as Plugin.Context, mcp, agent, skill, command, tool, integration, rpc, handlers, hooks, hookFns, stored }
+  return { ctx: ctx as Plugin.Context, mcp, agent, skill, command, tool, toolList, integration, rpc, handlers, hooks, hookFns, stored }
 }

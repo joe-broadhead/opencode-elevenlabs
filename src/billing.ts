@@ -1,96 +1,54 @@
 import { randomUUID } from "node:crypto"
-import { closeSync, openSync, statSync } from "node:fs"
 import type { Plugin } from "@opencode/plugin"
 import { elevenlabsError, type PluginCode } from "./constants.js"
-import { ESTIMATE_TOOLS, mustPrice, operationOf, priced, PRICED_NAMES, type PricedOperation, spends } from "./elevenlabs-tools.js"
-import { fileReader, type RiffReading, riffReadingWith } from "./media/policy.js"
+import { ESTIMATE_TOOLS, mustPrice, priced, spends } from "./elevenlabs-tools.js"
 import type { CreditCap } from "./options.js"
 
 /**
- * ElevenLabs' published credit costs, from elevenlabs.io/pricing. Speech to Text is billed per minute, which is why a
- * transcription is priced like a generation: it spends, even though it changes nothing.
- */
-export const RATES = {
-  /** Text to Speech: 1 credit per character. */
-  speechPerCharacter: 1,
-  /** Speech returns two takes by default, and each is charged: the figure is therefore a bound, not an exact price. */
-  speechTakes: 2,
-  /** Speech to Text: 330 credits per minute. */
-  sttPerMinute: 330,
-  /** Music: 900 credits per minute. */
-  musicPerMinute: 900,
-  /** Sound effects: 200 credits per generation. */
-  sfxPerGeneration: 200,
-  /**
-   * 32 kbit/s. Not a safe floor: Opus and other speech codecs sit under it, so a byte bound at this rate under-prices
-   * a file whose container duration cannot be read. Such a file is refused rather than priced from its size.
-   */
-  audioBytesPerSecond: 4_000,
-} as const
-
-/**
  * The most a call can cost, and how the figure was reached. `at-most` is a bound; `exact` is what ElevenLabs' own
- * estimate returned, or what a result reported.
+ * estimate returned for exactly these arguments, or what a result reported.
+ *
+ * Every price here comes from ElevenLabs' own estimate: the same tool, the same arguments and `estimate_only: true`.
+ * The plugin computes no price of its own. Published per-character and per-minute rates priced tools this server does
+ * not have — it generates into a flow, with a model the caller names out of an enum of a hundred — and a formula that
+ * cannot see which model runs is not a bound on anything (LIVE-RECONCILE-1).
  */
 export interface Price {
   readonly credits: number
   readonly basis: "exact" | "at-most"
-  /** The parts, for the cost line: "1,200 characters, 2 takes". */
+  /** The parts, for the cost line: "4 generations, estimated by ElevenLabs". */
   readonly parts: readonly string[]
   /** What one variation costs, when the tool takes a generation count: used to clamp the request to the budget. */
   readonly perGeneration?: number
 }
 
 const number = (value: unknown) => (typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined)
-const field = (input: Record<string, unknown>, names: readonly string[]) => {
-  for (const name of names) {
-    const value = input[name]
-    if (value !== undefined && value !== null) return value
-  }
-  return undefined
-}
 const count = (value: number) => value.toLocaleString("en-US")
 
-/** The cost line's word for a count, left out when the call asks for one generation and the count changes nothing. */
-const generationParts = (generations: number) => (generations > 1 ? [`${count(generations)} generations`] : [])
-
-/** The generation-count keys a generating call may use, in the order the plugin writes one back. */
-export const GENERATION_KEYS = ["generations_count", "generations", "variations", "num_generations", "num_outputs"] as const
-
-/** The keys speech reads: the text it will bill a character at a time, and the take count. One list, read and printed. */
-const SPEECH_TEXT_KEYS = ["text", "script", "message"] as const
-const SPEECH_TAKE_KEYS = ["takes", "num_takes"] as const
-
-/** The keys music reads for its length, and what a number in each of them means once it is in milliseconds. */
-const MUSIC_LENGTH_KEYS = ["music_length_ms", "duration_seconds", "duration"] as const
-const MUSIC_LENGTH_MS: Record<(typeof MUSIC_LENGTH_KEYS)[number], number> = { music_length_ms: 1, duration_seconds: 1_000, duration: 1_000 }
-
-/** A list of argument names as a refusal prints it: `"a", "b" or "c"`. */
-const quoted = (names: readonly string[]) =>
-  names
-    .map((name) => `"${name}"`)
-    .join(", ")
-    .replace(/, ([^,]*)$/, " or $1")
+/**
+ * The generation-count key. The live catalogue spells it one way — `generations_count`, on the six creative tools that
+ * batch — so there is one key to read, one to clamp and one to write back; test/unit/live-schema.test.ts holds this
+ * list against the live schemas in both directions. A count under any other name is an argument the tool's own schema
+ * does not have, and is refused before it is ever priced rather than read as a count the server would ignore.
+ */
+export const GENERATION_KEYS = ["generations_count"] as const
 
 /**
- * The tools `RATES` prices, and the one next step each of them really has. A refusal for one of these is never "no
- * published credit price": the rate is right here, and what the call is missing is an argument the formula reads, so
- * the refusal says which one and what to pass, instead of offering an estimate the tool may not take (RR4-12). Image
- * and video are absent, because nothing here prices them: their figure is the server's own estimate.
+ * What ElevenLabs generates when a call names no count: the `default` its own live schema gives `generations_count`.
+ * An estimate answers for the batch the arguments ask for, so this is the divisor that turns one into a per-generation
+ * figure, and the reason a speech call that names no count is priced at two takes rather than one.
+ *
+ * `creative_generate_in_flow` and `creative_run_flow_nodes` declare the field with no default, and
+ * `creative_transcribe_audio` has no count at all: for those the batch size is unknown unless the call states it, so
+ * nothing is divided and nothing is clamped. test/unit/live-schema.test.ts holds these figures against the live
+ * schemas.
  */
-export const RATED_TOOLS: ReadonlyMap<string, string> = new Map(
-  (
-    [
-      ["speech", `Pass the text to speak as a string in ${quoted(SPEECH_TEXT_KEYS)}, and any count as a number.`],
-      [
-        "music",
-        `Pass the length as a number — "music_length_ms" in milliseconds, or "duration_seconds" — or a composition plan whose sections state their own, and any count as a number.`,
-      ],
-      ["soundEffect", `Pass any generation count as a number.`],
-      ["transcription", `Pass a local PCM WAV file this plugin can measure.`],
-    ] as [PricedOperation, string][]
-  ).flatMap(([operation, step]) => PRICED_NAMES[operation].map((tool): [string, string] => [tool, step])),
-)
+export const GENERATION_DEFAULTS: Readonly<Record<string, number>> = {
+  creative_edit_image: 4,
+  creative_generate_image: 4,
+  creative_generate_speech: 2,
+  creative_generate_video: 1,
+}
 
 /** A count field holding something no number can be read out of. The whole call's price multiplies by it (RR4-6). */
 export const NOT_A_COUNT = Symbol("not a count")
@@ -99,7 +57,7 @@ export const NOT_A_COUNT = Symbol("not a count")
  * The count a field states. A caller that wrote `"4"` asked for four, so a numeric string is read as the number it
  * spells rather than passed over, which would price the call as if the field were not there (RR3-9, for counts).
  * Anything a number cannot be read out of is a multiplier this plugin cannot know, and so is PRICE_UNKNOWN. A zero or
- * a negative states nothing and leaves the count to the server, which is its own default of one.
+ * a negative states nothing and leaves the count to the server, which is its own schema default.
  */
 export const countValue = (value: unknown): number | undefined | typeof NOT_A_COUNT => {
   if (value === undefined || value === null) return undefined
@@ -108,494 +66,65 @@ export const countValue = (value: unknown): number | undefined | typeof NOT_A_CO
   return parsed >= 1 ? parsed : undefined
 }
 
-/** Every generation count a call states, largest first, or `NOT_A_COUNT` when one of them cannot be read. */
-const generationCountsOf = (input: Record<string, unknown>): [string, number][] | typeof NOT_A_COUNT => {
-  const counts: [string, number][] = []
-  for (const key of GENERATION_KEYS) {
-    const value = countValue(input[key])
-    if (value === NOT_A_COUNT) return NOT_A_COUNT
-    if (value !== undefined) counts.push([key, value])
-  }
-  return counts.sort((a, b) => b[1] - a[1])
-}
-
 /**
- * The key the caller used for its generation count, or `undefined` when it named none. One helper for every path, so a
- * clamp never writes a second key beside the first (DR-6). A call that names more than one count is keyed by the one
- * asking for the most, which is the one its price came from.
+ * The key the caller used for its generation count, or `undefined` when it named none. One helper for every path, so
+ * the price, the clamp and the cost line all read the same field (DR-6).
  */
-export const generationsKeyOf = (input: Record<string, unknown>): string | undefined => {
-  const counts = generationCountsOf(input)
-  return counts === NOT_A_COUNT ? GENERATION_KEYS.find((key) => input[key] !== undefined) : counts[0]?.[0]
-}
+export const generationsKeyOf = (input: Record<string, unknown>): string | undefined => GENERATION_KEYS.find((key) => input[key] !== undefined)
 
 /**
- * The generations a call asks for, when it names any: the largest it states. A call naming two counts generates what
- * the larger of them asks for as far as this plugin knows, and a price that believed the smaller would be the one
- * that under-counts. `NOT_A_COUNT` when a count field holds something no number can be read out of.
+ * The generations a call asks for, when it names any. `NOT_A_COUNT` when the field holds something no number can be
+ * read out of: the batch total multiplies by the count, so a count nothing can be read out of leaves no figure about
+ * the call that means anything.
  */
 export const generationsOf = (input: Record<string, unknown>): number | undefined | typeof NOT_A_COUNT => {
-  const counts = generationCountsOf(input)
-  return counts === NOT_A_COUNT ? NOT_A_COUNT : counts[0]?.[1]
-}
-
-/**
- * Writes the clamped count into every key the caller used for one, creating `generations_count` only when it used
- * none: a clamp that bounded one key and left a larger count in another would bound nothing.
- */
-export function clampGenerations(input: Record<string, unknown>, allowed: number): string {
-  const named = GENERATION_KEYS.filter((key) => input[key] !== undefined)
-  const key = generationsKeyOf(input) ?? named[0] ?? "generations_count"
-  for (const name of named.length === 0 ? [key] : named) input[name] = allowed
-  return key
-}
-
-/**
- * A duration for the cost line, in the unit it is really in: minutes at a minute and over, seconds below one, and a
- * singular for exactly one of either. A line that reads "0 minutes of audio, measured" beside a charge is the plugin
- * describing its own measurement as nothing, and it is the line an owner reconciling a bill stops at (RR5-6). Two
- * significant figures below a minute, so a short file states a length rather than rounding to zero in turn.
- */
-export function spokenDuration(seconds: number): string {
-  // The unit is the one the audio is really in: a minute is a minute of audio, not fifty-seven seconds rounded up to
-  // one, so the split is the real sixty and not whatever a tenth of a minute rounds to.
-  if (seconds >= 60) {
-    const minutes = Math.round((seconds / 60) * 10) / 10
-    return `${minutes} ${minutes === 1 ? "minute" : "minutes"}`
-  }
-  const below = seconds > 0 ? Number(seconds.toPrecision(2)) : 0
-  return `${below} ${below === 1 ? "second" : "seconds"}`
-}
-
-/**
- * The credits a call costs, from its arguments and ElevenLabs' published formula. Undefined when the formula does not
- * cover the tool, when the computed price is 0, or when a transcription's file cannot be measured. A number the caller
- * typed may raise a measured price. It cannot set one, and it cannot lower one.
- */
-export function priceOf(name: string, input: Record<string, unknown>): Price | undefined {
-  // Case is folded here as it is in `mustPrice` (RR2-8), so a name in another case is priced rather than refused: the
-  // guard asks this table for every name it must price, and the two must agree on which names those are.
-  const tool = name.toLowerCase()
-  // An argument this plugin has never priced may change what the call is billed, whichever tool carries it, so the
-  // call is not priced rather than priced as if the argument were not there (RR3-6, widened by RR4-3).
-  if (unknownArgument(tool, input) !== undefined) return undefined
-  // A transcription prices its own files and so decides for itself which of them were measured; every other priced
-  // tool measures none, so any argument naming a file or a URL is audio the server will read and the price will not
-  // cover (RR3-7).
-  if (!isTranscription(tool) && unpriceableArgument(input, NO_MEASURED_PATHS) !== undefined) return undefined
-  // A count asks for the work to be done that many times, so it multiplies whatever one pass costs — on every priced
-  // tool, not sound effects alone (RR4-6). A count no number can be read out of is a multiplier this plugin does not
-  // know, which is PRICE_UNKNOWN rather than a price that assumes one.
-  const asked = generationsOf(input)
-  if (asked === NOT_A_COUNT) return undefined
-  const generations = asked ?? 1
-  // One formula per operation, over the names `PRICED_NAMES` gives it: the gate and this table read the same list, so
-  // a name the owner is told is priced cannot reach a dispatch that does not know it (RR5-2).
-  const operation = operationOf(tool)
-  if (operation === "speech") {
-    const text = field(input, SPEECH_TEXT_KEYS)
-    if (typeof text !== "string") return undefined
-    // The server is not attested to honour `takes`. Two takes is the bound until a live call proves otherwise. A
-    // caller figure below two must not halve the price; a higher one may raise it.
-    const stated = countValue(field(input, SPEECH_TAKE_KEYS))
-    if (stated === NOT_A_COUNT) return undefined
-    const takes = Math.max(stated ?? 0, RATES.speechTakes)
-    const characters = Array.from(text).length
-    if (characters === 0) return undefined
-    const credits = Math.ceil(characters * RATES.speechPerCharacter * takes * generations)
-    if (!(credits > 0)) return undefined
-    return {
-      credits,
-      basis: "at-most",
-      parts: [`${count(characters)} ${characters === 1 ? "character" : "characters"}`, `${takes} ${takes === 1 ? "take" : "takes"}`, ...generationParts(generations)],
-    }
-  }
-  if (operation === "transcription") {
-    return transcriptionPrice(input)
-  }
-  if (operation === "music") {
-    const stated = musicLengthsMs(input)
-    // A composition plan asks for music section by section, and a plan of minutes may carry no length field at all;
-    // priced at the three-second floor, that is minutes of music a cap never saw (RR4-3).
-    const plan = planLengthMs(input["composition_plan"])
-    if (plan === NOT_A_LENGTH) return undefined
-    // No length at all is the server's own default, which this plugin cannot know: PRICE_UNKNOWN, not a guess. So is
-    // a length field holding something no number can be read out of.
-    if (stated === undefined) return undefined
-    const lengths = plan === undefined ? stated : [...stated, plan]
-    if (lengths.length === 0) return undefined
-    // A caller number may raise a price and may not lower one (RR-1). A call that states a length twice may generate
-    // the longer of them, so the longer is what it is priced at, whichever key holds it and in whichever order.
-    const longest = Math.max(...lengths)
-    const milliseconds = Math.max(longest, MUSIC_MIN_MS)
-    const minutes = milliseconds / 60_000
-    const credits = Math.ceil(minutes * RATES.musicPerMinute * generations)
-    if (!(credits > 0)) return undefined
-    const parts = [spokenDuration(milliseconds / 1_000)]
-    if (milliseconds > longest) parts.push(`${MUSIC_MIN_MS / 1_000} second minimum`)
-    parts.push(...generationParts(generations))
-    return { credits, basis: "at-most", parts }
-  }
-  if (operation === "soundEffect") {
-    const credits = RATES.sfxPerGeneration * generations
-    if (!(credits > 0)) return undefined
-    return { credits, basis: "at-most", parts: [`${generations} ${generations === 1 ? "generation" : "generations"} at ${RATES.sfxPerGeneration} credits`] }
+  for (const key of GENERATION_KEYS) {
+    const value = countValue(input[key])
+    if (value !== undefined) return value
   }
   return undefined
 }
 
-/**
- * ElevenLabs' shortest music generation, and so the least a music call can cost: 45 credits at 900 a minute. The
- * published API reference for Music gives `music_length_ms` a range of 3000 to 600000 on both `compose` and
- * `compose-detailed`, so a call asking for less than three seconds still generates three. It is a floor on the price,
- * never a cap: a longer request is priced at its own length.
- */
-export const MUSIC_MIN_MS = 3_000
-
-/**
- * Every length a music call states, in milliseconds. One call may carry both `music_length_ms` and `duration_seconds`,
- * and the keys of an object have no order the caller controls, so all of them are collected rather than the first.
- * A zero or a negative states nothing: it leaves the length to the server, which is PRICE_UNKNOWN, not three seconds.
- */
-const musicLengthsMs = (input: Record<string, unknown>): number[] | undefined => {
-  const stated: number[] = []
-  for (const name of MUSIC_LENGTH_KEYS) {
-    const value = lengthValue(input[name])
-    if (value === NOT_A_LENGTH) return undefined
-    if (value !== undefined) stated.push(value * MUSIC_LENGTH_MS[name])
-  }
-  return stated.filter((value) => value > 0)
-}
-
-/** A length field that holds something no length can be read out of. One such field is the whole call's price (RR3-9). */
-const NOT_A_LENGTH = Symbol("not a length")
-
-/** More sections than any composition plan a person writes. Past it the plan is not one this plugin reads. */
-const MAX_PLAN_SECTIONS = 1_000
-
-/**
- * The music a composition plan asks for, in milliseconds: the sum of its sections' own durations. The plan is the
- * length when it is longer than anything the call states, because that is the music the server will generate and
- * bill. A plan whose durations cannot be read — not an object, no sections, a section with no duration or with one no
- * number can be read out of — is PRICE_UNKNOWN, not a plan worth nothing.
- */
-const planLengthMs = (value: unknown): number | undefined | typeof NOT_A_LENGTH => {
-  if (value === undefined || value === null) return undefined
-  if (typeof value !== "object" || Array.isArray(value)) return NOT_A_LENGTH
-  const sections = (value as { sections?: unknown }).sections
-  if (!Array.isArray(sections) || sections.length === 0 || sections.length > MAX_PLAN_SECTIONS) return NOT_A_LENGTH
-  let total = 0
-  for (const section of sections) {
-    if (section === null || typeof section !== "object" || Array.isArray(section)) return NOT_A_LENGTH
-    const fields = section as Record<string, unknown>
-    const milliseconds = lengthValue(fields["duration_ms"])
-    const seconds = lengthValue(fields["duration_seconds"])
-    if (milliseconds === NOT_A_LENGTH || seconds === NOT_A_LENGTH) return NOT_A_LENGTH
-    const length = milliseconds ?? (seconds === undefined ? undefined : seconds * 1_000)
-    if (length === undefined || !(length > 0)) return NOT_A_LENGTH
-    total += length
-  }
-  return total > 0 ? total : NOT_A_LENGTH
+/** Writes the clamped count into the key the caller used, or into the live one when it named none. */
+export function clampGenerations(input: Record<string, unknown>, allowed: number): string {
+  const key = generationsKeyOf(input) ?? GENERATION_KEYS[0]
+  input[key] = allowed
+  return key
 }
 
 /**
- * The length a field states. A caller that wrote `"30000"` asked for thirty seconds, so a numeric string is read as the
- * number it spells rather than passed over, which would have priced the call as if the field were not there. Anything
- * a number cannot be read out of — prose, a boolean, an object — is not a length this plugin can price around.
- */
-const lengthValue = (value: unknown): number | undefined | typeof NOT_A_LENGTH => {
-  if (value === undefined || value === null) return undefined
-  const parsed = typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value.trim()) : Number.NaN
-  if (!Number.isFinite(parsed)) return NOT_A_LENGTH
-  // A zero or a negative is numeric and states nothing: it leaves the length to the server, as it always did.
-  return parsed >= 0 ? parsed : undefined
-}
-
-/** Argument names that may hold the audio file a transcription is about to send. A URL is not one of them. */
-const AUDIO_PATHS = ["path", "file", "file_path", "audio_path", "filename", "audio_file", "input_file"] as const
-
-/** Argument names that state a duration the caller believes the audio has. One of these may only raise a price. */
-const STATED_DURATIONS = ["duration_ms", "audio_duration_ms", "duration_seconds", "duration", "audio_duration_seconds"] as const
-
-/**
- * Every argument name a transcription may carry while a cap is on: the ones the pricing reads, and ElevenLabs' own
- * documented Speech to Text options that change nothing about the length of audio billed. A name outside this list is
- * one whose effect on the bill this plugin does not know, so the call is not priced rather than priced as if the name
- * were not there. `transcript_edit` is deliberately absent: it is documented as a 30% surcharge billed for at least
- * ten seconds, which is a price this plugin does not compute.
- */
-const TRANSCRIPTION_ARGUMENTS = new Set<string>([
-  ...AUDIO_PATHS,
-  ...STATED_DURATIONS,
-  "context",
-  "estimate_only",
-  "estimateOnly",
-  "model_id",
-  "language_code",
-  "timestamps_granularity",
-  "diarize",
-  "use_speaker_library",
-  "detect_speaker_roles",
-  "num_speakers",
-  "diarization_threshold",
-  "keyterms",
-  "tag_audio_events",
-  "entity_detection",
-  "entity_redaction",
-  "no_verbatim",
-  "use_multi_channel",
-  "multichannel_output_style",
-  "webhook",
-  "webhook_id",
-  "webhook_metadata",
-  "temperature",
-  "seed",
-  "additional_formats",
-  "file_format",
-  "enable_logging",
-])
-
-/**
- * Argument names any priced call may carry: the ones the guard reads itself, and the one every tool in the known
- * list declares. `connect_from` is deliberately absent, as `transcript_edit` is: it points the server at a file
- * somewhere this plugin cannot measure, which is the whole of a transcription's price.
- */
-const COMMON_ARGUMENTS = ["estimate_only", "estimateOnly", "context", ...GENERATION_KEYS] as const
-
-/** Speech: ElevenLabs' own schema for it, and the names the pricing reads for the text and the take count. */
-const SPEECH_ARGUMENTS = new Set<string>([...COMMON_ARGUMENTS, ...SPEECH_TEXT_KEYS, ...SPEECH_TAKE_KEYS, "voice_id", "model_id"])
-
-/** Music: ElevenLabs' own schema, the second and third length keys the pricing reads, and the composition plan. */
-const MUSIC_ARGUMENTS = new Set<string>([...COMMON_ARGUMENTS, "prompt", ...MUSIC_LENGTH_KEYS, "composition_plan"])
-
-/** Sound effects: ElevenLabs' own schema. The rate is per generation, so a length changes nothing about the price. */
-const SOUND_EFFECT_ARGUMENTS = new Set<string>([...COMMON_ARGUMENTS, "prompt", "duration_seconds"])
-
-/** Image: ElevenLabs' own schema. The price is the server's own estimate for these arguments, so they must be these. */
-const IMAGE_ARGUMENTS = new Set<string>([...COMMON_ARGUMENTS, "prompt", "model_id"])
-
-/** Video: ElevenLabs' own schema, which states a length. */
-const VIDEO_ARGUMENTS = new Set<string>([...COMMON_ARGUMENTS, "prompt", "model_id", "duration_seconds"])
-
-/**
- * Every priced tool's argument allowlist, by the names this plugin prices under. Ruling A gave transcription one
- * because an argument the pricing has never seen may change what the call is billed; that is true of every tool it
- * prices, so each one has a list, and an argument outside it is PRICE_UNKNOWN while a cap is on rather than priced
- * as if it were not there. The names come from the schemas the plugin knows — `test/fixtures/live-tools.json` and the
- * fake server — plus the ones the pricing itself reads. Both are provisional until the live reconcile confirms them;
- * `docs/architecture.md` lists every one of these sets, and the checklist there carries that step.
+ * Every argument name each priced tool's own live schema declares, by tool. An estimate answers for the arguments it
+ * is sent, so an argument the schema does not have is one whose effect on the bill nothing here knows — and sending it
+ * to the estimate would not price it either, because the server would be pricing a call it does not understand. Such a
+ * call is refused PRICE_UNKNOWN while a cap is on, rather than priced as if the argument were not there (Ruling A,
+ * widened by RR4-3).
  *
- * A tool with no list is a tool this plugin cannot price at all, which a cap already refuses. Every name the price
- * table names has one by construction, because both are built from `PRICED_NAMES` (RR5-2).
+ * These are copies of the live schemas, taken on 2026-11-09; `test/unit/live-schema.test.ts` holds every one of them
+ * against `test/fixtures/live-tools.json`, so an argument ElevenLabs adds upstream fails the suite rather than
+ * reaching a paid call unpriced. `docs/architecture.md` lists them for the reader.
+ *
+ * Only the seven tools that accept `estimate_only` are here. The other two spending tools — `creative_design_voice`
+ * and `agents_run_tests` — have no estimate at all, so nothing prices them and a cap refuses them whatever they carry.
  */
-export const PRICED_ARGUMENTS: ReadonlyMap<string, ReadonlySet<string>> = new Map<string, ReadonlySet<string>>(
-  (
-    [
-      ["speech", SPEECH_ARGUMENTS],
-      ["transcription", TRANSCRIPTION_ARGUMENTS],
-      ["music", MUSIC_ARGUMENTS],
-      ["soundEffect", SOUND_EFFECT_ARGUMENTS],
-      ["image", IMAGE_ARGUMENTS],
-      ["video", VIDEO_ARGUMENTS],
-    ] as [PricedOperation, ReadonlySet<string>][]
-  ).flatMap(([operation, allowed]) => PRICED_NAMES[operation].map((tool): [string, ReadonlySet<string>] => [tool, allowed])),
-)
+export const PRICED_ARGUMENTS: ReadonlyMap<string, ReadonlySet<string>> = new Map<string, ReadonlySet<string>>([
+  ["creative_edit_image", new Set(["connect_from", "context", "estimate_only", "flow_id", "generations_count", "model_id", "prompt"])],
+  ["creative_generate_image", new Set(["connect_from", "context", "estimate_only", "flow_id", "generations_count", "model_id", "prompt"])],
+  [
+    "creative_generate_in_flow",
+    new Set(["connect_from", "context", "estimate_only", "flow_id", "generations_count", "model_id", "node_type", "prompt", "view_state_id", "voice_id"]),
+  ],
+  ["creative_generate_speech", new Set(["context", "estimate_only", "flow_id", "generations_count", "model_id", "prompt", "view_state_id", "voice_id"])],
+  ["creative_generate_video", new Set(["connect_from", "context", "estimate_only", "flow_id", "generations_count", "model_id", "prompt"])],
+  ["creative_run_flow_nodes", new Set(["context", "estimate_only", "flow_id", "generations_count", "node_ids"])],
+  ["creative_transcribe_audio", new Set(["connect_from", "context", "estimate_only", "flow_id", "model_id", "view_state_id"])],
+])
 
 /** The first argument a priced call carries that its tool's allowlist does not have, in words the caller can act on. */
 export function unknownArgument(name: string, input: Record<string, unknown>): string | undefined {
   const allowed = PRICED_ARGUMENTS.get(name.toLowerCase())
   if (allowed === undefined) return undefined
   const unknown = Object.keys(input).find((argument) => !allowed.has(argument))
-  return unknown === undefined ? undefined : `"${unknown}" is an argument whose effect on the bill this plugin does not know`
-}
-
-/** A call that measured no file of its own. Every path it names is then one the price does not cover. */
-const NO_MEASURED_PATHS: ReadonlySet<string> = new Set<string>()
-
-/** A value that sends the server somewhere this plugin cannot measure. Only `http(s)` is a fetchable remote file. */
-const isHttpUrl = (value: string) => /^https?:\/\//i.test(value.trim())
-
-/**
- * Whether a string is worth asking the filesystem about. Prose is not a path, and a priced call's `text` argument is
- * prose, so only a value shaped like one is stat'd: nothing here walks the disk for every word a caller wrote.
- */
-const pathShaped = (value: string) =>
-  value.length > 0 && value.length <= 4096 && !value.includes("\0") && (value.includes("/") || value.includes("\\") || /\.[A-Za-z0-9]{1,8}$/.test(value))
-
-/** Every string a call carries, however deeply an array or an object holds it. Bounded, so a cyclic shape terminates. */
-function* stringsIn(value: unknown, depth = 0): Generator<string> {
-  if (depth > 4) return
-  if (typeof value === "string") yield value
-  else if (Array.isArray(value)) for (const item of value) yield* stringsIn(item, depth + 1)
-  else if (value !== null && typeof value === "object") for (const item of Object.values(value as Record<string, unknown>)) yield* stringsIn(item, depth + 1)
-}
-
-/**
- * Why a priced call cannot be priced from its arguments, or undefined when nothing stands in the way. A cap is a bound
- * on what a call may spend, so every argument it carries has to be one the price covers: a remote file the plugin
- * cannot measure (`cloud_storage_url` above all), or a local file it did not measure, is audio the server will read
- * and the price will not include.
- */
-export function unpriceableArgument(input: Record<string, unknown>, measured: ReadonlySet<string>): string | undefined {
-  for (const [name, value] of Object.entries(input)) {
-    for (const text of stringsIn(value)) {
-      if (isHttpUrl(text)) return `"${name}" names a file at a URL, which this plugin cannot measure`
-      if (measured.has(text) || !pathShaped(text)) continue
-      try {
-        if (statSync(text).isFile()) return `"${name}" names a local file this plugin did not measure`
-      } catch {
-        // Not a file on this machine, so it names nothing the server will read from here.
-      }
-    }
-  }
-  return undefined
-}
-
-/**
- * The file a transcription is about to send, measured here, and the paths that were measured. A PCM RIFF/WAVE file is
- * measured as a decoder reads it: the chunks are walked for `fmt ` and `data`, the audio is the `data` chunk's own
- * bytes clamped to the bytes that really follow it, and the seconds come from the rate the `fmt ` fields imply. Any
- * other container states no duration this plugin will trust, so it is not measured and so is not priced.
- */
-export function measureAudio(input: Record<string, unknown>): { readonly durationSeconds: number; readonly paths: ReadonlySet<string>; readonly understated: boolean } | undefined {
-  let longest: RiffReading | undefined
-  const paths = new Set<string>()
-  // The fixed list is walked, not the caller's keys, so two names for two files give one price whichever order they
-  // are written in. Every one of them is measured: the server may read the argument this plugin passed over.
-  for (const name of AUDIO_PATHS) {
-    const value = input[name]
-    if (value === undefined || value === null) continue
-    // A known key holding something that is not a string is a file this plugin cannot see and so cannot price.
-    if (typeof value !== "string") return undefined
-    if (value.length === 0) continue
-    if (value.includes("\0")) return undefined
-    // A URL names no local file. Nothing here can measure it, and nothing here claims to.
-    if (/^[a-z][a-z0-9+.-]*:/i.test(value)) return undefined
-    const measured = measureFile(value)
-    // A named file this plugin cannot measure is one the call may still send: a price covering the rest is no price.
-    if (measured === undefined) return undefined
-    paths.add(value)
-    if (longest === undefined || measured.seconds > longest.seconds) longest = measured
-  }
-  // The flag belongs to the file the price came from: that is the reading the cost line names (RR4-8).
-  return longest === undefined ? undefined : { durationSeconds: longest.seconds, paths, understated: longest.understated }
-}
-
-/** One local file's duration, or undefined when it cannot be read or its container states nothing measurable. */
-function measureFile(path: string): RiffReading | undefined {
-  let fd: number | undefined
-  try {
-    const stat = statSync(path)
-    if (!stat.isFile() || stat.size <= 0) return undefined
-    fd = openSync(path, "r")
-    // The walk reads chunk headers at the offsets the chunks give, so a `data` chunk behind 100 kB of broadcast
-    // metadata is reached without reading the audio, and the file's own size bounds every read.
-    const reading = riffReadingWith(fileReader(fd, stat.size), stat.size)
-    return reading !== undefined && reading.seconds > 0 ? reading : undefined
-  } catch {
-    return undefined
-  } finally {
-    if (fd !== undefined) closeSync(fd)
-  }
-}
-
-/**
- * What one local file is, at one instant: the device and inode it lives on, the bytes it holds, and when it last
- * changed. Two readings that differ are two different files, or one file with different bytes. A path that cannot be
- * stat'd reads as absent, which differs from every real stamp, so a file deleted between two readings is a change.
- */
-const stampOf = (path: string): string => {
-  try {
-    const stat = statSync(path)
-    return `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}`
-  } catch {
-    return "absent"
-  }
-}
-
-/**
- * The local files a call names, each stamped. A transcription is priced from bytes on this disk, and nothing here can
- * hold them still: `src/media/policy.ts` calls a file still being written an ordinary input, and a file still being
- * written is one that grows. The guard stamps them around the measurement and again immediately before the hold, so a
- * price is never reserved for a file that is no longer the file it measured (RR4-9).
- */
-/**
- * Reads every argument that may name an audio file once, and writes back what it read. The guard reads these names
- * several times over — the allowlist, the measurement, two stampings — and the server reads them again when the call
- * goes out, so an argument that answers differently on each read is priced at one reading and sent at another. The
- * stamps of RR4-9 cannot see that: the file on disk never moved, and the argument moved instead. After this, every
- * reader including the dispatcher sees the one string the price was taken from (RR5-4).
- *
- * The name of an argument that would not hold still is returned, and the call is refused: a reading this plugin
- * cannot pin to the call it is about to allow is no price at all. Both shipped paths hand the guard the object they
- * dispatch, so the write-back reaches the call itself.
- */
-export function freezeAudioPaths(args: Record<string, unknown>): string | undefined {
-  for (const name of AUDIO_PATHS) {
-    const described = Object.getOwnPropertyDescriptor(args, name)
-    if (described === undefined) continue
-    // A value that can be neither written nor redefined is one reading already, by the language's own rule.
-    if ("value" in described && described.writable === false && described.configurable === false) continue
-    const value = args[name]
-    try {
-      Object.defineProperty(args, name, { value, writable: true, enumerable: described.enumerable, configurable: described.configurable })
-    } catch {
-      return name
-    }
-    // An object whose reads are intercepted may take the write and go on answering with something else.
-    if (args[name] !== value) return name
-  }
-  return undefined
-}
-
-export function audioStamps(input: Record<string, unknown>): ReadonlyMap<string, string> {
-  const stamps = new Map<string, string>()
-  for (const name of AUDIO_PATHS) {
-    const value = input[name]
-    if (typeof value !== "string" || value.length === 0) continue
-    // The same two readings `measureAudio` declines to measure: nothing local is named, so nothing is stamped.
-    if (value.includes("\0") || /^[a-z][a-z0-9+.-]*:/i.test(value)) continue
-    stamps.set(value, stampOf(value))
-  }
-  return stamps
-}
-
-/** The first file that moved between two stampings, named for a refusal. The directories are left out of the name. */
-export function changedFile(before: ReadonlyMap<string, string>, after: ReadonlyMap<string, string>): string | undefined {
-  const name = (path: string) => path.split(/[\\/]/).pop() || path
-  for (const [path, stamp] of before) if (after.get(path) !== stamp) return `${name(path)} changed after it was measured`
-  for (const path of after.keys()) if (!before.has(path)) return `${name(path)} was named after the price was taken`
-  return undefined
-}
-
-/**
- * Speech to Text, from the container duration of the file about to be sent. A duration the caller typed may raise that
- * price. It cannot lower it, it cannot win over the measured duration, and it cannot set a price when the file cannot
- * be measured. A price of 0 is not a price.
- */
-export function transcriptionPrice(input: Record<string, unknown>): Price | undefined {
-  // An argument this plugin has never priced may change what the call is billed, so the call is not priced rather
-  // than priced as if the argument were not there (RR3-6).
-  if (Object.keys(input).some((name) => !TRANSCRIPTION_ARGUMENTS.has(name))) return undefined
-  const measured = measureAudio(input)
-  if (measured === undefined) return undefined
-  // A second file, at a URL or on this disk, is audio this price does not cover (RR3-7).
-  if (unpriceableArgument(input, measured.paths) !== undefined) return undefined
-  const statedMs = lengthValue(field(input, ["duration_ms", "audio_duration_ms"]))
-  const statedSeconds = lengthValue(field(input, ["duration_seconds", "duration", "audio_duration_seconds"]))
-  if (statedMs === NOT_A_LENGTH || statedSeconds === NOT_A_LENGTH) return undefined
-  const stated = statedMs !== undefined ? statedMs / 1000 : statedSeconds
-  // The measured duration is the floor. A stated duration may only raise it.
-  const seconds = stated !== undefined && stated > measured.durationSeconds ? stated : measured.durationSeconds
-  if (!(seconds > 0)) return undefined
-  const credits = Math.ceil((seconds / 60) * RATES.sttPerMinute)
-  if (!(credits > 0)) return undefined
-  const parts = [`${spokenDuration(measured.durationSeconds)} of audio, measured`]
-  // Which reading the figure came from, when the file states one and holds another. The decoders tried here read the
-  // stated size; this plugin reads to the end, because that cannot under-price, and the owner is told which (RR4-8).
-  if (measured.understated) parts.push("the data chunk states less than the file holds, so every byte after it is priced as audio")
-  if (stated !== undefined && stated > measured.durationSeconds) parts.push(`caller duration raised the bound to ${spokenDuration(seconds)}`)
-  return { credits, basis: "at-most", parts }
+  return unknown === undefined ? undefined : `"${unknown}" is an argument ElevenLabs' own schema for this tool does not have, so its effect on the bill is unknown`
 }
 
 /**
@@ -672,14 +201,14 @@ export function settlementOf(
       return { credits: reserved, attested: false, note: `the result reported ${count(attested)} against ${count(reserved)} already charged for this call, so the recorded charge stands` }
     }
     // Lowering a reservation is the one thing a figure the plugin may have misread can do with the owner's money, so
-    // it has to look like a charge for this call: a whole number of credits, not orders of magnitude below the hold.
-    if (!Number.isSafeInteger(attested)) {
-      return { credits: reserved, attested: false, note: `the result reported ${attested} credits, which is not a whole number, so the reserved price stands` }
-    }
+    // it has to look like a charge for this call: not orders of magnitude below the hold.
     if (attested * ATTESTED_MIN_RATIO < reserved) {
       return { credits: reserved, attested: false, note: `the result reported ${count(attested)} against ${count(reserved)} reserved, too far below to be this call's charge, so the reserved price stands` }
     }
-    return { credits: attested, attested: true }
+    // ElevenLabs' own figures are fractional — an image estimate came back 761.5151418103446 credits — so a charge
+    // need not be a whole number, and a rule that kept the reservation for every non-integer would ignore the server's
+    // own word on the ordinary case. Credits are whole in the ledger, so the fraction rounds up: the over-priced side.
+    return { credits: Math.ceil(attested), attested: true }
   }
   const parsed = actualCreditsOf(result)
   if (parsed !== undefined && parsed > reserved) return { ...raiseTo(parsed, reserved, dailyCap), attested: false }
@@ -1319,10 +848,14 @@ function parseLegacy(stored: unknown): Legacy {
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error))
 
-/** A call's price key: the tool and its arguments, so a different prompt is a different price. */
+/**
+ * A call's price key: the tool and its arguments, so a different prompt is a different price. `estimate_only` is left
+ * out, because the estimate and the paid call it prices differ by exactly that flag, and the name's case is folded, as
+ * the money gate folds it (RR2-8): an estimate sent in one case prices the paid call sent in another.
+ */
 const keyOf = (tool: string, input: Record<string, unknown>) => {
   const { estimate_only: _ignored, ...rest } = input
-  return `${tool}\u0000${stable(rest)}`
+  return `${tool.toLowerCase()}\u0000${stable(rest)}`
 }
 
 function stable(value: unknown): string {
@@ -1408,29 +941,48 @@ export function appendLine(result: { content?: unknown }, line: string) {
 }
 
 /**
- * Parses an `estimate_only` result for its price. Whether the estimate costs nothing, and whether its figure is the
- * batch total or one generation, are unverified until the live reconcile (DR-4). So the count multiplies the figure,
- * as it multiplies every other price here (RR4-6): if the figure is already the batch total this over-prices a call
- * asking for several, and if it is one generation, taking it as the total under-prices one N-fold. The clamp's unit
- * is the figure itself, so a count the budget cannot afford is cut rather than refused, and the basis says `at-most`.
+ * Parses an `estimate_only` result for its price. The figure is the batch total for the arguments it was sent: a
+ * four-image estimate came back 761.5151418103446 credits, about 190 an image, and the same call with
+ * `generations_count: 1` came back a quarter of that (LIVE-RECONCILE-1). So the figure is not multiplied by anything
+ * — it already counts the generations the call asked for, including the count ElevenLabs' own schema defaults to when
+ * the call names none. Dividing by that batch size is what gives the clamp its unit.
+ *
+ * The estimate is fractional, and credits in the ledger are whole, so the total rounds up: the over-priced side. A
+ * tool whose batch size cannot be known — `creative_generate_in_flow` and `creative_run_flow_nodes` name no default,
+ * and `creative_transcribe_audio` has no count at all — is priced at its total with no per-generation figure, so the
+ * clamp leaves it alone rather than cutting a count out of a figure it cannot divide.
  */
-export function estimatePrice(input: Record<string, unknown>, result: { readonly output?: unknown; readonly text?: string; readonly content?: unknown }): Price | undefined {
+export function estimatePrice(
+  tool: string,
+  input: Record<string, unknown>,
+  result: { readonly output?: unknown; readonly text?: string; readonly content?: unknown },
+): Price | undefined {
   const reported = actualCreditsOf(result)
   if (reported === undefined) return undefined
   const asked = generationsOf(input)
   if (asked === NOT_A_COUNT) return undefined
-  const generations = asked ?? 1
+  // What the figure covers: the count the call states, or the one the server's own schema applies when it states none.
+  const covered = asked ?? GENERATION_DEFAULTS[tool.toLowerCase()]
+  const credits = Math.ceil(reported)
+  if (!(credits > 0)) return undefined
+  const batch = covered === undefined ? [] : [`${count(covered)} ${covered === 1 ? "generation" : "generations"}${asked === undefined ? " by default" : ""}`]
+  const rounded = credits === reported ? [] : [`rounded up from ${reported}`]
   return {
-    credits: reported * generations,
-    // ElevenLabs' own estimate, not a bill: a bound until the reconcile proves the unit.
-    basis: generations > 1 ? "at-most" : "exact",
-    parts: [`${count(generations)} ${generations === 1 ? "generation" : "generations"}, estimated by ElevenLabs`],
-    perGeneration: reported,
+    credits,
+    // What ElevenLabs' own estimate returned for exactly these arguments.
+    basis: "exact",
+    parts: [...batch, "estimated by ElevenLabs", ...rounded],
+    ...(covered === undefined || !(covered > 0) ? {} : { perGeneration: reported / covered }),
   }
 }
 
-/** True when a call is the free `estimate_only` probe, which is never priced, capped or charged. */
-export const isEstimate = (input: Record<string, unknown>) => input.estimate_only === true || input.estimateOnly === true
+/**
+ * True when a call is the `estimate_only` probe, which is never priced, capped or charged. The tool has to be one
+ * whose live schema really has the flag: on any other tool `estimate_only` is an argument the server ignores, and
+ * reading it as an estimate would let a paid call through unpriced by adding one word to it. The spelling has to be
+ * the schema's own for the same reason — a `estimateOnly` the server never reads is not an estimate.
+ */
+export const isEstimate = (tool: string, input: Record<string, unknown>) => ESTIMATE_TOOLS.includes(tool.toLowerCase()) && input.estimate_only === true
 
 /** The layer between a hook and the plugin: what the model path and the script path both ask. */
 export interface GuardCall {
@@ -1471,126 +1023,68 @@ export function quoteCallSync(input: Omit<GuardInput, "estimate">, tool: string,
   return quoteSync(input, tool, args, call)
 }
 
-const isTranscription = (tool: string) => operationOf(tool) === "transcription"
-
 /**
- * The dearer of two prices for one call. A published rate and the server's own estimate for the same arguments are
- * two readings of the same bill, and the plugin has no way to tell which the server will charge, so a cap is checked
- * against the larger (RR4-6). Either may be absent, and the one that is there stands alone.
- */
-const dearer = (first: Price | undefined, second: Price | undefined): Price | undefined => {
-  if (first === undefined) return second
-  if (second === undefined) return first
-  return second.credits > first.credits ? second : first
-}
-
-/** The first of `names` the call carries, for a refusal that quotes the caller's own key rather than a canonical one. */
-const keyUsed = (input: Record<string, unknown>, names: readonly string[]) =>
-  names.find((name) => input[name] !== undefined && input[name] !== null) ?? names[0]
-
-/**
- * Which argument stopped a priced call from being priced, in words the caller can act on. `priceOf` returns nothing in
- * each of these cases; this says which one it was, so a refusal names the argument rather than the tool. Every branch
- * of `priceOf` that gives up is answered here, the length and count fields included: a call refused for a field no
- * number can be read out of used to name nothing at all (RR4-12).
+ * Which argument stopped a priced call from being priced, in words the caller can act on. One source of price means
+ * one obstacle this plugin can name by itself: an argument ElevenLabs' own schema for the tool does not have, which
+ * is refused before any estimate is asked for. Everything else — a flag the server would not take, a link that broke,
+ * a figure the estimate did not carry — happened at ElevenLabs, and the refusal says so rather than naming an
+ * argument it cannot blame (RR4-12).
  */
 export function priceObstacle(name: string, input: Record<string, unknown>): string | undefined {
   const tool = name.toLowerCase()
   const unknown = unknownArgument(tool, input)
   if (unknown !== undefined) return unknown
-  if (isTranscription(tool)) {
-    const measured = measureAudio(input)
-    if (measured === undefined) return "no argument names a local PCM WAV file this plugin can measure"
-    return unpriceableArgument(input, measured.paths)
-  }
-  const unpriceable = unpriceableArgument(input, NO_MEASURED_PATHS)
-  if (unpriceable !== undefined) return unpriceable
-  // A count multiplies whatever one pass costs, so one that cannot be read stops every priced tool (RR4-6).
+  // A count multiplies whatever one generation costs, so one that cannot be read stops the call (RR4-6).
   const badCount = GENERATION_KEYS.find((key) => countValue(input[key]) === NOT_A_COUNT)
   if (badCount !== undefined) return `"${badCount}" states a generation count no number can be read out of`
-  if (operationOf(tool) === "speech") {
-    const text = field(input, SPEECH_TEXT_KEYS)
-    if (text === undefined) return `no argument holds the text to speak (${quoted(SPEECH_TEXT_KEYS)})`
-    if (typeof text !== "string") return `"${keyUsed(input, SPEECH_TEXT_KEYS)}" holds something that is not text`
-    if (Array.from(text).length === 0) return `"${keyUsed(input, SPEECH_TEXT_KEYS)}" is empty, so there is nothing to price`
-    if (countValue(field(input, SPEECH_TAKE_KEYS)) === NOT_A_COUNT) return `"${keyUsed(input, SPEECH_TAKE_KEYS)}" states a take count no number can be read out of`
-    return undefined
-  }
-  if (operationOf(tool) === "music") {
-    const badLength = MUSIC_LENGTH_KEYS.find((key) => lengthValue(input[key]) === NOT_A_LENGTH)
-    if (badLength !== undefined) return `"${badLength}" states a length no number can be read out of`
-    const plan = planLengthMs(input["composition_plan"])
-    if (plan === NOT_A_LENGTH) return `"composition_plan" states no section length this plugin can read`
-    // No length at all is the server's own default, which this plugin does not know: the call states nothing to price.
-    if (plan === undefined && musicLengthsMs(input)?.length === 0) {
-      return `no argument states how much music to generate (${quoted([...MUSIC_LENGTH_KEYS, "composition_plan"])})`
-    }
-    return undefined
-  }
   return undefined
 }
 
 async function quote(context: GuardInput, tool: string, args: Record<string, unknown>, mayEstimate: boolean, call: GuardCall): Promise<Quote> {
-  if (isEstimate(args) || !mustPrice(tool)) return { price: { credits: 0, basis: "exact", parts: [] }, tracked: false }
+  if (isEstimate(tool, args) || !mustPrice(tool)) return { price: { credits: 0, basis: "exact", parts: [] }, tracked: false }
   const caps = context.caps()
   if (caps.sessionCreditCap === null && caps.dailyCreditCap === null) {
-    return { price: priceOf(tool, args) ?? { credits: 0, basis: "at-most", parts: ["cost not tracked: both caps are off"] }, tracked: false }
+    return { price: { credits: 0, basis: "at-most", parts: ["cost not tracked: both caps are off"] }, tracked: false }
   }
-  // Every audio path is read once, here, and the reading is written back over the argument: from this line on the
-  // measurement, both stampings and the dispatched call all see the one string (RR5-4).
-  const unstable = freezeAudioPaths(args)
-  if (unstable !== undefined) throw unstableArgument(tool, unstable)
-  // An argument no allowlist has is refused here as well as in the table, so the server's own estimate cannot price
-  // around it: the estimate answers for the arguments it is sent, and this is one whose effect nothing here knows.
-  const unknown = unknownArgument(tool, args)
-  if (unknown !== undefined) throw unknownPrice(tool, priced(tool), unknown)
-  // Stamped before the measurement reads a byte, and checked again below, just before the hold (RR4-9).
-  const measured = isTranscription(tool) ? audioStamps(args) : undefined
-  let price = priceOf(tool, args)
+  // An argument no allowlist has is refused before the estimate is asked for, not after: the estimate answers for the
+  // arguments it is sent, so an argument the server's own schema does not have would be priced around rather than
+  // priced. It is also one fewer flow created in the workspace for a call that is going to be refused.
+  // A count that cannot be read multiplies whatever one generation costs by an unknown, so no price for these
+  // arguments means anything — whoever it came from. Checked here rather than only inside `estimatePrice`, so a price
+  // this ledger already holds cannot carry a call past it either (RR4-6).
+  const obstacle = priceObstacle(tool, args)
+  if (obstacle !== undefined) throw unknownPrice(tool, priced(tool), obstacle)
+  // A remembered estimate is ElevenLabs' own figure for exactly these arguments, minutes old at most. Using it first
+  // is not only cheaper: every estimate creates a flow and a node in the workspace, so a second one for the same
+  // arguments leaves a second flow behind to say what the first already said.
+  let price = context.ledger.rememberedPrice(tool, args)
   if (price === undefined && mayEstimate && priced(tool) && context.estimate) {
     price = await context.estimate(tool, args, call)
     if (price) context.ledger.rememberPrice(tool, args, price)
   }
-  price = dearer(price, context.ledger.rememberedPrice(tool, args))
   if (price === undefined || !(price.credits > 0)) throw unknownPrice(tool, priced(tool), priceObstacle(tool, args))
   // This path can await, so it decides from the store rather than from this process's memory: a charge another
   // location or another OpenCode recorded is merged in first. The check and the hold inside `reserve` stay
   // synchronous, so nothing slips between them.
   await context.ledger.refresh()
   price = clamp(price, caps, args, context.ledger.spend(call.sessionID))
-  // The last moment this plugin holds the call: the files are stamped again, and one that moved while the price was
-  // being taken or while the store was being read is refused rather than reserved at what it used to be worth.
-  if (measured !== undefined) {
-    const moved = changedFile(measured, audioStamps(args))
-    if (moved !== undefined) throw fileMoved(tool, moved)
-  }
   // The hold is in the store before the call is dispatched, so a crash cannot lose a reservation for a call that ran.
   await context.ledger.reserve(call.id, call.sessionID, price.credits, caps)
   return { price, tracked: true }
 }
 
 function quoteSync(context: Omit<GuardInput, "estimate">, tool: string, args: Record<string, unknown>, call: GuardCall): Quote {
-  if (isEstimate(args) || !mustPrice(tool)) return { price: { credits: 0, basis: "exact", parts: [] }, tracked: false }
+  if (isEstimate(tool, args) || !mustPrice(tool)) return { price: { credits: 0, basis: "exact", parts: [] }, tracked: false }
   const caps = context.caps()
   if (caps.sessionCreditCap === null && caps.dailyCreditCap === null) {
-    return { price: priceOf(tool, args) ?? { credits: 0, basis: "at-most", parts: ["cost not tracked: both caps are off"] }, tracked: false }
+    return { price: { credits: 0, basis: "at-most", parts: ["cost not tracked: both caps are off"] }, tracked: false }
   }
-  // The same freeze as the model path, and for the same reason: this object is the one the shapers dispatch (RR5-4).
-  const unstable = freezeAudioPaths(args)
-  if (unstable !== undefined) throw unstableArgument(tool, unstable)
-  // An argument no allowlist has is refused here as well as in the table, so the server's own estimate cannot price
-  // around it: the estimate answers for the arguments it is sent, and this is one whose effect nothing here knows.
-  const unknown = unknownArgument(tool, args)
-  if (unknown !== undefined) throw unknownPrice(tool, priced(tool), unknown)
-  // The same rule on this path. It awaits nothing, so the window is the measurement's own reads: a file rewritten
-  // while its chunks were being walked is priced from two states of itself, and is refused here (RR4-9).
-  const measured = isTranscription(tool) ? audioStamps(args) : undefined
-  let price = dearer(priceOf(tool, args), context.ledger.rememberedPrice(tool, args))
+  const obstacle = priceObstacle(tool, args)
+  if (obstacle !== undefined) throw unknownPrice(tool, priced(tool), obstacle)
+  // This path cannot await, so it cannot ask ElevenLabs for an estimate: the only price it has is one a call on this
+  // ledger already fetched for exactly these arguments. A script prices its own call by sending `estimate_only` first.
+  let price = context.ledger.rememberedPrice(tool, args)
   if (price === undefined || !(price.credits > 0)) throw unknownPrice(tool, priced(tool), priceObstacle(tool, args))
-  if (measured !== undefined) {
-    const moved = changedFile(measured, audioStamps(args))
-    if (moved !== undefined) throw fileMoved(tool, moved)
-  }
   price = clamp(price, caps, args, context.ledger.spend(call.sessionID))
   // Synchronous by the shared shaper contract: this path cannot await the store before the call is dispatched, so it
   // decides from this process's book and the write follows. A write that fails therefore cannot refuse a call that has
@@ -1602,68 +1096,39 @@ function quoteSync(context: Omit<GuardInput, "estimate">, tool: string, args: Re
   return { price, tracked: true }
 }
 
-/** Cuts a request for more variations than the budget affords to what it can pay for, and prices what will run. */
+/**
+ * Cuts a request for more variations than the budget affords to what it can pay for, and prices what will run. The
+ * unit is ElevenLabs' own estimate divided by the batch it covered, which is fractional, so the clamped figure rounds
+ * up and says `at-most`: a share of a batch total is this plugin's arithmetic, not the server's word.
+ */
 function clamp(price: Price, caps: Caps, args: Record<string, unknown>, spend: Spend): Price {
   const generations = generationsOf(args)
-  if (price.perGeneration === undefined || generations === undefined || generations === NOT_A_COUNT || generations <= 1) return price
+  if (price.perGeneration === undefined || !(price.perGeneration > 0) || generations === undefined || generations === NOT_A_COUNT || generations <= 1) return price
   const left = remaining(caps, spend).available
   const allowed = Math.max(1, Math.min(generations, Math.floor(left / price.perGeneration)))
   if (allowed >= generations) return price
   clampGenerations(args, allowed)
-  return { ...price, credits: price.perGeneration * allowed, basis: "at-most", parts: [`${allowed} ${allowed === 1 ? "generation" : "generations"}, at ElevenLabs' estimate`] }
+  return { ...price, credits: Math.ceil(price.perGeneration * allowed), basis: "at-most", parts: [`${allowed} ${allowed === 1 ? "generation" : "generations"}, at ElevenLabs' estimate`] }
 }
 
 /**
- * The refusal for an argument that would not hold still long enough to be priced. The stamps of RR4-9 answer for a
- * file that changed on disk; this answers for the name of the file changing under the reader, which no stamp can see.
- */
-function unstableArgument(tool: string, name: string) {
-  return new SpendRefused(
-    "PRICE_UNKNOWN",
-    `${tool} cannot be priced: "${name}" gives a different answer each time it is read, so no price belongs to the call that would be sent.`,
-    "Pass the file as a plain string, then call it again.",
-  )
-}
-
-/**
- * The refusal for a call whose file changed between the price and the hold. The call is not sent: a reservation taken
- * for bytes that are gone is a cap checked against a file nobody will transcribe (RR4-9).
- */
-function fileMoved(tool: string, moved: string) {
-  return new SpendRefused(
-    "PRICE_UNKNOWN",
-    `${tool} was priced from a file that changed before the call was sent: ${moved}.`,
-    "Wait until the file is finished being written, then call it again.",
-  )
-}
-
-/**
- * The refusal for a call nothing can price. A tool the plugin may price with the server's estimate says so; one whose
- * schema is not attested is offered the one next step that always works, turning both caps off (DR-5).
+ * The refusal for a call nothing can price. A tool that accepts `estimate_only` is told how to price itself; one that
+ * does not — `creative_design_voice` renders three previews, `agents_run_tests` holds conversations — has no price
+ * before it runs at all, and the one next step that always works is turning both caps off (DR-5).
  */
 function unknownPrice(tool: string, estimable: boolean, obstacle?: string) {
   const because = obstacle === undefined ? "" : `: ${obstacle}`
-  const rated = RATED_TOOLS.get(tool)
-  if (rated !== undefined && !isTranscription(tool)) {
+  if (estimable) {
     return new SpendRefused(
       "PRICE_UNKNOWN",
-      `${tool} has a published credit rate, but this call cannot be priced from the arguments it carries, so the cap cannot be checked before it runs${because}.`,
-      `${rated} Or set both "sessionCreditCap" and "dailyCreditCap" to null to run it unpriced.`,
-    )
-  }
-  if (isTranscription(tool)) {
-    return new SpendRefused(
-      "PRICE_UNKNOWN",
-      `${tool} cannot be priced from the audio about to be sent, so the cap cannot be checked before it runs${because}.`,
-      `Convert the audio to a local PCM WAV file and pass that; this plugin measures no other container, and a duration you type cannot set the price. Or set both caps to null to run it unpriced.`,
+      `${tool} could not be priced from ElevenLabs' own estimate, so the cap cannot be checked before it runs${because}.`,
+      `Call ${tool} once with "estimate_only": true and the same arguments to get its price, then call it again; or set both "sessionCreditCap" and "dailyCreditCap" to null to run it unpriced.`,
     )
   }
   return new SpendRefused(
     "PRICE_UNKNOWN",
-    `${tool} has no published credit price and no remembered estimate, so the cap cannot be checked before it runs${because}.`,
-    estimable
-      ? `Call ${tool} once with "estimate_only": true and the same arguments to get its price, then call it again; or set both caps to null to run it unpriced.`
-      : `This plugin does not know whether ${tool} accepts "estimate_only". Set both "sessionCreditCap" and "dailyCreditCap" to null to run it unpriced, or price it from another call's estimate.`,
+    `${tool} may spend credits and does not accept "estimate_only", so nothing can price it before it runs${because}.`,
+    `Set both "sessionCreditCap" and "dailyCreditCap" to null to run it unpriced, and watch the balance in /elevenlabs-status.`,
   )
 }
 

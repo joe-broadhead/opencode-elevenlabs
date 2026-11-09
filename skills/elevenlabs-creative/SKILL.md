@@ -1,6 +1,6 @@
 ---
 name: elevenlabs-creative
-description: Generate and keep speech, images, video, music and sound effects with the user's ElevenLabs workspace, and transcribe audio, through the hosted MCP server. Use when the request is to make or edit media, to price a generation before paying for it, or to save a generated file the user wants to keep. Spend credits carefully - every generation is charged. Not for managing agents (the elevenlabs skill), not for the user's own meetings and recordings (Granola, Wispr Flow, Plaud), and not for building generation into the user's own code, which needs the SDK and an API key.
+description: Generate and keep speech, images and video with the user's ElevenLabs workspace, edit images, design voices and transcribe audio on a flow, through the hosted MCP server. Use when the request is to make or edit media, to price a generation before paying for it, or to save a generated file the user wants to keep. Spend credits carefully - every generation is charged. Not for managing agents (the elevenlabs skill), not for the user's own meetings and recordings (Granola, Wispr Flow, Plaud), and not for building generation into the user's own code, which needs the SDK and an API key.
 license: MIT
 ---
 
@@ -11,54 +11,61 @@ If no `elevenlabs_*` tools are in this session, no one is signed in: run `/conne
 Generations land on a **Flow**, the editable canvas that holds the prompt and the results. They **spend the workspace's
 credits**, so read this first. Every tool takes a `context` parameter: one short line naming the goal.
 
+## What spends
+
+Nine tools bill the workspace: `creative_generate_speech`, `creative_generate_image`, `creative_generate_video`,
+`creative_edit_image`, `creative_generate_in_flow`, `creative_run_flow_nodes`, `creative_transcribe_audio`,
+`creative_design_voice` and `agents_run_tests`. Everything else on a flow is free to call.
+
 ## Price it before you spend
 
-- Speech, music, sound effects and transcription have a published credit price, and every paid result carries a cost
-  line such as `Credits: at most 1,200 (600 characters, 2 takes)`. **Transcription is billed too** (330 credits a minute).
-  The plugin prices it from the audio file it is about to send. A duration you type can raise that price, not lower it.
-  A file it cannot measure is refused while a cap is on.
-- **Image and video have no published price.** They depend on the model, the resolution and the duration, so the only
-  price is ElevenLabs'. Call the same tool with `estimate_only: true` first:
+- **ElevenLabs is the only source of a price.** There is no rate card to work from. Send the same call with
+  `estimate_only: true` and read the figure that comes back:
 
   ```json
-  { "prompt": "a ceramic mug on marble, morning light", "generations_count": 1, "estimate_only": true }
+  { "prompt": "a ceramic mug on marble, morning light", "model_id": "gpt-image-2", "generations_count": 1, "estimate_only": true, "context": "price the mug shot" }
   ```
-
-  The answer is a price. Say the price and what it buys, then make the paid call. Whether the estimate itself is free, and
-  whether its number is for the whole batch, is being measured against a real workspace; the cost line says "at most"
-  when it is divided across generations, so treat it as a ceiling rather than a receipt:
 
   ```js
-  const priced = await tools.elevenlabs.creative_generate_image({ prompt, generations_count: 1, estimate_only: true, context: "price the mug shot" })
+  const priced = await tools.elevenlabs.creative_generate_image({ prompt, model_id: "gpt-image-2", generations_count: 1, estimate_only: true, context: "price the mug shot" })
   ```
-- `generations_count` defaults to **4** for image and video, and a request for four costs four times one. Pass `1` unless
-  the user asked for options.
+
+  Say the price and what it buys, then make the paid call with the same arguments: the plugin remembers the figure for
+  ten minutes and will not ask ElevenLabs again. An estimate charges nothing, but it does create a flow and a node in
+  the workspace, so ask for one per set of arguments, not per attempt.
+- **The figure is for the whole batch**, not for one generation, and it can be fractional. A paid result carries a cost
+  line such as `Credits: 762; 762 of 10,000 credits today.`
+- `generations_count` defaults to **4** for image, video and image editing, and to **2** for speech. Pass `1` unless the
+  user asked for options.
+- `creative_design_voice` and `agents_run_tests` take no `estimate_only`, so while a credit cap is on they are refused
+  with `PRICE_UNKNOWN`. Tell the user to turn both caps off if they want to run one.
 - **Never call a generating tool twice to "retry".** A retry starts and charges a second generation. Poll
   `creative_get_flow_run_status` with the `flow_id` until it reports `all_completed` or `has_failures`.
-- The plugin also caps this: a call over the remaining budget is refused before it is sent, the generation count is cut
-  to what fits, a call it cannot price is refused `PRICE_UNKNOWN`, and the price is held against the budget before the
-  call is sent. The caps bound this plugin, not the account.
-- `creative_edit_image` is not known to take `estimate_only`: it runs from a remembered price for those arguments, or
-  when both caps are `null`. Never retry it for a price.
+- The plugin caps this too: a call over the remaining budget is refused before it is sent, the generation count is cut
+  to what fits, and the price is held against the budget before the call goes out. The caps bound this plugin, not the
+  account.
 
-## Speech, music and sound
+## Speech
 
-`creative_generate_speech` needs `text`; `creative_generate_music` takes `duration_seconds` or `music_length_ms`;
-`creative_generate_sound_effect` takes `prompt` and a generation count. Call `creative_list_voices` first; `voice_id` only
-ever comes from there or from the user. The default speech model is `eleven_multilingual_v2`, or `eleven_v3` when the
-script has audio tags such as `[whispering]`. Speech returns two takes by default and each is charged.
+`creative_generate_speech` puts the spoken words in `prompt` — there is no `text` parameter — and needs a `voice_id`
+and a `model_id`. Call `creative_list_voices` first; a `voice_id` only ever comes from there or from the user. The
+default model is `eleven_multilingual_v2`, or `eleven_v3` when the script has audio tags such as `[whispering]`.
+Speech returns two takes by default and each is charged.
 
 ## Images and video
 
-`creative_generate_image` and `creative_generate_video` take `prompt`, and video also takes `duration_seconds`; `creative_edit_image` also takes `connect_from` (a node on the same flow).
-`gemini-2.5-flash-image` is the general default; `gpt-image-2` for rendered text, infographics and reference-driven
-edits; `flux-2-pro` for fine detail. `creative_get_model_guide` explains how to prompt one model, and
+`creative_generate_image`, `creative_generate_video` and `creative_edit_image` take `prompt` and `model_id`;
+`creative_edit_image` also takes `connect_from`, a node on the same flow. `gemini-2.5-flash-image` is the general
+default; `gpt-image-2` for rendered text, infographics and reference-driven edits; `flux-2-pro` for fine detail.
+`creative_get_model_guide` explains how to prompt one model, `creative_get_model_schema` gives its parameters, and
 `creative_get_flow_node_types` lists what the workspace can run.
 
 ## Chaining on one flow
 
 Nodes on different flows cannot be connected. Call `creative_create_flow` first, then pass that `flow_id` to every
 related call and wire with `connect_from` (a `node_id` from a tool result or `creative_get_flow`, never invented).
+`creative_generate_in_flow` adds and runs a node of a given `node_type`; `creative_run_flow_nodes` re-runs the
+`node_ids` you name. Both are charged like any other generation.
 
 ## Keeping a file
 
@@ -76,8 +83,10 @@ the generation again, or open the flow.
 
 ## Transcription
 
-`creative_transcribe_audio` uploads audio to ElevenLabs and returns text. Say that the audio leaves the machine before the
-first call if the user has not said it is fine.
+`creative_transcribe_audio` transcribes a node already on a flow: it takes `connect_from` and a `model_id`, never a file
+or a path from this machine. To transcribe audio that is not on a flow yet, put it there first with
+`creative_create_asset_upload` and `creative_finalize_asset_upload`, and say that the audio leaves the machine before
+doing it. The transcription itself is charged like a generation.
 
 ## Not this skill
 

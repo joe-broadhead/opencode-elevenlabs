@@ -47,7 +47,9 @@ describe("the model-facing text at access all", () => {
     // The namespace text is prose: it must not promise a cost line for a product the table does not price, and must say
     // that a billed read exists.
     expect(NAMESPACE_DESCRIPTION).toContain("each paid call prints its cost")
-    expect(NAMESPACE_DESCRIPTION).toContain("Speech to text is billed per minute")
+    // The model is told where a price comes from, because there is only one place it can come from.
+    expect(NAMESPACE_DESCRIPTION).toContain("estimate_only")
+    expect(NAMESPACE_DESCRIPTION).toContain("ElevenLabs is the only source of a price")
     expect(SPEND_TOOLS.length).toBeGreaterThanOrEqual(6)
     for (const tool of SPEND_TOOLS) expect({ tool, named: NAMESPACE_DESCRIPTION.toLowerCase().includes(tool.split("_")[1]!.toLowerCase()) }).toEqual({ tool, named: true })
   })

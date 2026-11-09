@@ -5,6 +5,7 @@
 // every MCP request gets 401 with a bearer challenge and the same server plays the sign-in server.
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http"
 import type { AddressInfo } from "node:net"
+import { GENERATION_DEFAULTS } from "../../src/billing.js"
 import { DESTRUCTIVE_TOOLS, EXPORT_TOOLS, READ_TOOLS, SPEND_TOOLS, WRITE_TOOLS } from "../../src/elevenlabs-tools.js"
 import { OAUTH_SCOPES } from "../../src/constants.js"
 
@@ -19,10 +20,28 @@ export const SPEECH = "creative_generate_speech"
 export const IMAGE = "creative_generate_image"
 export const TRANSCRIPT = "agents_get_conversation"
 
-/** The credits one image generation costs in the fake's estimate. */
+/** The credits one generation costs in the fake's estimate, before the batch size multiplies it. */
 export const IMAGE_CREDITS = 500
 
-const schema = { type: "object", properties: { text: { type: "string" }, prompt: { type: "string" }, generations_count: { type: "integer" }, estimate_only: { type: "boolean" }, agent_id: { type: "string" } } }
+// The live catalogue's own argument names, so a call the plugin builds reaches the fake whole.
+const schema = {
+  type: "object",
+  properties: {
+    context: { type: "string" },
+    text: { type: "string" },
+    prompt: { type: "string" },
+    model_id: { type: "string" },
+    voice_id: { type: "string" },
+    flow_id: { type: "string" },
+    view_state_id: { type: "string" },
+    connect_from: { type: "string" },
+    node_type: { type: "string" },
+    node_ids: { type: "array", items: { type: "string" } },
+    generations_count: { type: "integer" },
+    estimate_only: { type: "boolean" },
+    agent_id: { type: "string" },
+  },
+}
 const known = (name: string, readOnlyHint: boolean) => ({ name, description: `ElevenLabs ${name}`, annotations: { readOnlyHint }, inputSchema: schema })
 const CATALOG = [
   ...READ_TOOLS.map((name) => known(name, true)),
@@ -49,6 +68,8 @@ export interface FakeMcpOptions {
   readonly reportsCredits?: boolean
   /** Report the credits in the text part only, as a server that answers in prose does (DR-10). */
   readonly reportsCreditsInText?: boolean
+  /** What one generation costs in the fake's estimate; the batch size multiplies it. Default IMAGE_CREDITS. */
+  readonly estimateCreditsPerGeneration?: number
 }
 
 export interface FakeMcp {
@@ -102,9 +123,12 @@ export async function startFakeMcp(options: FakeMcpOptions = {}): Promise<FakeMc
         const asked = String(args.query ?? args.text ?? args.prompt ?? "")
         if (asked.startsWith("fail")) return reply({ content: [{ type: "text", text: UPSTREAM_FAILURE }], isError: true })
         if (args.estimate_only === true) {
-          // One generation's figure, which is how the plugin reads an estimate: the count multiplies it (RR4-6).
-          // Whether ElevenLabs' own estimate is this or a batch total is measured at the live reconcile.
-          return reply({ content: [{ type: "text", text: `Estimated ${IMAGE_CREDITS} credits.` }], structuredContent: { estimate: { credits: IMAGE_CREDITS } } })
+          // The batch total, which is what live reconcile 1 measured ElevenLabs' own estimate to be: a four-image
+          // estimate came back as the whole batch, not one image. The plugin divides it by the count it asked for.
+          const per = options.estimateCreditsPerGeneration ?? IMAGE_CREDITS
+          const asked = Number(args.generations_count ?? GENERATION_DEFAULTS[tool] ?? 1)
+          const credits = per * (Number.isFinite(asked) && asked > 0 ? asked : 1)
+          return reply({ content: [{ type: "text", text: `Estimated ${credits} credits.` }], structuredContent: { estimate: { credits } } })
         }
         if (SPEND_TOOLS.includes(tool)) {
           const charged = options.reportsCreditsInText ? " Charged 120 credits." : ""

@@ -248,13 +248,25 @@ describe(`the spending guard on OpenCode ${HOST_VERSION}`, () => {
       expect(host.fake.inputs.at(-1)!.arguments).toMatchObject({ estimate_only: true })
     })
 
-    test("a speech call is priced from the published rate and refused the same way, with no server call at all", async () => {
+    // This used to prove speech was priced from a published rate in the plugin's own table, so a refusal reached the
+    // server not at all. There is no rate table now: speech is estimated like every other paid call, so the estimate
+    // is the one call a refusal makes, and the figure in the refusal is ElevenLabs' own.
+    test("a speech call is priced from ElevenLabs' estimate and refused on it, and the paid call is never made", async () => {
       const before = host.fake.calls.length
-      const outcome = await generate(await session(host), SPEECH, { text: "x".repeat(60) })
+      const outcome = await generate(await session(host), SPEECH, { prompt: "hello there", voice_id: "voice_example", generations_count: 1, context: "a test" })
       expect(outcome).toHaveProperty("refused")
       expect((outcome as { refused: string }).refused).toContain("SPEND_CAP_REACHED")
-      expect((outcome as { refused: string }).refused).toContain("120 credits")
-      // Speech is priced from the table, so the refused call reached neither the estimate nor the server.
+      expect((outcome as { refused: string }).refused).toContain(`${IMAGE_CREDITS} credits`)
+      // The estimate ran, and nothing else: the generation itself was never sent.
+      expect(host.fake.calls.slice(before)).toEqual([SPEECH])
+      expect(host.fake.inputs.at(-1)!.arguments).toMatchObject({ estimate_only: true })
+    })
+
+    test("an argument ElevenLabs' own schema does not have is PRICE_UNKNOWN, and not even the estimate is sent", async () => {
+      const before = host.fake.calls.length
+      const outcome = await generate(await session(host), SPEECH, { text: "x".repeat(60), context: "a test" })
+      expect(outcome).toHaveProperty("refused")
+      expect((outcome as { refused: string }).refused).toContain("PRICE_UNKNOWN")
       expect(host.fake.calls.slice(before)).toEqual([])
     })
   })
@@ -317,20 +329,24 @@ describe(`elevenlabs_save_media on OpenCode ${HOST_VERSION}`, () => {
 describe(`a text-only credit figure on OpenCode ${HOST_VERSION}`, () => {
   let host: Host
   beforeAll(async () => {
-    host = await startHost({ fake: { reportsCreditsInText: true }, options: { dailyCreditCap: 100_000, sessionCreditCap: 10_000 } })
+    // Five credits a generation, so two takes are estimated at 10 and reserved at 10, and the fake's text part
+    // reports 120. The reservation used to come from the plugin's own rate table; it is ElevenLabs' estimate now,
+    // and what this proves is unchanged: the figure the result states is the charge.
+    host = await startHost({ fake: { reportsCreditsInText: true, estimateCreditsPerGeneration: 5 }, options: { dailyCreditCap: 100_000, sessionCreditCap: 10_000 } })
     await elevenlabsTools(host)
   })
   afterAll(() => host?.close())
 
-  const speak = async (text: string) => {
+  const speak = async (prompt: string) => {
     const sessionID = await session(host)
-    const outcome = await codeMode(host, sessionID, `const r = await tools.elevenlabs[${JSON.stringify(SPEECH)}](${JSON.stringify({ text })}); throw new Error("SEEN " + JSON.stringify(r))`)
+    const args = { prompt, voice_id: "voice_example", generations_count: 2, context: "a test" }
+    const outcome = await codeMode(host, sessionID, `const r = await tools.elevenlabs[${JSON.stringify(SPEECH)}](${JSON.stringify(args)}); throw new Error("SEEN " + JSON.stringify(r))`)
     expect(outcome).toHaveProperty("seen")
     return (outcome as { seen: { cost: { credits: number; basis: string } } }).seen.cost
   }
 
   test("the model path charges the figure it was told, not the pre-call bound", async () => {
-    // Five characters at two takes reserve 10, and the fake reports 120 in its text part: the figure is the charge.
+    // Two takes at five reserve 10, and the fake reports 120 in its text part: the figure is the charge.
     expect(await speak("hello")).toMatchObject({ credits: 120, basis: "exact" })
   })
 

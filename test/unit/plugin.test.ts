@@ -173,9 +173,11 @@ describe("setup", () => {
   test("the namespace text says what the default does: spending, live updates, expiring links, personal data", () => {
     for (const rule of [
       "Read the elevenlabs skill before the first call",
-      "Generations spend the workspace's credits",
+      "Nine tools spend the workspace's credits",
       "a retry is a second charge",
       "each paid call prints its cost",
+      "ElevenLabs is the only source of a price",
+      "estimate_only true",
       "expire in about two hours",
       "elevenlabs_save_media",
       "publish to the live branch at once, not to a draft",
@@ -250,17 +252,34 @@ describe("setup", () => {
     }
   })
 
-  test("a creative tool the table does not price is refused on the model path, and a failed call stays charged", async () => {
-    const { ctx, mcp, hookFns } = context({})
+  test("a creative tool ElevenLabs gives no estimate for is refused on the model path, and a failed call stays charged", async () => {
+    const { ctx, mcp, hookFns, toolList } = context({})
     const cleanup = await createElevenlabsPlugin(seam).setup(ctx)
     mcp.run(mcpEditor().editor)
     const before = hookFns.get("execute.before")!
     const after = hookFns.get("execute.after")!
     const event = (id: string, tool: string, input: Record<string, unknown>) => ({ tool: `elevenlabs_${tool}`, input, id, sessionID: "ses_test", agent: "build", messageID: "m1" })
+    // `creative_upscale` is not in the live catalogue, so it takes no `estimate_only` and ElevenLabs will price
+    // nothing: the guard refuses it rather than letting an unpriced generation through.
     await expect(before(event("u", "creative_upscale", {}) as never)).rejects.toMatchObject({ code: "PRICE_UNKNOWN" })
-    await before(event("c1", "creative_generate_speech", { text: "x".repeat(750) }) as never)
-    await after({ ...event("c1", "creative_generate_speech", { text: "x".repeat(750) }), status: "error", result: {} } as never)
-    await expect(before(event("c2", "creative_generate_speech", { text: "x".repeat(750) }) as never)).rejects.toMatchObject({ code: "SPEND_CAP_REACHED" })
+    // Speech is estimable, so the guard asks ElevenLabs for the figure through the host's own executor. The arguments
+    // are the live schema's: the words go in `prompt`, and there is no `text`.
+    const estimates: Record<string, unknown>[] = []
+    toolList.push({
+      id: "elevenlabs_creative_generate_speech",
+      execute: async (input) => {
+        estimates.push(input as Record<string, unknown>)
+        return { output: { credits: 1_500 } }
+      },
+    })
+    const args = { prompt: "hello", voice_id: "voice_example", model_id: "model_example", context: "a test" }
+    await before(event("c1", "creative_generate_speech", args) as never)
+    expect(estimates).toEqual([{ ...args, estimate_only: true }])
+    await after({ ...event("c1", "creative_generate_speech", args), status: "error", result: {} } as never)
+    // The failed call stays charged — ElevenLabs renders before it fails — so the next one is over the session cap.
+    await expect(before(event("c2", "creative_generate_speech", args) as never)).rejects.toMatchObject({ code: "SPEND_CAP_REACHED" })
+    // And the second refusal came from the remembered estimate, not from a second flow in the owner's workspace.
+    expect(estimates).toHaveLength(1)
     await cleanup!()
   })
 })

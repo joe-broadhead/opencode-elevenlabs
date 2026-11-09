@@ -17,8 +17,11 @@ someone who did not choose to talk to a model.
 - `agents_list_conversations` for the calls themselves: agent, time, duration, outcome. Start here.
 - `agents_get_conversation` with a `conversation_id` for one call: the transcript turns, the post-call summary, the
   extracted fields, and `cost` in credits beside `cost_fiat` in dollars.
-- `agents_search_conversation_messages` searches the words across calls. Use it when the user remembers what was said,
+- `agents_search_conversation_messages` searches the words across calls, and
+  `agents_semantic_search_conversation_messages` searches by meaning. Use them when the user remembers what was said,
   not which call it was.
+- `agents_get_conversation_summary` gives the post-call summary alone, which is often enough and carries less of the
+  caller's own words.
 
 ## Reporting
 
@@ -31,10 +34,12 @@ someone who did not choose to talk to a model.
 
 ## The `conversations` option
 
-The plugin can deny these reads without denying the metadata ones. `conversations: "summary"` denies
-`agents_get_conversation` and `agents_search_conversation_messages`; `"off"` denies those and `agents_list_conversations`
-too. If a call is refused, the option or a rule stopped it - say so and name the option, and do not try another route to
-the same words.
+The plugin can deny these reads without denying the metadata ones. `conversations: "summary"` denies the four tools
+that return a caller's words — `agents_get_conversation`, `agents_get_conversation_summary`,
+`agents_search_conversation_messages` and `agents_semantic_search_conversation_messages` — and keeps the counts and the
+listings. `"off"` denies those and every other conversation read, `agents_list_conversations`, `agents_list_memories`
+and the triage tickets included. If a call is refused, the option or a rule stopped it - say so and name the option, and
+do not try another route to the same words.
 
 ## Cost
 

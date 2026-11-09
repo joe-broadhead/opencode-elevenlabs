@@ -52,21 +52,24 @@ describe("ElevenLabs' tools RPC", () => {
     setToolRuntime(undefined)
   })
 
-  test("a remembered estimate prices the same arguments, is clamped in the caller's own key, and is charged", () => {
+  test("a remembered estimate prices the same arguments, is clamped in the live count key, and is charged", () => {
     const spend = runtime()
     setToolRuntime(spend)
     const call = { ...CALL, action: "elevenlabs_creative_generate_image" }
-    // DR-6: the caller used `variations`, so the clamp must land there and nowhere else.
-    const args: Record<string, unknown> = { prompt: "a mug", variations: 4, context: "price it" }
+    // DR-6: the clamp lands in the one key the live schema has, and adds no second count beside it.
+    const args: Record<string, unknown> = { prompt: "a mug", generations_count: 4, model_id: "model_example", context: "price it" }
     shapeInput("creative_generate_image", { ...args, estimate_only: true }, call)
-    const estimated = shapeResult("creative_generate_image", { output: { estimate: { credits: 1000 } }, text: "" }, call)
-    expect(estimated.output).toMatchObject({ estimate: { credits: 1000 } })
+    const estimated = shapeResult("creative_generate_image", { output: { estimate: { credits: 4000 } }, text: "" }, call)
+    // The estimate is returned untouched: it is not a charge, so it carries no cost line of its own.
+    expect(estimated.output).toMatchObject({ estimate: { credits: 4000 } })
+    expect(estimated.output).not.toHaveProperty("cost")
+    expect(spend.ledger.spend("ses_script").sessionCredits).toBe(0)
 
-    // 2,000 credits of cap and 1,000 per generation: four become two, and the price follows what will run.
+    // ElevenLabs' figure is 4,000 for the four it was asked about — 1,000 a generation — against 2,000 of cap: the
+    // batch is cut to the two the budget affords, and the price follows what will run.
     const clamped = { ...args }
     shapeInput("creative_generate_image", clamped, call)
-    expect(clamped).toEqual({ prompt: "a mug", variations: 2, context: "price it" })
-    expect(clamped).not.toHaveProperty("generations_count")
+    expect(clamped).toEqual({ prompt: "a mug", generations_count: 2, model_id: "model_example", context: "price it" })
     const paid = shapeResult("creative_generate_image", { output: { flow_id: "f1" }, text: "created" }, call)
     expect(paid.text).toContain("Credits: at most 2,000")
     expect(paid.text).toContain("2,000 of 10,000 credits today")
@@ -78,31 +81,50 @@ describe("ElevenLabs' tools RPC", () => {
     const spend = runtime(2000, 10000)
     const shapers = shapersFor(spend)
     const call = { ...CALL, action: "elevenlabs_creative_generate_speech" }
-    const first = { text: "x".repeat(600) }
-    const second = { text: "x".repeat(600) }
-    expect(() => shapers.input("creative_generate_speech", first, call)).not.toThrow()
-    expect(() => shapers.input("creative_generate_speech", second, call)).toThrow("SPEND_CAP_REACHED")
+    // One estimate, which this ledger then remembers: 1,200 credits for the two takes the call asks for.
+    const args = { prompt: "x".repeat(600), voice_id: "voice_example", model_id: "model_example", context: "say it" }
+    shapers.input("creative_generate_speech", { ...args, estimate_only: true }, call)
+    shapers.result("creative_generate_speech", { output: { estimate: { credits: 1200 } }, text: "" }, call)
+
+    expect(() => shapers.input("creative_generate_speech", { ...args }, call)).not.toThrow()
+    // While the first is in flight a second cannot start; once it has settled, the cap is what refuses the second,
+    // because two reservations of 1,200 do not fit under 2,000.
+    expect(() => shapers.input("creative_generate_speech", { ...args }, call)).toThrow("SPEND_CAP_REACHED")
+    shapers.result("creative_generate_speech", { output: { flow_id: "f1" }, text: "created" }, call)
+    expect(spend.ledger.spend("ses_script").sessionCredits).toBe(1200)
+    expect(() => shapers.input("creative_generate_speech", { ...args }, call)).toThrow("SPEND_CAP_REACHED")
     expect(spend.ledger.spend("ses_script").sessionCredits).toBe(1200)
   })
 
-  test("a transcription priced only from a caller duration is refused before dispatch", () => {
+  test("a transcription the ledger holds no estimate for is refused before dispatch", () => {
     setToolRuntime(runtime(100, 10000))
-    expect(() => shapeInput("creative_transcribe_audio", { duration_seconds: 60 }, { ...CALL, action: "elevenlabs_creative_transcribe_audio" })).toThrow("PRICE_UNKNOWN")
+    const args = { flow_id: "flow_example", connect_from: "node_example", model_id: "model_example", context: "read it" }
+    expect(() => shapeInput("creative_transcribe_audio", args, { ...CALL, action: "elevenlabs_creative_transcribe_audio" })).toThrow("PRICE_UNKNOWN")
     setToolRuntime(undefined)
   })
 
-  test("a speech call is priced from ElevenLabs' published rate, and refused when it does not fit", () => {
+  test("a speech call is priced from ElevenLabs' own estimate, and refused when it does not fit", () => {
     const spend = runtime(100)
     setToolRuntime(spend)
     const call = { ...CALL, action: "elevenlabs_creative_generate_speech" }
+    const args = { prompt: "x".repeat(60), voice_id: "voice_example", model_id: "model_example", context: "say it" }
+    // 240 credits for the two takes the server runs by default: 120 a take, and the cap is 100. The clamp cuts a
+    // batch the caller asked for; it does not write a count into a call that named none, so this one is refused at
+    // the whole figure rather than quietly downgraded to a single take.
+    shapeInput("creative_generate_speech", { ...args, estimate_only: true }, call)
+    shapeResult("creative_generate_speech", { output: { estimate: { credits: 240 } }, text: "" }, call)
     let refused: unknown
     try {
-      shapeInput("creative_generate_speech", { text: "x".repeat(60) }, call)
+      shapeInput("creative_generate_speech", { ...args }, call)
     } catch (error) {
       refused = error
     }
     expect((refused as { code?: string }).code).toBe("SPEND_CAP_REACHED")
-    expect((refused as { message: string }).message).toContain("120 credits")
+    expect((refused as { message: string }).message).toContain("240 credits")
+    expect(spend.ledger.spend("ses_script").sessionCredits).toBe(0)
+    // Asking for one take instead is a different call: the estimate answers for the arguments it was sent, so the
+    // remembered figure does not carry over and the script is told to price the new arguments.
+    expect(() => shapeInput("creative_generate_speech", { ...args, generations_count: 1 }, call)).toThrow("PRICE_UNKNOWN")
     setToolRuntime(undefined)
   })
 

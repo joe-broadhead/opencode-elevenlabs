@@ -69,7 +69,9 @@ describe("skills", () => {
 
   test("the creative skill prices before spending, clamps the variations, and never retries", () => {
     const text = read("elevenlabs-creative")
-    for (const rule of ["estimate_only", "generations_count", "Never call a generating tool twice", "creative_get_flow_run_status", "elevenlabs_save_media", "two hours", "Credits: at most"]) {
+    // The cost line used to read "Credits: at most <n>", because the price was this plugin's own upper bound. It is
+    // ElevenLabs' own estimate of that exact call now, so the line states the figure without hedging it.
+    for (const rule of ["estimate_only", "generations_count", "Never call a generating tool twice", "creative_get_flow_run_status", "elevenlabs_save_media", "two hours", "Credits:"]) {
       expect(text).toContain(rule)
     }
     // Every billed tool is named, so the skill covers what spends.

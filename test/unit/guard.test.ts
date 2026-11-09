@@ -2,8 +2,8 @@ import { afterAll, describe, expect, test } from "bun:test"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { ALL_TOOLS, SPEND_ANY, mustPrice } from "../../src/elevenlabs-tools.js"
-import { priceOf, quoteCall, quoteCallSync, Ledger, SpendRefused } from "../../src/billing.js"
+import { ALL_TOOLS, ESTIMATE_TOOLS, SPEND_ANY, mustPrice } from "../../src/elevenlabs-tools.js"
+import { estimatePrice, quoteCall, quoteCallSync, Ledger, SpendRefused } from "../../src/billing.js"
 import { SAVE_ACTION, runSaveMedia } from "../../src/media/tool.js"
 import { sharedStore } from "../fixtures/store.js"
 
@@ -14,21 +14,24 @@ const caps = (session: number | null = 2000, daily: number | null = 10000) => ({
 const call = (id = "c1", sessionID = "ses_a") => ({ sessionID, agent: "build", messageID: "m1", id })
 
 describe("nothing that may spend runs unguarded (DR-3)", () => {
-  test("every creative_* tool is priced from the table or refused while a cap is on", async () => {
+  test("every creative_* tool is priced from ElevenLabs' own estimate or refused while a cap is on", async () => {
     const creative = ALL_TOOLS.filter((tool) => tool.startsWith("creative_"))
     expect(creative.length).toBeGreaterThan(5)
-    const priced_ = creative.filter((tool) => priceOf(tool, { text: "hi", prompt: "hi", duration_seconds: 60 }) !== undefined)
-    const unpriced = creative.filter((tool) => !priced_.includes(tool))
-    // Every one is either priced from the table or must be refused: none may run unpriced under a cap.
-    for (const tool of priced_) expect({ tool, guarded: mustPrice(tool) }).toEqual({ tool, guarded: true })
-    for (const tool of unpriced) {
+    // With no estimate to hand, every creative name the guard must price refuses: nothing here prices itself.
+    for (const tool of creative.filter(mustPrice)) {
       const ledger = new Ledger()
-      const outcome = await quoteCall({ ledger, caps: () => caps() }, tool, { prompt: "hi" }, call(tool)).then(
+      const outcome = await quoteCall({ ledger, caps: () => caps() }, tool, {}, call(tool)).then(
         () => "quoted",
         (error: unknown) => (error as SpendRefused).code,
       )
-      // A generation the plugin cannot price is refused, never run; a read is not charged at all.
-      expect({ tool, outcome: outcome === "quoted" || outcome === "PRICE_UNKNOWN" }).toEqual({ tool, outcome: true })
+      expect({ tool, outcome }).toEqual({ tool, outcome: "PRICE_UNKNOWN" })
+    }
+    // Given ElevenLabs' own figure, the tools that accept `estimate_only` are priced and reserved rather than refused.
+    for (const tool of ESTIMATE_TOOLS) {
+      const ledger = new Ledger()
+      const estimate = async (name: string, input: Record<string, unknown>) => estimatePrice(name, input, { output: { credits: 120 } })
+      const { price, tracked } = await quoteCall({ ledger, caps: () => caps(), estimate }, tool, {}, call(tool))
+      expect({ tool, credits: price.credits, tracked }).toEqual({ tool, credits: 120, tracked: true })
     }
     // A creative name the table has never seen is still guarded by its shape.
     expect(mustPrice("creative_upscale")).toBe(true)
@@ -47,16 +50,21 @@ describe("nothing that may spend runs unguarded (DR-3)", () => {
 describe("two ledgers handed one storage object share one cap", () => {
   const stored = sharedStore
 
+  // The sync path prices only from an estimate the ledger already holds, so each ledger here is given ElevenLabs'
+  // figure for these arguments first, as a script does by sending `estimate_only` before the paid call.
+  const SPEECH = { prompt: "x".repeat(600), voice_id: "voice_example", model_id: "model_example", context: "a test" }
+  const knowing = (ledger: Ledger) => (ledger.rememberPrice("creative_generate_speech", SPEECH, { credits: 1200, basis: "exact", parts: [] }), ledger)
+
   test("a reservation in one ledger is visible to the other at once", () => {
     // One storage object is one location in one OpenCode: the two ledgers share a book, so the second sees the first's
     // hold with nothing awaited.
     const store = stored()
     const handle = store.handle()
-    const first = new Ledger({ storage: handle })
-    const second = new Ledger({ storage: handle })
-    quoteCallSync({ ledger: first, caps: () => caps() }, "creative_generate_speech", { text: "x".repeat(600) }, call("a"))
+    const first = knowing(new Ledger({ storage: handle }))
+    const second = knowing(new Ledger({ storage: handle }))
+    quoteCallSync({ ledger: first, caps: () => caps() }, "creative_generate_speech", { ...SPEECH }, call("a"))
     expect(first.spend("ses_a").sessionCredits).toBe(1200)
-    expect(() => quoteCallSync({ ledger: second, caps: () => caps() }, "creative_generate_speech", { text: "x".repeat(600) }, call("b"))).toThrow(SpendRefused)
+    expect(() => quoteCallSync({ ledger: second, caps: () => caps() }, "creative_generate_speech", { ...SPEECH }, call("b"))).toThrow(SpendRefused)
     expect(second.spend("ses_a").sessionCredits).toBe(1200)
   })
 
@@ -65,18 +73,18 @@ describe("two ledgers handed one storage object share one cap", () => {
     // admitted: that is the documented limit of a cap with no compare-and-set, not a cap that holds. What must hold is
     // that neither charge is lost, so the next call in each sees all 2,400.
     const store = stored()
-    const first = new Ledger({ storage: store.handle() })
-    const second = new Ledger({ storage: store.handle() })
+    const first = knowing(new Ledger({ storage: store.handle() }))
+    const second = knowing(new Ledger({ storage: store.handle() }))
     await Promise.all([first.hydrate(), second.hydrate()])
-    quoteCallSync({ ledger: first, caps: () => caps() }, "creative_generate_speech", { text: "x".repeat(600) }, call("a"))
-    quoteCallSync({ ledger: second, caps: () => caps() }, "creative_generate_speech", { text: "x".repeat(600) }, call("b"))
+    quoteCallSync({ ledger: first, caps: () => caps() }, "creative_generate_speech", { ...SPEECH }, call("a"))
+    quoteCallSync({ ledger: second, caps: () => caps() }, "creative_generate_speech", { ...SPEECH }, call("b"))
     first.settle("a", "ses_a", 1200)
     second.settle("b", "ses_a", 1200)
     await Promise.all([first.flush(), second.flush()])
-    const restarted = new Ledger({ storage: store.handle() })
+    const restarted = knowing(new Ledger({ storage: store.handle() }))
     await restarted.hydrate()
     expect(restarted.daily()).toBe(2400)
-    expect(() => quoteCallSync({ ledger: restarted, caps: () => caps() }, "creative_generate_speech", { text: "x".repeat(600) }, call("c"))).toThrow(SpendRefused)
+    expect(() => quoteCallSync({ ledger: restarted, caps: () => caps() }, "creative_generate_speech", { ...SPEECH }, call("c"))).toThrow(SpendRefused)
   })
 })
 

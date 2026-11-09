@@ -93,8 +93,8 @@ let current: (() => ToolRuntime | undefined) | undefined
 
 /**
  * Every tool this plugin knows, by exact upstream name, with the class `describe` reports, plus `elevenlabs_save_media`.
- * ElevenLabs' table is provisional until the live `tools/list` is reconciled; a tool it adds later is not a method
- * until it is classified in `src/elevenlabs-tools.ts`, and `describe` lists it as unclassified.
+ * The table is the live catalogue as captured in `test/fixtures/live-tools.json`; a tool ElevenLabs adds later is not a
+ * method until it is classified in `src/elevenlabs-tools.ts`, and `describe` lists it as unclassified.
  */
 export const METHODS: readonly MethodSpec[] = [
   ...ALL_TOOLS.map((name): MethodSpec => ({ kind: "mcp", name, class: classOf(name) })),
@@ -211,7 +211,7 @@ export function shapersFor(runtime: ToolRuntime): LocationShapers {
       // expired, so that call is paid for and a late answer to it changes nothing here (RR3-3): there is no ghost to
       // keep this slot conservative for, because on this path a result can only ever raise a charge.
       if (flight) flights.delete(slot)
-      if (isEstimate(args)) {
+      if (isEstimate(method, args)) {
         flights.set(slot, { kind: "estimate", id: "", price: { credits: 0, basis: "exact", parts: [] }, args, at: runtime.ledger.now() })
         return input
       }
@@ -235,7 +235,7 @@ export function shapersFor(runtime: ToolRuntime): LocationShapers {
       if (!flight) return result
       flights.delete(slot)
       if (flight.kind === "estimate") {
-        const price = estimatePrice(flight.args, result)
+        const price = estimatePrice(method, flight.args, result)
         if (price) runtime.ledger.rememberPrice(method, flight.args, price)
         return result
       }

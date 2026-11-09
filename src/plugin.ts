@@ -158,14 +158,33 @@ const hasLink = (result: { readonly content?: unknown }) => {
   return /https:\/\/\S+/.test(text)
 }
 
-/** The estimate the model path may await: ElevenLabs' own price for exactly these arguments, through the host's executor. */
-const estimatorFor = (ctx: Plugin.Context) => async (tool: string, input: Record<string, unknown>, call: { sessionID: string; agent: string; messageID: string }): Promise<Price | undefined> => {
+/**
+ * The estimate the model path may await: ElevenLabs' own price for exactly these arguments, through the host's
+ * executor. An estimate is not a read. It creates a flow and a node in the workspace, and it runs through the
+ * executor, where no permission rule stops it — so this asserts the paid call's own action first. Under
+ * `access: "read-only"` the generation is denied and no estimate runs for it; under `"ask-changes"` the estimate runs
+ * only once the generation itself has been allowed (README, SECURITY.md).
+ */
+const estimatorFor = (ctx: Plugin.Context) => async (tool: string, input: Record<string, unknown>, call: { sessionID: string; agent: string; messageID: string; id: string }): Promise<Price | undefined> => {
   // `toolOf` folded the name's case, so the executor is matched the same way: a server that listed the name in another
-  // case still gets its own estimate, rather than falling back to the formula.
+  // case still gets its own estimate, rather than being refused for want of a price.
   const id = `${SERVER_NAME}_${tool}`
   const listed = await ctx.tool.list()
   const executor = listed.find((entry) => entry.id === id) ?? listed.find((entry) => entry.id.toLowerCase() === id)
   if (!executor) return undefined
+  try {
+    await ctx.permission.assert({
+      sessionID: call.sessionID,
+      agent: call.agent,
+      action: id,
+      resources: ["*"],
+      source: { type: "tool", messageID: call.messageID, id: call.id },
+    })
+  } catch {
+    // The generation is not allowed here, so neither is the estimate that would price it. The guard then refuses the
+    // call with PRICE_UNKNOWN, and the host refuses the generation itself for the same reason.
+    return undefined
+  }
   try {
     const result = await executor.execute({ ...input, estimate_only: true } as never, {
       sessionID: call.sessionID,
@@ -177,7 +196,7 @@ const estimatorFor = (ctx: Plugin.Context) => async (tool: string, input: Record
     } as never)
     const normalised = result as { output?: unknown; content?: unknown }
     const text = typeof normalised.content === "string" ? normalised.content : Array.isArray(normalised.content) ? normalised.content.map((part: { text?: string }) => part.text ?? "").join("\n") : ""
-    return estimatePrice(input, { ...(normalised.output === undefined ? {} : { output: normalised.output }), text })
+    return estimatePrice(tool, input, { ...(normalised.output === undefined ? {} : { output: normalised.output }), text })
   } catch {
     // A server that refuses the flag, or a link that broke: the guard then refuses rather than guessing a price.
     return undefined
@@ -316,7 +335,7 @@ export function createElevenlabsPlugin(seam: ElevenlabsSeam = {}) {
         const tool = toolOf(event.tool)
         if (!guarded() || tool === undefined) return
         const args = (typeof event.input === "object" && event.input !== null ? event.input : {}) as Record<string, unknown>
-        if (isEstimate(args) || !mustPrice(tool)) return
+        if (isEstimate(tool, args) || !mustPrice(tool)) return
         // Price, clamp, and reserve before dispatch: a call that starts at the same time sees this reservation.
         const { price, tracked } = await quoteCall({ ledger, caps, estimate }, tool, args, {
           sessionID: event.sessionID,
@@ -333,9 +352,9 @@ export function createElevenlabsPlugin(seam: ElevenlabsSeam = {}) {
         const before = pending.get(event.id)
         pending.delete(event.id)
         // An estimate is free and is not a charge: remember it, so the paid call that follows can be priced (DR-5).
-        if (isEstimate(args)) {
+        if (isEstimate(tool, args)) {
           if (event.status === "completed") {
-            const price = estimatePrice(args, { ...(event.result.output === undefined ? {} : { output: event.result.output }), ...(event.result.content === undefined ? {} : { content: event.result.content }) })
+            const price = estimatePrice(tool, args, { ...(event.result.output === undefined ? {} : { output: event.result.output }), ...(event.result.content === undefined ? {} : { content: event.result.content }) })
             if (price) ledger.rememberPrice(tool, args, price)
           }
           return

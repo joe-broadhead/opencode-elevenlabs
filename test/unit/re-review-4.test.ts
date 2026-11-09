@@ -1,12 +1,30 @@
 // Reproductions from the fourth re-review. Each one failed at 6c21964 and must pass after the fix. RR4-1 to RR4-4
-// were answered in the round before this one and keep their tests in `re-review-3.test.ts`.
+// were answered in the round before this one and keep their tests in `re-review-3.test.ts`. Since live reconcile 1
+// the plugin computes no price of its own — ElevenLabs' own `estimate_only` call is the only price, and no file on
+// this machine is part of any call — so the blocks built on the published rates and on measured audio are
+// re-expressed. Each says what it used to assert, and what now holds instead.
 import { afterAll, describe, expect, test } from "bun:test"
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { ENDPOINT } from "../../src/constants.js"
-import { audioStamps, changedFile, countValue, ESTIMATE_TOOLS, mustPrice, estimatePrice, Ledger, measureAudio, NOT_A_COUNT, priceObstacle, priceOf, PRICED_ARGUMENTS, quoteCall, quoteCallSync, RATED_TOOLS, RESERVATION_MS, settlementOf, transcriptionPrice } from "../../src/billing.js"
-import { riffReadingWith } from "../../src/media/policy.js"
+import {
+  countValue,
+  estimatePrice,
+  ESTIMATE_TOOLS,
+  GENERATION_KEYS,
+  generationsOf,
+  Ledger,
+  NOT_A_COUNT,
+  PRICED_ARGUMENTS,
+  priceObstacle,
+  quoteCall,
+  quoteCallSync,
+  RESERVATION_MS,
+  settlementOf,
+} from "../../src/billing.js"
+import { mustPrice, SPEND_TOOLS } from "../../src/elevenlabs-tools.js"
+import { durationOf, riffReadingWith } from "../../src/media/policy.js"
 import { buildWav, understatedThenJunk, WAV_FIXTURES } from "../fixtures/wav.js"
 import { sharedStore } from "../fixtures/store.js"
 import { createElevenlabsPlugin } from "../../src/plugin.js"
@@ -19,9 +37,26 @@ const seam = { endpoint: ENDPOINT, skillsDir }
 type Hook = (event: never) => Promise<void>
 type Cost = { credits: number; basis: string; dailySpent: number }
 
-/** The two spending hooks, on a context with the caps this test needs. */
-async function hooks(caps: { sessionCreditCap: number | null; dailyCreditCap: number | null }) {
-  const { ctx, mcp, hookFns } = pluginContext(caps)
+/** A speech call in the live schema's own names. The spoken words go in `prompt`; there is no `text` argument. */
+const speechArgs = (prompt: string) => ({ prompt, voice_id: "voice_example", model_id: "model_example", context: "a test" })
+
+/** A transcription call in the live schema's own argument names: the audio is a node in a flow, never a local file. */
+const transcribeArgs = () => ({ model_id: "model_example", context: "a test", flow_id: "flow_example" })
+
+/**
+ * The two spending hooks, on a context with the caps this test needs, and an ElevenLabs that answers an
+ * `estimate_only` call with `credits`. `estimates` counts how many times it was asked.
+ */
+async function hooks(caps: { sessionCreditCap: number | null; dailyCreditCap: number | null }, credits = 1_500) {
+  const { ctx, mcp, hookFns, toolList } = pluginContext(caps)
+  const estimates: Record<string, unknown>[] = []
+  toolList.push({
+    id: "elevenlabs_creative_generate_speech",
+    execute: async (input: unknown) => {
+      estimates.push(input as Record<string, unknown>)
+      return { output: { credits } }
+    },
+  })
   const cleanup = await createElevenlabsPlugin(seam).setup(ctx)
   mcp.run(mcpEditor().editor)
   const before = hookFns.get("execute.before")! as Hook
@@ -40,51 +75,55 @@ async function hooks(caps: { sessionCreditCap: number | null; dailyCreditCap: nu
     await after({ ...event(id, input), status: "completed", result } as never)
     return result.output.cost as Cost
   }
-  return { before, after, event, complete, cleanup: cleanup! }
+  return { before, after, event, complete, estimates, cleanup: cleanup! }
 }
 
-const TEXT = { text: "x".repeat(750) } // 750 characters, two takes: 1,500 credits reserved.
+const SPEECH = speechArgs("x".repeat(750)) // ElevenLabs' estimate for these arguments: 1,500 credits reserved.
 
 describe("RR4-5 — a recorded charge never goes down after its first settlement", () => {
   test("a result delivered again for a call already charged is ignored unless it is higher", async () => {
     const { before, complete, event, cleanup } = await hooks({ sessionCreditCap: 1_000_000, dailyCreditCap: 1_000_000 })
-    await before(event("c1", TEXT) as never)
+    await before(event("c1", SPEECH) as never)
     // The first result reports nothing, so the reservation is the charge. At 6c21964 the two results after it each
     // overwrote that charge downwards — 1,500 -> 30 -> 1 — because the hook had forgotten what it reserved and read
     // its floor as zero, and `settle` let an attested figure past the floor it did have.
-    expect(await complete("c1", TEXT, {})).toMatchObject({ credits: 1_500, basis: "at-most", dailySpent: 1_500 })
-    const second = await complete("c1", TEXT, { credits: 30 })
-    const third = await complete("c1", TEXT, { credits: 1 })
+    expect(await complete("c1", SPEECH, {})).toMatchObject({ credits: 1_500, basis: "exact", dailySpent: 1_500 })
+    const second = await complete("c1", SPEECH, { credits: 30 })
+    const third = await complete("c1", SPEECH, { credits: 1 })
     expect([second.dailySpent, third.dailySpent]).toEqual([1_500, 1_500])
     // Not 30 and not 1: the first settlement recorded 1,500, and a repeat may only raise it. The lowest the sequence
     // can reach is the 30 it reported, and it does not reach even that.
     for (const cost of [second, third]) expect(cost.dailySpent).toBeGreaterThanOrEqual(30)
     expect(second.credits).toBe(1_500)
     // A repeat that is higher is still a raise.
-    expect((await complete("c1", TEXT, { credits: 4_000 })).dailySpent).toBe(4_000)
+    expect((await complete("c1", SPEECH, { credits: 4_000 })).dailySpent).toBe(4_000)
     await cleanup()
   })
 
   test("a one-credit completion replayed after every call does not buy a second call", async () => {
     // The review's reproduction: a 5,000 daily cap at 1,500 a call admits three calls, and at 6c21964 replaying a
     // 1-credit result after each emptied the ledger and admitted 200 — 300,000 credits against a 5,000 cap.
-    const { before, complete, event, cleanup } = await hooks({ sessionCreditCap: 5_000, dailyCreditCap: 5_000 })
+    const { before, complete, event, estimates, cleanup } = await hooks({ sessionCreditCap: 5_000, dailyCreditCap: 5_000 })
     let admitted = 0
     let refused: unknown
     for (let call = 0; call < 200; call += 1) {
       const id = `c${call}`
       try {
-        await before(event(id, TEXT) as never)
+        await before(event(id, SPEECH) as never)
       } catch (error) {
         refused = error
         break
       }
       admitted += 1
-      await complete(id, TEXT, {})
-      await complete(id, TEXT, { credits: 1 })
+      await complete(id, SPEECH, {})
+      await complete(id, SPEECH, { credits: 1 })
     }
     expect(admitted).toBe(3)
     expect(refused).toMatchObject({ code: "SPEND_CAP_REACHED" })
+    // Every estimate creates a flow and a node in the owner's workspace, so the same arguments are estimated once and
+    // the figure is remembered for the calls that follow.
+    expect(estimates.length).toBe(1)
+    expect(estimates[0]).toMatchObject({ ...SPEECH, estimate_only: true })
     await cleanup()
   })
 
@@ -125,56 +164,70 @@ describe("RR4-5 — a recorded charge never goes down after its first settlement
 })
 
 describe("RR4-6 — a count multiplies the price, for every priced tool", () => {
+  // This block used to multiply a published rate by a count: 600 characters was 1,200 credits and ten generations
+  // 12,000. There is no published rate now, and the count works from the other end — ElevenLabs' estimate answers for
+  // the batch the arguments ask for, so the count is what the figure has to be divided by to get a unit, and a count
+  // nothing can be read out of makes the whole figure meaningless.
   const caps = { sessionCreditCap: 50_000, dailyCreditCap: 50_000 }
   const call = (id = "c1") => ({ sessionID: "ses_a", agent: "build", messageID: "m1", id })
-  const speech = (extra: Record<string, unknown> = {}) => ({ text: "x".repeat(600), ...extra })
+  const speech = (extra: Record<string, unknown> = {}) => ({ ...speechArgs("x".repeat(600)), ...extra })
+  /** An estimate seam answering every call with the same batch total, and counting what it was asked. */
+  const estimator = (credits: number) => {
+    const asked: Record<string, unknown>[] = []
+    return {
+      asked,
+      estimate: async (tool: string, input: Record<string, unknown>) => {
+        asked.push(input)
+        return estimatePrice(tool, input, { output: { credits } })
+      },
+    }
+  }
 
-  test("speech is priced per generation, in whichever count key the caller used", () => {
-    // At 6c21964 every one of these priced 1,200: the count was computed and then read only by sound effects.
-    expect(priceOf("creative_generate_speech", speech())?.credits).toBe(1_200)
-    expect(priceOf("creative_generate_speech", speech({ generations_count: 2 }))?.credits).toBe(2_400)
-    expect(priceOf("creative_generate_speech", speech({ generations_count: 10 }))?.credits).toBe(12_000)
-    expect(priceOf("creative_generate_speech", speech({ generations_count: 100 }))?.credits).toBe(120_000)
-    expect(priceOf("creative_generate_speech", speech({ generations: 5 }))?.credits).toBe(6_000)
-    expect(priceOf("creative_generate_speech", speech({ variations: 5 }))?.credits).toBe(6_000)
-    expect(priceOf("creative_generate_speech", speech({ num_generations: 5 }))?.credits).toBe(6_000)
-    expect(priceOf("creative_generate_speech", speech({ num_outputs: 5 }))?.credits).toBe(6_000)
-    // The cost line says what it multiplied by, so an owner reading it can check the figure.
-    expect(priceOf("creative_generate_speech", speech({ generations_count: 5 }))?.parts.join(", ")).toContain("5 generations")
+  test("the figure is the batch total, and the count is what divides it into a unit", () => {
+    // At 6c21964 the count was computed and then read only by sound effects; here it decides what the server's own
+    // figure covered.
+    const priced = estimatePrice("creative_generate_speech", speech({ generations_count: 4 }), { output: { credits: 4_800 } })
+    expect({ credits: priced?.credits, perGeneration: priced?.perGeneration }).toEqual({ credits: 4_800, perGeneration: 1_200 })
+    // The cost line says what it divided by, so an owner reading it can check the figure.
+    expect(priced?.parts.join(", ")).toContain("4 generations")
+    // The four other spellings that block once read as counts — `generations`, `variations`, `num_generations`,
+    // `num_outputs` — are in no live schema. None of them is read as a count now, and a call that sends one is
+    // refused as an argument the tool does not have rather than priced around (RR4-12).
+    expect(GENERATION_KEYS).toEqual(["generations_count"])
+    for (const key of ["generations", "variations", "num_generations", "num_outputs"]) {
+      expect({ key, counted: generationsOf({ [key]: 7 }) }).toEqual({ key, counted: undefined })
+      expect({ key, obstacle: priceObstacle("creative_generate_speech", { ...speechArgs("hi"), [key]: 7 }) }).toEqual({
+        key,
+        obstacle: `"${key}" is an argument ElevenLabs' own schema for this tool does not have, so its effect on the bill is unknown`,
+      })
+    }
   })
 
-  test("600 characters a hundred times is refused under a 50,000 cap, on both guard paths", async () => {
-    const args = speech({ generations_count: 100 })
-    await expect(quoteCall({ ledger: new Ledger(), caps: () => caps }, "creative_generate_speech", { ...args }, call())).rejects.toMatchObject({
-      code: "SPEND_CAP_REACHED",
-    })
-    expect(() => quoteCallSync({ ledger: new Ledger(), caps: () => caps }, "creative_generate_speech", { ...args }, call())).toThrow("SPEND_CAP_REACHED")
-    // A count the budget does afford still goes through, at the multiplied price.
-    const { price } = await quoteCall({ ledger: new Ledger(), caps: () => caps }, "creative_generate_speech", speech({ generations_count: 10 }), call())
-    expect(price.credits).toBe(12_000)
-  })
-
-  test("music multiplies too, and twenty takes of five minutes does not fit", async () => {
-    expect(priceOf("creative_generate_music", { prompt: "a waltz", music_length_ms: 300_000 })?.credits).toBe(4_500)
-    expect(priceOf("creative_generate_music", { prompt: "a waltz", music_length_ms: 300_000, generations_count: 20 })?.credits).toBe(90_000)
-    await expect(
-      quoteCall({ ledger: new Ledger(), caps: () => caps }, "creative_generate_music", { prompt: "a waltz", music_length_ms: 300_000, generations_count: 20 }, call()),
-    ).rejects.toMatchObject({ code: "SPEND_CAP_REACHED" })
-    // Sound effects multiplied before this fix and still does, at the same figure.
-    expect(priceOf("creative_generate_sound_effect", { prompt: "a door", generations_count: 5 })?.credits).toBe(1_000)
-  })
-
-  test("a call naming two counts is priced from the larger, and a clamp bounds both keys", async () => {
-    // Nothing says which key the server reads, so the larger is the one a price must not be below.
-    expect(priceOf("creative_generate_speech", speech({ generations_count: 2, variations: 7 }))?.credits).toBe(8_400)
-    expect(priceOf("creative_generate_speech", speech({ generations_count: 7, variations: 2 }))?.credits).toBe(8_400)
-    // An estimate-priced tool clamps rather than refuses: both keys are cut, so the smaller cannot be left behind.
+  test("a batch the budget cannot afford is cut to what it can, in the one count key", async () => {
+    // The old answer was a refusal, because a published rate gave no unit to cut to. An estimate does: the batch is
+    // clamped to the generations the budget affords, and the figure says `at-most`, because a share of a batch total
+    // is this plugin's arithmetic and not the server's word.
     const ledger = new Ledger()
-    const estimate = async (_tool: string, input: Record<string, unknown>) => estimatePrice(input, { output: { credits: 1_000 } })
-    const args: Record<string, unknown> = { prompt: "a mug", generations_count: 2, variations: 7 }
+    const { estimate } = estimator(4_000)
+    const args: Record<string, unknown> = { prompt: "a mug", model_id: "model_example", context: "a test", generations_count: 4 }
     const { price } = await quoteCall({ ledger, caps: () => ({ sessionCreditCap: 3_000, dailyCreditCap: 50_000 }), estimate }, "creative_generate_image", args, call())
-    expect(args).toEqual({ prompt: "a mug", generations_count: 3, variations: 3 })
-    expect(price.credits).toBe(3_000)
+    expect(args).toEqual({ prompt: "a mug", model_id: "model_example", context: "a test", generations_count: 3 })
+    expect({ credits: price.credits, basis: price.basis }).toEqual({ credits: 3_000, basis: "at-most" })
+    expect(price.parts.join(", ")).toContain("3 generations, at ElevenLabs' estimate")
+  })
+
+  test("a batch whose first generation does not fit is refused on both guard paths", async () => {
+    // 500,000 credits over 4 generations is 125,000 a take, against a 50,000 budget: there is no count the budget
+    // affords, so the clamp cannot save the call and the reservation refuses it.
+    const big = estimator(500_000)
+    await expect(
+      quoteCall({ ledger: new Ledger(), caps: () => caps, estimate: big.estimate }, "creative_generate_speech", speech({ generations_count: 4 }), call()),
+    ).rejects.toMatchObject({ code: "SPEND_CAP_REACHED" })
+    // The script path has no estimate to await, so it works from the figure a probe already put on this ledger.
+    const ledger = new Ledger()
+    const args = speech({ generations_count: 4 })
+    ledger.rememberPrice("creative_generate_speech", args, { credits: 500_000, basis: "exact", parts: [], perGeneration: 125_000 })
+    expect(() => quoteCallSync({ ledger, caps: () => caps }, "creative_generate_speech", args, call())).toThrow("SPEND_CAP_REACHED")
   })
 
   test("a count is read as the number it spells, and one nothing can be read out of refuses the call", () => {
@@ -184,28 +237,29 @@ describe("RR4-6 — a count multiplies the price, for every priced tool", () => 
     expect(countValue(undefined)).toBeUndefined()
     expect(countValue("a few")).toBe(NOT_A_COUNT)
     expect(countValue({})).toBe(NOT_A_COUNT)
-    // A string count multiplies, as a string length raises a price (RR3-9).
-    expect(priceOf("creative_generate_speech", speech({ generations_count: "4" }))?.credits).toBe(4_800)
+    // A string count divides the batch, as a numeric field is read as the number it spells (RR3-9).
+    expect(estimatePrice("creative_generate_speech", speech({ generations_count: "4" }), { output: { credits: 4_800 } })?.perGeneration).toBe(1_200)
     // Prose in a count field is a multiplier this plugin does not know: PRICE_UNKNOWN, not a price that assumes one.
-    expect(priceOf("creative_generate_speech", speech({ generations_count: "a few" }))).toBeUndefined()
-    expect(estimatePrice({ generations_count: "a few" }, { output: { credits: 1_000 } })).toBeUndefined()
+    expect(estimatePrice("creative_generate_speech", speech({ generations_count: "a few" }), { output: { credits: 1_000 } })).toBeUndefined()
     expect(() => quoteCallSync({ ledger: new Ledger(), caps: () => caps }, "creative_generate_speech", speech({ generations_count: "a few" }), call())).toThrow("PRICE_UNKNOWN")
   })
 
-  test("where a published rate and a remembered estimate disagree, the dearer one is reserved", async () => {
+  test("a figure this ledger already holds does not carry a call past an unreadable count", async () => {
+    // The check is in the guard and not only inside `estimatePrice`, so a price remembered for other arguments cannot
+    // be spent against a call whose batch size is unknown.
     const ledger = new Ledger()
-    // The estimate is remembered for these arguments, then the formula prices them lower. The cap must see the larger.
-    ledger.rememberPrice("creative_generate_speech", speech(), { credits: 9_000, basis: "exact", parts: ["estimated by ElevenLabs"] })
-    const { price } = await quoteCall({ ledger, caps: () => caps }, "creative_generate_speech", speech(), call())
-    expect(price.credits).toBe(9_000)
-    // And the other way around: a formula price above the estimate stands.
-    const second = new Ledger()
-    second.rememberPrice("creative_generate_speech", speech({ generations_count: 10 }), { credits: 500, basis: "exact", parts: [] })
-    expect(quoteCallSync({ ledger: second, caps: () => caps }, "creative_generate_speech", speech({ generations_count: 10 }), call("c2")).price.credits).toBe(12_000)
+    const args = speech({ generations_count: "a few" })
+    ledger.rememberPrice("creative_generate_speech", args, { credits: 10, basis: "exact", parts: [] })
+    const { estimate, asked } = estimator(10)
+    await expect(quoteCall({ ledger, caps: () => caps, estimate }, "creative_generate_speech", args, call())).rejects.toMatchObject({ code: "PRICE_UNKNOWN" })
+    // And ElevenLabs was never asked for a figure that could not have meant anything.
+    expect(asked.length).toBe(0)
   })
 })
 
 describe("RR4-7 — a WAV with more than one `data` chunk is not measured", () => {
+  // This block used to end in a refused price. Nothing prices a file now, so what is left is the reading itself: the
+  // duration the save tool prints is absent where decoders disagree, rather than being one decoder's answer.
   const root = mkdtempSync(join(tmpdir(), "elevenlabs-rr4-wav-"))
   afterAll(() => rmSync(root, { recursive: true, force: true }))
   const file = (name: string, bytes: Buffer) => {
@@ -213,135 +267,87 @@ describe("RR4-7 — a WAV with more than one `data` chunk is not measured", () =
     writeFileSync(path, bytes)
     return path
   }
-  const caps = { sessionCreditCap: 100_000, dailyCreditCap: 100_000 }
-  const refusal = (path: string) => {
-    try {
-      quoteCallSync({ ledger: new Ledger(), caps: () => caps }, "creative_transcribe_audio", { path }, { sessionID: "ses_a", agent: "build", messageID: "m1", id: "c1" })
-      return undefined
-    } catch (error) {
-      return error as { code?: string }
-    }
-  }
 
-  test("the review's two-data.wav is refused rather than priced as its first second", () => {
-    // At 6c21964 the second `data` chunk was read as metadata: 1 second, 6 credits, against the 60 seconds and 330
-    // credits CoreAudio reads out of the same file. Python's `wave` agrees with the 1; nothing settles which the
-    // server does, so the file has no length this plugin knows.
-    const path = file("two-data.wav", WAV_FIXTURES.twoData())
-    expect(measureAudio({ path })).toBeUndefined()
-    expect(transcriptionPrice({ path })).toBeUndefined()
-    expect(refusal(path)).toMatchObject({ code: "PRICE_UNKNOWN" })
+  test("the review's two-data.wav has no duration rather than its first second", async () => {
+    // At 6c21964 the second `data` chunk was read as metadata: 1 second, against the 60 seconds CoreAudio reads out
+    // of the same file. Python's `wave` agrees with the 1; nothing settles which is right, so neither is printed.
+    expect(await durationOf(file("two-data.wav", WAV_FIXTURES.twoData()))).toBeUndefined()
   })
 
-  test("the reversed file, and one with metadata between the two chunks, are refused the same way", () => {
+  test("the reversed file, and one with metadata between the two chunks, read the same way", async () => {
     for (const name of ["twoDataReversed", "twoDataAfterMeta"] as const) {
-      const path = file(`${name}.wav`, WAV_FIXTURES[name]())
-      expect(measureAudio({ path })).toBeUndefined()
-      expect(refusal(path)).toMatchObject({ code: "PRICE_UNKNOWN" })
+      expect({ name, seconds: await durationOf(file(`${name}.wav`, WAV_FIXTURES[name]())) }).toEqual({ name, seconds: undefined })
     }
   })
 
-  test("one `data` chunk still measures, whatever follows it or how short its size field is", () => {
+  test("one `data` chunk still measures, whatever follows it or how short its size field is", async () => {
     // The rule reaches a second `data` chunk and nothing else: a trailing `LIST` is still metadata, and a stated size
-    // that understates the audio still prices every byte that follows it (RR3-7, RR4-1).
-    const trailing = file("trailing.wav", WAV_FIXTURES.trailing())
-    expect(measureAudio({ path: trailing })?.durationSeconds).toBe(1)
-    expect(transcriptionPrice({ path: trailing })?.credits).toBe(6)
-    const short = file("understated-then-junk.wav", understatedThenJunk())
-    expect(measureAudio({ path: short })?.durationSeconds).toBe(60)
-    expect(transcriptionPrice({ path: short })?.credits).toBe(330)
-    const canonical = file("canonical.wav", WAV_FIXTURES.canonical())
-    expect(measureAudio({ path: canonical })?.durationSeconds).toBe(60)
+    // that understates the audio still reads every byte that follows it (RR3-7, RR4-1).
+    expect(await durationOf(file("trailing.wav", WAV_FIXTURES.trailing()))).toBe(1)
+    expect(await durationOf(file("understated-then-junk.wav", understatedThenJunk()))).toBe(60)
+    expect(await durationOf(file("canonical.wav", WAV_FIXTURES.canonical()))).toBe(60)
   })
 })
 
-describe("RR4-9 — a price is reserved only while the file it measured is still that file", () => {
-  const root = mkdtempSync(join(tmpdir(), "elevenlabs-rr4-swap-"))
-  afterAll(() => rmSync(root, { recursive: true, force: true }))
+describe("RR4-9 — a price holds only while it is still this call's price", () => {
+  // This block used to swap a file under the guard between the measurement and the hold: a one-second WAV priced at
+  // 6 credits, replaced by sixty seconds before the reservation landed. The live `creative_transcribe_audio` takes
+  // `{connect_from, context, estimate_only, flow_id, model_id, view_state_id}` and no file at all, so there is no
+  // file to swap and the stamping it needed is gone. What remains is the same rule in the place it now lives: a
+  // remembered figure is ElevenLabs' answer for exactly these arguments, minutes old at most.
   const caps = { sessionCreditCap: 100_000, dailyCreditCap: 100_000 }
   const call = (id = "c1") => ({ sessionID: "ses_a", agent: "build", messageID: "m1", id })
 
-  /** A ledger that lets the file move in the one place the guard awaits: the store read before the hold. */
-  class Swapping extends Ledger {
-    readonly swap: () => void
-    constructor(swap: () => void) {
-      super()
-      this.swap = swap
-    }
-    override refresh(): Promise<void> {
-      this.swap()
-      return super.refresh()
-    }
-  }
-
-  test("a one-second file swapped for a sixty-second one is refused, not reserved at six credits", async () => {
+  test("naming a local file does not price a transcription, it refuses it", () => {
+    const root = mkdtempSync(join(tmpdir(), "elevenlabs-rr4-swap-"))
     const path = join(root, "growing.wav")
     writeFileSync(path, buildWav({ seconds: 1 }))
-    // The price the guard starts from, and the price the swapped-in file is really worth.
-    expect(transcriptionPrice({ path })?.credits).toBe(6)
-    const ledger = new Swapping(() => writeFileSync(path, WAV_FIXTURES.canonical()))
-    await expect(quoteCall({ ledger, caps: () => caps }, "creative_transcribe_audio", { path }, call())).rejects.toMatchObject({
-      code: "PRICE_UNKNOWN",
-    })
-    // At 6c21964 this resolved at 6 credits and held 6 against 330 credits of audio.
-    expect(transcriptionPrice({ path })?.credits).toBe(330)
-    // Nothing was held for a call that was never sent: the stamp is checked before the reservation, not after it.
-    expect(ledger.reservation("c1")).toBeUndefined()
-    expect(ledger.spend("ses_a")).toMatchObject({ sessionCredits: 0, dailyCredits: 0 })
-  })
-
-  test("a file deleted between the price and the hold is refused as well", async () => {
-    const path = join(root, "vanishing.wav")
-    writeFileSync(path, WAV_FIXTURES.canonical())
-    const ledger = new Swapping(() => rmSync(path))
-    await expect(quoteCall({ ledger, caps: () => caps }, "creative_transcribe_audio", { path }, call("c2")).then(() => "reserved")).rejects.toMatchObject({
-      code: "PRICE_UNKNOWN",
-    })
-    expect(ledger.spend("ses_a").dailyCredits).toBe(0)
-  })
-
-  test("a file that holds still is priced and reserved as before", async () => {
-    const path = join(root, "still.wav")
-    writeFileSync(path, WAV_FIXTURES.canonical())
     const ledger = new Ledger()
-    const { price } = await quoteCall({ ledger, caps: () => caps }, "creative_transcribe_audio", { path }, call("c3"))
-    expect(price.credits).toBe(330)
-    expect(ledger.reservation("c3")?.credits).toBe(330)
+    expect(() => quoteCallSync({ ledger, caps: () => caps }, "creative_transcribe_audio", { ...transcribeArgs(), path }, call())).toThrow("PRICE_UNKNOWN")
+    expect(ledger.spend("ses_a")).toMatchObject({ sessionCredits: 0, dailyCredits: 0 })
+    rmSync(root, { recursive: true, force: true })
   })
 
-  test("a stamp is the file, not its name: its bytes, its times and the inode it lives on", () => {
-    const path = join(root, "stamped.wav")
-    writeFileSync(path, buildWav({ seconds: 1 }))
-    const first = audioStamps({ path })
-    expect([...first.keys()]).toEqual([path])
-    expect(changedFile(first, audioStamps({ path }))).toBeUndefined()
-    // Same name, different file: a rewrite at another length, and then the same length at another inode.
-    writeFileSync(path, WAV_FIXTURES.canonical())
-    expect(changedFile(first, audioStamps({ path }))).toContain("stamped.wav changed after it was measured")
-    const second = audioStamps({ path })
-    rmSync(path)
-    writeFileSync(path, WAV_FIXTURES.canonical())
-    expect(changedFile(second, audioStamps({ path }))).toContain("changed after it was measured")
-    // A file that is gone, and a second file named between the two readings, are both changes.
-    expect(changedFile(second, new Map())).toContain("changed after it was measured")
-    expect(changedFile(new Map(), second)).toContain("was named after the price was taken")
-    // Nothing local is named by a URL or an empty string, so neither is stamped.
-    expect(audioStamps({ path: "https://example.test/a.wav" }).size).toBe(0)
-    expect(audioStamps({ path: "", file: undefined }).size).toBe(0)
+  test("a remembered figure prices the call it was fetched for, and ages out after ten minutes", () => {
+    let now = 0
+    const ledger = new Ledger({ now: () => now })
+    const args = transcribeArgs()
+    ledger.rememberPrice("creative_transcribe_audio", args, { credits: 330, basis: "exact", parts: [] })
+    expect(quoteCallSync({ ledger, caps: () => caps }, "creative_transcribe_audio", args, call()).price.credits).toBe(330)
+    // Past the window it is not a price any more, and the call is refused rather than run on a stale figure.
+    now += RESERVATION_MS + 1
+    expect(() => quoteCallSync({ ledger, caps: () => caps }, "creative_transcribe_audio", args, call("c2"))).toThrow("PRICE_UNKNOWN")
+  })
+
+  test("a figure fetched for other arguments does not price this call", () => {
+    const ledger = new Ledger()
+    ledger.rememberPrice("creative_transcribe_audio", transcribeArgs(), { credits: 6, basis: "exact", parts: [] })
+    // One argument different is a different call, and ElevenLabs priced the other one.
+    expect(() =>
+      quoteCallSync({ ledger, caps: () => caps }, "creative_transcribe_audio", { ...transcribeArgs(), model_id: "other_example" }, call("c3")),
+    ).toThrow("PRICE_UNKNOWN")
+    // The probe itself carries `estimate_only`, and the paid call does not: that one difference is not a difference.
+    const ledger2 = new Ledger()
+    ledger2.rememberPrice("creative_transcribe_audio", { ...transcribeArgs(), estimate_only: true }, { credits: 6, basis: "exact", parts: [] })
+    expect(quoteCallSync({ ledger: ledger2, caps: () => caps }, "creative_transcribe_audio", transcribeArgs(), call("c4")).price.credits).toBe(6)
   })
 })
 
 describe("RR4-10 — the cap's real cross-process bound, and the sentence three files print", () => {
   const DAILY = 10_000
   const caps = { sessionCreditCap: null, dailyCreditCap: DAILY }
-  // 1,500 characters at 1 credit each, two takes: 3,000 credits a call, which is the review's figure.
-  const args = () => ({ text: "x".repeat(1_500) })
+  // ElevenLabs' estimate for these arguments: 3,000 credits a call, which is the review's figure.
+  const args = () => speechArgs("x".repeat(1_500))
   const call = (id: string) => ({ sessionID: "ses_a", agent: "build", messageID: "m1", id })
   const admitted = (results: PromiseSettledResult<unknown>[]) => results.filter((result) => result.status === "fulfilled").length
+  /** The ledger with ElevenLabs' figure for those arguments already on it, as an `estimate_only` call leaves it. */
+  const priced = (ledger: Ledger) => {
+    ledger.rememberPrice("creative_generate_speech", args(), { credits: 3_000, basis: "exact", parts: [] })
+    return ledger
+  }
 
   test("a call is 3,000 credits, so three fit under the cap and a fourth does not, in one OpenCode", async () => {
-    const ledger = new Ledger()
-    expect(priceOf("creative_generate_speech", args())?.credits).toBe(3_000)
+    const ledger = priced(new Ledger())
     for (const id of ["a", "b", "c"]) await quoteCall({ ledger, caps: () => caps }, "creative_generate_speech", args(), call(id))
     await expect(quoteCall({ ledger, caps: () => caps }, "creative_generate_speech", args(), call("d"))).rejects.toMatchObject({ code: "SPEND_CAP_REACHED" })
     expect(ledger.daily()).toBe(9_000)
@@ -355,7 +361,7 @@ describe("RR4-10 — the cap's real cross-process bound, and the sentence three 
     seed.record("ses_a", DAILY - 3_000)
     await seed.flush()
 
-    const ledgers = [...Array(8)].map((_, index) => new Ledger({ storage: store.handle(), writerId: `w${index}` }))
+    const ledgers = [...Array(8)].map((_, index) => priced(new Ledger({ storage: store.handle(), writerId: `w${index}` })))
     await Promise.all(ledgers.map((ledger) => ledger.hydrate()))
     const burst = await Promise.allSettled(
       ledgers.map((ledger, index) => quoteCall({ ledger, caps: () => caps }, "creative_generate_speech", args(), call(`burst${index}`))),
@@ -380,7 +386,7 @@ describe("RR4-10 — the cap's real cross-process bound, and the sentence three 
 
   test("the bound depends on overlap: the same eight, one after another, spend exactly what fits", async () => {
     const store = sharedStore()
-    const ledgers = [...Array(8)].map((_, index) => new Ledger({ storage: store.handle(), writerId: `s${index}` }))
+    const ledgers = [...Array(8)].map((_, index) => priced(new Ledger({ storage: store.handle(), writerId: `s${index}` })))
     await Promise.all(ledgers.map((ledger) => ledger.hydrate()))
     let admits = 0
     for (const [index, ledger] of ledgers.entries()) {
@@ -398,7 +404,7 @@ describe("RR4-10 — the cap's real cross-process bound, and the sentence three 
 
   test("a Code Mode call cannot read the store first, so a burst decides from what this OpenCode last read", async () => {
     const store = sharedStore()
-    const ledgers = [...Array(3)].map((_, index) => new Ledger({ storage: store.handle(), writerId: `c${index}` }))
+    const ledgers = [...Array(3)].map((_, index) => priced(new Ledger({ storage: store.handle(), writerId: `c${index}` })))
     await Promise.all(ledgers.map((ledger) => ledger.hydrate()))
     // The shaper path is synchronous by the shared contract: it decides from what this OpenCode last read, and these
     // three read at startup. Each refuses its own fourth call and, inside its burst, knows nothing of the other two's
@@ -416,7 +422,11 @@ describe("RR4-10 — the cap's real cross-process bound, and the sentence three 
   })
 })
 
-describe("RR4-12 — a refusal names the argument that caused it, and never denies a rate the plugin prints", () => {
+describe("RR4-12 — a refusal names what it can and claims nothing it cannot", () => {
+  // The review's finding was a refusal that named the wrong cause and then offered a route the tool did not have:
+  // music was told it had "no published credit price" and sent to `estimate_only`, which music never accepted. The
+  // published rates are gone, so the first half of that is gone with them; the rule that remains is the one that
+  // mattered — a refusal names the obstacle this plugin can really see, and offers only a route the tool has.
   const caps = () => ({ sessionCreditCap: 50_000, dailyCreditCap: 50_000 })
   /** The refusal a script sees, through the real guard. */
   const refused = (tool: string, input: Record<string, unknown>) => {
@@ -428,29 +438,13 @@ describe("RR4-12 — a refusal names the argument that caused it, and never deni
     }
   }
 
-  test("the review's music call names its length field and offers the fix music really has", () => {
-    // At 6c21964: "has no published credit price and no remembered estimate", then a route to `estimate_only` that
-    // music does not take. Music is 900 credits a minute, published, and `ESTIMATE_TOOLS` has never held it.
-    const error = refused("creative_generate_music", { music_length_ms: "abc", duration_seconds: 300 })
-    expect(error?.code).toBe("PRICE_UNKNOWN")
-    expect(error?.message).toContain('"music_length_ms" states a length no number can be read out of')
-    expect(error?.message).toContain("has a published credit rate")
-    expect(error?.message).not.toContain("no published credit price")
-    expect(error?.nextStep).toContain('"music_length_ms" in milliseconds')
-    expect(error?.nextStep).not.toContain("estimate_only")
-  })
-
-  test("every branch that gives up on a price names the argument it gave up on", () => {
+  test("every obstacle the plugin can name is the one the refusal quotes", () => {
     const obstacles: [string, Record<string, unknown>, string][] = [
-      ["creative_generate_music", { prompt: "jazz" }, 'no argument states how much music to generate ("music_length_ms", "duration_seconds", "duration" or "composition_plan")'],
-      ["creative_generate_music", { composition_plan: { sections: [{ name: "intro" }] } }, '"composition_plan" states no section length this plugin can read'],
-      ["creative_generate_music", { duration: "soon" }, '"duration" states a length no number can be read out of'],
-      ["creative_generate_speech", { text: 7 }, '"text" holds something that is not text'],
-      ["creative_generate_speech", {}, 'no argument holds the text to speak ("text", "script" or "message")'],
-      ["creative_generate_speech", { script: "" }, '"script" is empty, so there is nothing to price'],
-      ["creative_generate_speech", { text: "hello", takes: "many" }, '"takes" states a take count no number can be read out of'],
-      ["creative_generate_sound_effect", { prompt: "a door", variations: "lots" }, '"variations" states a generation count no number can be read out of'],
-      ["creative_generate_music", { music_length_ms: 30_000, num_outputs: "three" }, '"num_outputs" states a generation count no number can be read out of'],
+      ["creative_generate_speech", { ...speechArgs("hello"), takes: 2 }, '"takes" is an argument ElevenLabs\' own schema for this tool does not have, so its effect on the bill is unknown'],
+      ["creative_generate_speech", { ...speechArgs("hello"), generations: "many" }, '"generations" is an argument ElevenLabs\' own schema for this tool does not have, so its effect on the bill is unknown'],
+      ["creative_generate_speech", { ...speechArgs("hello"), generations_count: "many" }, '"generations_count" states a generation count no number can be read out of'],
+      ["creative_transcribe_audio", { ...transcribeArgs(), path: "a.wav" }, '"path" is an argument ElevenLabs\' own schema for this tool does not have, so its effect on the bill is unknown'],
+      ["creative_run_flow_nodes", { flow_id: "flow_example", context: "a test", num_outputs: "three" }, '"num_outputs" is an argument ElevenLabs\' own schema for this tool does not have, so its effect on the bill is unknown'],
     ]
     for (const [tool, input, obstacle] of obstacles) {
       const error = refused(tool, input)
@@ -460,32 +454,47 @@ describe("RR4-12 — a refusal names the argument that caused it, and never deni
     }
   })
 
-  test("a tool with a published rate is never told it has none, and one without keeps the estimate route", () => {
-    // The aliases in the price table are names the guard never sees; the gate is `mustPrice`.
-    for (const tool of [...RATED_TOOLS.keys()].filter(mustPrice)) {
-      // A count no number can be read out of stops every one of them, so each refuses for the same reason: the rate
-      // is stated and the estimate route is not offered where it does not exist.
-      const error = refused(tool, { generations: "many" })
-      expect(error?.code).toBe("PRICE_UNKNOWN")
-      expect(`${tool}: ${error?.message}`).not.toContain("no published credit price")
-      if (!ESTIMATE_TOOLS.includes(tool)) expect(`${tool}: ${error?.nextStep}`).not.toContain("estimate_only")
-    }
-    // Image is the other half of the rule: no rate here at all, so the wording and the estimate route both stand.
-    const image = refused("creative_generate_image", { prompt: "a cat" })
-    expect(image?.message).toContain("has no published credit price and no remembered estimate")
-    expect(image?.nextStep).toContain('"estimate_only": true')
-    expect(RATED_TOOLS.has("creative_generate_image")).toBe(false)
+  test("a call with no obstacle at all is refused for want of a figure, and names none", () => {
+    // Nothing is wrong with these arguments; ElevenLabs has simply not been asked yet. A refusal that blamed an
+    // argument here would send the caller after a fault that is not there (RR4-12's real finding).
+    const error = refused("creative_generate_speech", speechArgs("hello"))
+    expect(error?.code).toBe("PRICE_UNKNOWN")
+    expect(error?.message).toContain("creative_generate_speech could not be priced from ElevenLabs' own estimate, so the cap cannot be checked before it runs.")
+    // Nothing is quoted after that sentence: no argument is named, and no count is blamed.
+    expect(error?.message).not.toContain("is an argument")
+    expect(error?.message).not.toContain("states a generation count")
+    expect(priceObstacle("creative_generate_speech", speechArgs("hello"))).toBeUndefined()
   })
 
-  test("every priced tool is either one this plugin rates or one the server estimates for it", () => {
-    for (const tool of PRICED_ARGUMENTS.keys()) expect(RATED_TOOLS.has(tool) || ESTIMATE_TOOLS.includes(tool)).toBe(true)
-    // And a rated tool really is priced from the rate, not from an estimate that happens to be remembered.
-    expect(priceOf("creative_generate_music", { music_length_ms: 60_000 })?.credits).toBe(900)
-    expect(priceOf("creative_generate_sound_effect", { prompt: "a door" })?.credits).toBe(200)
+  test("the estimate route is offered to every tool that has one, and to no tool that does not", () => {
+    for (const tool of SPEND_TOOLS.filter(mustPrice)) {
+      const error = refused(tool, { context: "a test" })
+      expect({ tool, code: error?.code }).toEqual({ tool, code: "PRICE_UNKNOWN" })
+      if (ESTIMATE_TOOLS.includes(tool)) {
+        expect(`${tool}: ${error?.message}`).toContain("could not be priced from ElevenLabs' own estimate")
+        expect(`${tool}: ${error?.nextStep}`).toContain('"estimate_only": true')
+      } else {
+        // `creative_design_voice` renders three previews and `agents_run_tests` holds conversations: no estimate, so
+        // the one next step that always works is turning the caps off.
+        expect(`${tool}: ${error?.message}`).toContain('does not accept "estimate_only"')
+        expect(`${tool}: ${error?.nextStep}`).not.toContain("estimate_only")
+      }
+      // No refusal claims a rate this plugin does not publish any more.
+      expect(`${tool}: ${error?.message}`).not.toContain("published credit")
+    }
+  })
+
+  test("every tool with an argument allowlist is one ElevenLabs estimates for", () => {
+    for (const tool of PRICED_ARGUMENTS.keys()) expect({ tool, estimable: ESTIMATE_TOOLS.includes(tool) }).toEqual({ tool, estimable: true })
+    // And every estimable tool has one, so no priced call reaches an estimate with an argument nothing checked.
+    for (const tool of ESTIMATE_TOOLS) expect({ tool, allowlisted: PRICED_ARGUMENTS.has(tool) }).toEqual({ tool, allowlisted: true })
   })
 })
 
-describe("RR4-8 — the reading a price was taken at is named, not assumed", () => {
+describe("RR4-8 — the reading a duration was taken at is named, not assumed", () => {
+  // This block used to be about a price: the cost line had to name which of a WAV's two readings it billed, because
+  // a 55x bill turned on it. No file prices anything now, so the naming is what it always should have been — a line
+  // of text about a file the save tool has just written, which an owner's own player may read differently.
   const root = mkdtempSync(join(tmpdir(), "elevenlabs-rr4-8-"))
   afterAll(() => rmSync(root, { recursive: true, force: true }))
   const file = (name: string, bytes: Buffer) => {
@@ -493,35 +502,19 @@ describe("RR4-8 — the reading a price was taken at is named, not assumed", () 
     writeFileSync(path, bytes)
     return path
   }
-  /** The same reader the pricing uses, over a buffer, so the two readings can be compared without a file. */
+  /** The same reader the save tool uses, over a buffer, so the two readings can be compared without a file. */
   const reading = (bytes: Buffer) => riffReadingWith((offset, length) => bytes.subarray(offset, offset + length), bytes.length)
 
-  test("a `data` size that understates the file gives two readings, and the price is the longer", () => {
+  test("a `data` size that understates the file gives two readings, and the longer is reported", async () => {
     // 8 kHz mono 8-bit: the `data` header states 8,000 bytes, one second, and 480,000 follow it. `afinfo` and
-    // Python's `wave` both read the stated second. This plugin prices the sixty, because the shorter reading can
-    // under-price a cap and the longer one cannot — but which it used is no longer only in a comment.
+    // Python's `wave` both read the stated second. This walk reports the sixty that are there, and says it did.
     const both = reading(understatedThenJunk())
     expect(both).toEqual({ seconds: 60, stated: 1, toTheEnd: 60, understated: true })
     expect(both!.seconds).toBe(both!.toTheEnd)
+    expect(await durationOf(file("understated-then-junk.wav", understatedThenJunk()))).toBe(60)
   })
 
-  test("the cost line names the reading, so a 55x bill is visible rather than inferred", () => {
-    const path = file("understated-then-junk.wav", understatedThenJunk())
-    const price = transcriptionPrice({ path })
-    // 60 seconds at 330 a minute, where the file's own `data` size says 6.
-    expect(price?.credits).toBe(330)
-    expect(price?.parts).toContain("the data chunk states less than the file holds, so every byte after it is priced as audio")
-    // And the owner sees it through the guard, not just in the unit price.
-    const quoted = quoteCallSync(
-      { ledger: new Ledger(), caps: () => ({ sessionCreditCap: 100_000, dailyCreditCap: 100_000 }) },
-      "creative_transcribe_audio",
-      { path },
-      { sessionID: "ses_a", agent: "build", messageID: "m1", id: "c1" },
-    )
-    expect(quoted.price.parts.join(" | ")).toContain("every byte after it is priced as audio")
-  })
-
-  test("a file that does not disagree with itself says nothing about a reading", () => {
+  test("a file that does not disagree with itself says nothing about a reading", async () => {
     for (const [name, build] of [
       // The ordinary file: the stated size is the audio, and both readings are the same.
       ["canonical", WAV_FIXTURES.canonical],
@@ -533,8 +526,7 @@ describe("RR4-8 — the reading a price was taken at is named, not assumed", () 
       const path = file(`${name}.wav`, build())
       const both = reading(build())
       expect(`${name}: ${both?.understated}`).toBe(`${name}: false`)
-      expect(`${name}: ${both?.seconds}`).toBe(`${name}: ${measureAudio({ path })?.durationSeconds}`)
-      expect(`${name}: ${transcriptionPrice({ path })?.parts.join(" | ")}`).not.toContain("every byte after it")
+      expect(`${name}: ${both?.seconds}`).toBe(`${name}: ${await durationOf(path)}`)
     }
     // The clamp really is the short one: sixty seconds of audio under a size field claiming ten minutes.
     expect(reading(WAV_FIXTURES.overstated())).toEqual({ seconds: 60, stated: 60, toTheEnd: 60, understated: false })
@@ -542,17 +534,17 @@ describe("RR4-8 — the reading a price was taken at is named, not assumed", () 
     expect(reading(WAV_FIXTURES.trailing())).toEqual({ seconds: 1, stated: 1, toTheEnd: 13.501, understated: false })
   })
 
-  test("the comment's premise is a live-checklist item, not an assertion about the server", () => {
+  test("the comment claims nothing about what the server bills, because nothing here bills from a file", () => {
     // The comment wraps, so the prose is read with its line breaks and leading asterisks taken out.
     const policy = readFileSync(new URL("../../src/media/policy.ts", import.meta.url), "utf8").replace(/\s+\*\s+/g, " ").replace(/\s+/g, " ")
     // At 6c21964 this asserted "the server reads to the end of what it is sent", which no decoder to hand does and
-    // nothing here has measured. It now names the decoders that were tried and what they did.
+    // nothing here has measured. Live reconcile 1 then took the whole question out of the plugin: the comment names
+    // the decoders that were tried, and says plainly that this figure prices nothing.
     expect(policy).not.toContain("the server reads to the end of what it is sent")
-    expect(policy).toContain("How ElevenLabs' server reads such a file is not measured")
+    expect(policy).not.toContain("which one the server bills")
+    expect(policy).toContain("Nothing here prices anything.")
     expect(policy).toContain("afinfo")
     expect(policy).toContain("Python's `wave`")
-    const checklist = readFileSync(new URL("../fixtures/README.md", import.meta.url), "utf8")
-    expect(checklist).toContain("How much of an understating `data` chunk is billed")
-    expect(checklist).toContain("riffReadingWith")
+    expect(policy).toContain("This figure is never a price.")
   })
 })

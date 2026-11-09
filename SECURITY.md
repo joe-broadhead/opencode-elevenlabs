@@ -36,13 +36,19 @@ Report privately through GitHub's private vulnerability reporting on
 
 **Every tool is allowed by default.** With `access: "all"` an agent can, without asking:
 
-- **Spend your credits.** Speech, images, video, music and sound effects bill the workspace you signed in with. An image
-  or video call returns **four variations by default** and speech returns **two takes**, so one call can be four billable
-  generations, and asking for a retry starts and charges another. **Speech to Text bills too**, at 330 credits a minute,
-  and it is a *read*: `access: "read-only"` denies the generations and **still allows transcription**, so a read-only
-  agent can spend. Running an agent test (`agents_create_test`) may also bill the agent's LLM usage; that is not capped
-  until the live reconcile. The plugin prices each call before sending it, reserves the price, and prints a cost line;
-  the caps (`sessionCreditCap`, `dailyCreditCap`) are the only bound, and they bound this plugin, not your account.
+- **Spend your credits.** Nine tools bill the workspace you signed in with: speech, images, video, image editing,
+  generating inside a flow, running a flow's nodes, transcription, voice design and running an agent test. An image or
+  video call returns **four variations by default** and speech returns **two takes**, so one call can be four billable
+  generations, and asking for a retry starts and charges another. **Transcription bills too**, and it is a *change*,
+  not a read: `access: "read-only"` denies it along with every other tool that can spend. The plugin prices each call
+  before sending it by asking ElevenLabs for an estimate of that exact call, reserves the figure, and prints a cost
+  line; the caps (`sessionCreditCap`, `dailyCreditCap`) are the only bound, and they bound this plugin, not your
+  account. `creative_design_voice` and `agents_run_tests` have no estimate, so while a cap is on they are refused
+  rather than run unpriced.
+- **An estimate is a call of its own.** It costs nothing — measured against a real workspace, two of them moved the
+  balance by zero — but each one creates a flow and a node in the workspace. The plugin asks for one per set of
+  arguments, keeps it for ten minutes, and sends it only where the paid call is permitted: under `ask-changes` you are
+  asked once, for the generation, and under `read-only` nothing is estimated because nothing may be generated.
 - **What a cap cannot decide.** Exactly: **within one OpenCode the caps are exact; across OpenCodes a cap is crossed
   by at most one call's reservation for each one deciding before its read of the others' holds lands, so eight of them
   at 3,000 credits a call can spend 31,000 against a 10,000 cap; every OpenCode reads the store behind each call it
@@ -68,11 +74,9 @@ Report privately through GitHub's private vulnerability reporting on
 - **Grant access from outside.** `agents_get_link` mints a shareable link; anyone with it can use the agent or the test
   session.
 - **Read callers' calls.** Every transcript and its extracted fields, as above.
-- **Send your audio to ElevenLabs.** `creative_transcribe_audio` and the reference-file tools upload what you point them
-  at. A transcription is priced from that file's own bytes, and the file is stamped (device, inode, size, last
-  modification) before it is measured and again before the price is held, so a file that grew in between is refused
-  rather than sent on the shorter reading. The server opens the file after the dispatch, and nothing here can hold it
-  still until then: a file still being written when the call goes out is still billed at whatever the server reads.
+- **Send your audio to ElevenLabs.** The reference-file and asset-upload tools send what you point them at.
+  `creative_transcribe_audio` does not: it takes no file and no path, and transcribes a node already on a flow in the
+  workspace. No price in this plugin reads a file on this machine.
 - **Write outside the project.** `elevenlabs_save_media` writes under `mediaRoot`. It asserts both its own action and
   OpenCode's `external_directory` rule for that folder before it fetches anything, so a session that denies
   `external_directory` writes nothing.

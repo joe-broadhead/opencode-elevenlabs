@@ -36,6 +36,8 @@ Checked by `scripts/check-forbidden.mjs` across `src/`, `test/`, `scripts/` and 
 - The plugin never sees the OAuth token, and never prints one. Anything read from the network goes through
   `src/redact.ts` before it reaches status or the session.
 - A tool that writes asserts its own permission inside `execute`; a declared `permission` alone does not ask.
-- Two facts are unverified until the live reconcile, and the README names both in one place: the tool table is
-  provisional (README's Known limits, `test/fixtures/README.md`), and the estimate's freeness and unit are measured there
-  too. Do not state either as settled.
+- The tool table and the estimate's shape were measured in live reconcile 1 (`test/fixtures/README.md`): the catalogue
+  is the live one, an estimate costs nothing but creates a flow, and its figure is the batch total and may be
+  fractional. One fact is still unverified, and the README's Known limits is the one place that says so: whether a paid
+  result reports what it really cost, and in which field. Do not state that as settled, and do not call the tool table
+  provisional.

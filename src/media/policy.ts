@@ -332,12 +332,12 @@ function laterIdsFrom(read: ChunkReader, offset: number, fileSize: number): Set<
 }
 
 /**
- * The two readings a RIFF/WAVE file admits, and which one a price is taken at. Both are the `data` chunk's bytes at
- * the rate the `fmt ` fields imply; they differ only in how many bytes `data` holds when the file disagrees with
- * itself.
+ * The two readings a RIFF/WAVE file admits, and which one the saved line is taken at. Both are the `data` chunk's
+ * bytes at the rate the `fmt ` fields imply; they differ only in how many bytes `data` holds when the file disagrees
+ * with itself.
  */
 export interface RiffReading {
-  /** The seconds the price is taken at: the longer of the two, except where the stated size is believed. */
+  /** The seconds that are reported: the longer of the two, except where the stated size is believed. */
   readonly seconds: number
   /** The seconds the `data` size field states, clamped to the bytes that really follow it. */
   readonly stated: number
@@ -351,27 +351,29 @@ export interface RiffReading {
  * The seconds of audio a decoder reads out of a RIFF/WAVE file: the `data` chunk's bytes at the rate its `fmt `
  * fields imply. The audio is every byte that follows `data`, because a `data` size that understates the audio is
  * ordinary — a truncated file, one still being written, a bad mux — and a decoder that reads to the end of what it
- * is sent bills for all of it. The stated size is believed only when a well-formed chunk begins exactly where it
- * ends, pad byte included, which is what a real trailing `LIST` or cue block looks like; then the rest is metadata,
- * not audio. A size that overstates the audio is always clamped to the bytes that really follow. Both directions
- * leave the error on the over-priced side, which is the safe one: a cap must never admit a call it could not afford.
+ * is sent plays all of it. The stated size is believed only when a well-formed chunk begins exactly where it ends,
+ * pad byte included, which is what a real trailing `LIST` or cue block looks like; then the rest is metadata, not
+ * audio. A size that overstates the audio is always clamped to the bytes that really follow.
  *
- * How ElevenLabs' server reads such a file is not measured. Both decoders to hand stop at the stated size — macOS
- * `afinfo` and Python's `wave` both call 480,000 bytes of audio behind a `data` size of 8,000 one second long — so
- * on their behaviour this reading is 55 times too long for a file a cap must then afford. It is kept because it
- * cannot under-price, and the shorter reading can; which one the server bills is item 7 of the live reconcile in
- * `test/fixtures/README.md`. Until that is measured, the cost line names the reading it used, so an owner looking
- * at a bill can see it.
+ * **Nothing here prices anything.** This reading is the duration the save tool prints beside a file it has just
+ * written, and since live reconcile 1 no price in this plugin reads a file at all: ElevenLabs' own `estimate_only`
+ * call is the only source of a price, and the live `creative_transcribe_audio` takes no file argument. The rigour
+ * below is kept because a figure shown to the owner should be the one a decoder would agree with, not because a
+ * cap depends on it.
+ *
+ * Decoders disagree about an understating `data` size, so the disagreement is reported rather than hidden: macOS
+ * `afinfo` and Python's `wave` both call 480,000 bytes of audio behind a `data` size of 8,000 one second long,
+ * where this walk reads the sixty seconds that are really there. `understated` says which file this was, so a line
+ * that disagrees with the owner's own player can be explained.
  *
  * A second `data` chunk is not metadata, and it is not measured either. CoreAudio reads the last `data` chunk and
- * Python's `wave` the first, so how long such a file is depends on which decoder opens it, and nothing here says
- * which one ElevenLabs' server uses. A length this plugin cannot know is not one it guesses at: the file is
- * unmeasured, and a call that needs its length is refused with `PRICE_UNKNOWN` while a cap is on (RR4-7).
+ * Python's `wave` the first, so how long such a file is depends on which decoder opens it. A length this plugin
+ * cannot know is not one it guesses at: the file is unmeasured, and the saved line simply carries no duration
+ * (RR4-7).
  *
  * A second `fmt ` chunk is the same ambiguity and gets the same answer (RR5-1). The sample rate is what turns bytes
  * into seconds, so two `fmt ` chunks are two lengths for one file, and the gap between them is as wide as the gap
- * between their rates. Taking the first was not a rule but an accident of the walk, and it is the one reading that
- * can under-price: a file whose first `fmt ` claims nine times the real rate was priced at a ninth of its length.
+ * between their rates. Taking the first was not a rule but an accident of the walk.
  */
 export function riffReadingWith(read: ChunkReader, fileSize: number): RiffReading | undefined {
   const riff = riffPcmWith(read, fileSize)
@@ -390,7 +392,7 @@ export function riffReadingWith(read: ChunkReader, fileSize: number): RiffReadin
   }
 }
 
-/** The seconds a price is taken at, which is `riffReadingWith`'s own reading. */
+/** The seconds reported for a RIFF/WAVE file, which is `riffReadingWith`'s own reading. */
 export function riffSecondsWith(read: ChunkReader, fileSize: number): number | undefined {
   return riffReadingWith(read, fileSize)?.seconds
 }
@@ -479,7 +481,8 @@ export function isoSecondsWith(read: ChunkReader, fileSize: number): number | un
  * codec that sits below that floor.
  *
  * `fileSize` is the whole file's size; with only the buffer it is the buffer's length, and a `data` chunk past the
- * buffer is then not reachable. `durationOf` and the spending guard pass a reader that seeks instead.
+ * buffer is then not reachable. `durationOf` passes a reader that seeks instead. Nothing here is a price: the figure
+ * is shown beside a saved file and read by nothing else.
  */
 export function durationIn(chunk: Buffer, fileSize = chunk.length): number | undefined {
   return riffSecondsWith(readerOf(chunk), Math.min(fileSize, chunk.length))
@@ -523,9 +526,9 @@ export function fileReader(fd: number, size: number): ChunkReader {
  * The duration of a finished file, for the line the save tool prints. Anything else returns undefined rather than an
  * estimate. A WAV is measured from its own bytes; an MP4 or M4A is the duration its `mvhd` states.
  *
- * **This figure is never a price.** A `mvhd` is the file's word for its own length, and the spending guard calls
- * `riffSecondsWith` itself — it does not call this — so a file cannot set what it costs by stating a duration. Keep
- * it that way: anything that prices a call measures the audio, and a container this cannot measure is PRICE_UNKNOWN.
+ * **This figure is never a price.** A `mvhd` is the file's word for its own length, and no price in this plugin
+ * reads a file: since live reconcile 1 every creative call is priced by ElevenLabs' own `estimate_only` call, for
+ * the arguments it is sent, and a file on this machine is not one of them. Keep it that way.
  */
 export async function durationOf(file: string): Promise<number | undefined> {
   const handle = await fs.open(file, "r")
