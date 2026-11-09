@@ -3,7 +3,7 @@ import { afterAll, describe, expect, test } from "bun:test"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { Ledger, MUSIC_MIN_MS, measureAudio, priceOf, RATES, RESERVATION_MS, transcriptionPrice } from "../../src/billing.js"
+import { Ledger, MUSIC_MIN_MS, measureAudio, priceOf, quoteCall, quoteCallSync, RATES, RESERVATION_MS, transcriptionPrice } from "../../src/billing.js"
 import { shapersFor } from "../../src/host/tools-rpc.js"
 import { brokenRiff, buildWav, WAV_FIXTURES } from "../fixtures/wav.js"
 
@@ -204,5 +204,79 @@ describe("RR2-4 — a late result cannot settle the call that replaced it", () =
     shapers.result("creative_generate_speech", { output: { credits: 1 }, text: "" }, call)
     shapers.result("creative_generate_speech", { output: { credits: 1 }, text: "" }, call)
     expect(ledger.daily()).toBe(4_500)
+  })
+})
+
+describe("RR2-5 — two locations on one data directory", () => {
+  const caps = () => ({ sessionCreditCap: 2_000, dailyCreditCap: 2_000 })
+  const guardCall = (id: string) => ({ sessionID: "ses_a", agent: "build", messageID: "m1", id })
+  const speech = { text: "x".repeat(600) }
+
+  /** One backing store, handed out as a fresh storage object each time: another location, or another OpenCode. */
+  const sharedStore = () => {
+    const stored = new Map<string, unknown>()
+    return {
+      stored,
+      handle: () => ({
+        get: async (key: string) => stored.get(key) as never,
+        set: async (key: string, value: unknown) => {
+          await Promise.resolve()
+          stored.set(key, value)
+        },
+      }),
+    }
+  }
+
+  test("a charge that settled is never dropped by the other writer's merge", async () => {
+    // d107a11: both writers read an empty record, both set their own, and the store kept 1,200 of the 2,400 that
+    // was spent. The lost charge overstated the owner's remaining budget from then on.
+    const store = sharedStore()
+    const first = new Ledger({ storage: store.handle() })
+    const second = new Ledger({ storage: store.handle() })
+    await Promise.all([first.hydrate(), second.hydrate()])
+    await Promise.all([first.reserve("a", "ses_a", 1_200, caps()), second.reserve("b", "ses_a", 1_200, caps())])
+    first.settle("a", "ses_a", 1_200)
+    second.settle("b", "ses_a", 1_200)
+    await Promise.all([first.flush(), second.flush()])
+    const restarted = new Ledger({ storage: store.handle() })
+    await restarted.hydrate()
+    expect(restarted.daily()).toBe(2_400)
+  })
+
+  test("a path that can await decides from the store, so the second location is refused", async () => {
+    // d107a11 decided from this process's memory alone: the second location saw nothing and spent the cap again.
+    const store = sharedStore()
+    const first = new Ledger({ storage: store.handle() })
+    const second = new Ledger({ storage: store.handle() })
+    await Promise.all([first.hydrate(), second.hydrate()])
+    await quoteCall({ ledger: first, caps }, "creative_generate_speech", speech, guardCall("a"))
+    await first.flush()
+    await expect(quoteCall({ ledger: second, caps }, "creative_generate_speech", speech, guardCall("b"))).rejects.toMatchObject({
+      code: "SPEND_CAP_REACHED",
+    })
+  })
+
+  test("the hold is in the store before the call is dispatched, so a crash cannot lose it", async () => {
+    const store = sharedStore()
+    const ledger = new Ledger({ storage: store.handle() })
+    await ledger.hydrate()
+    await quoteCall({ ledger, caps }, "creative_generate_speech", speech, guardCall("a"))
+    // The process dies here, with the generation already running. A restart reads only what the store holds.
+    const restarted = new Ledger({ storage: store.handle() })
+    await restarted.hydrate()
+    expect(restarted.daily()).toBe(1_200)
+  })
+
+  test("the synchronous path still writes its hold, one tick behind the dispatch", async () => {
+    // The residual RR2-5 leaves open: the shared shaper contract is synchronous, so the script path cannot await the
+    // store before the call goes out. SECURITY.md and the README say so.
+    const store = sharedStore()
+    const ledger = new Ledger({ storage: store.handle() })
+    await ledger.hydrate()
+    quoteCallSync({ ledger, caps }, "creative_generate_speech", speech, guardCall("a"))
+    await ledger.flush()
+    const restarted = new Ledger({ storage: store.handle() })
+    await restarted.hydrate()
+    expect(restarted.daily()).toBe(1_200)
   })
 })

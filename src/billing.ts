@@ -337,6 +337,8 @@ const WINDOW_MS = 24 * 60 * 60 * 1000
 export const RESERVATION_MS = 10 * 60 * 1000
 /** The detail log is bounded. An in-window charge that no longer fits is folded into a total prune cannot shrink. */
 const MAX_ENTRIES = 1_000
+/** How many times a write is read back and rewritten when another writer's set dropped rows of this book's. */
+const PERSIST_ATTEMPTS = 3
 
 interface Entry {
   /** When the credits were spent, in epoch milliseconds. */
@@ -428,11 +430,19 @@ export class Ledger {
 
   /** Reads the stored ledger once, merging into the shared book. A storage failure leaves the totals as they are. */
   hydrate(): Promise<void> {
-    this.hydrated ??= this.enqueue(async (book) => {
+    this.hydrated ??= this.refresh()
+    return this.hydrated
+  }
+
+  /**
+   * Re-reads the stored ledger and merges it in, so a decision about to be made sees what another writer has already
+   * recorded. `hydrate` does this once; a path that can await does it again before it reserves.
+   */
+  refresh(): Promise<void> {
+    return this.enqueue(async (book) => {
       if (!this.storage) return
       unionInto(book, parseStored(await this.storage.get(LEDGER_KEY)), this.now())
     })
-    return this.hydrated
   }
 
   /** The credits spent in the last 24 hours, reservations and folded totals included. */
@@ -453,9 +463,10 @@ export class Ledger {
   /**
    * Holds `credits` for a call before it is sent, and refuses when it does not fit. Nothing awaits between the check and
    * the hold, so two calls that start together cannot both pass: the second sees the first's reservation, including one
-   * held by another ledger on the same storage.
+   * held by another ledger on the same storage. Returns the write that puts the hold in the store, for a caller that
+   * can await it before the call is dispatched; a caller that cannot leaves a window in which a crash loses the hold.
    */
-  reserve(id: string, sessionID: string, credits: number, caps: Caps) {
+  reserve(id: string, sessionID: string, credits: number, caps: Caps): Promise<void> {
     if (!(credits > 0)) {
       throw new SpendRefused("PRICE_UNKNOWN", "a priced call cannot be reserved at zero credits.", "Price the call from its file or its published rate, or set both caps to null.")
     }
@@ -470,7 +481,7 @@ export class Ledger {
       )
     }
     this.book().holds.set(id, { sessionID, credits, at: this.now() })
-    void this.persist()
+    return this.persist()
   }
 
   /** The reservation a call holds, if any. */
@@ -576,12 +587,20 @@ export class Ledger {
 
   /**
    * Re-reads and merges before set, on one chain per storage, so two writers cannot drop each other's charges or holds.
+   * One chain only covers writers that share a book. Two storage objects over one store — two locations, or two
+   * OpenCode processes on one data directory — have two chains, and a set that lands between another writer's read and
+   * its own set would drop the rows it had just merged. `ctx.storage` offers `get`, `set`, `remove` and `scan` and no
+   * compare-and-set, so the write is read back: when the record no longer holds a row of this book's, the other
+   * writer's record is merged in and written again. A charge that settled is never lost to another writer's merge.
    */
   private persist(): Promise<void> {
     return this.enqueue(async (book) => {
       if (!this.storage) return
-      unionInto(book, parseStored(await this.storage.get(LEDGER_KEY)), this.now())
-      await this.storage.set(LEDGER_KEY, serialize(book))
+      for (let attempt = 0; attempt < PERSIST_ATTEMPTS; attempt++) {
+        unionInto(book, parseStored(await this.storage.get(LEDGER_KEY)), this.now())
+        await this.storage.set(LEDGER_KEY, serialize(book))
+        if (storedHas(book, parseStored(await this.storage.get(LEDGER_KEY)), this.now())) return
+      }
     })
   }
 
@@ -675,6 +694,31 @@ const parseRolled = (value: unknown): Rolled[] =>
           : []
       })
     : []
+
+/**
+ * Whether a record read back from the store still holds every in-window row of this book: its charges at no less than
+ * this book's figure, each live hold either still held or already settled into a charge, and each folded total at no
+ * less than this book's. False means another writer set the record between this book's read and its set.
+ */
+function storedHas(book: Book, stored: StoredLedger, now: number): boolean {
+  const entries = new Map(stored.entries.map((entry) => [entry.id, entry.credits]))
+  for (const entry of book.entries) {
+    if (entry.at < now - WINDOW_MS) continue
+    const found = entries.get(entry.id)
+    if (found === undefined || found < entry.credits) return false
+  }
+  const holds = new Map(stored.holds.map((hold) => [hold.id, hold.credits]))
+  for (const [id, held] of book.holds) {
+    const found = holds.get(id) ?? entries.get(id)
+    if (found === undefined || found < held.credits) return false
+  }
+  for (const item of book.rolled) {
+    if (item.at < now - WINDOW_MS) continue
+    const found = stored.rolled.find((other) => other.sessionID === item.sessionID)
+    if (found === undefined || found.credits < item.credits) return false
+  }
+  return true
+}
 
 /** Adds what storage has and this book does not. Never restores a folded charge, an expired row, or a settled hold. */
 function unionInto(book: Book, stored: StoredLedger, now: number) {
@@ -870,9 +914,13 @@ async function quote(context: GuardInput, tool: string, args: Record<string, unk
   }
   price ??= context.ledger.rememberedPrice(tool, args)
   if (price === undefined || !(price.credits > 0)) throw unknownPrice(tool, priced(tool))
+  // This path can await, so it decides from the store rather than from this process's memory: a charge another
+  // location or another OpenCode recorded is merged in first. The check and the hold inside `reserve` stay
+  // synchronous, so nothing slips between them.
+  await context.ledger.refresh()
   price = clamp(price, caps, args, context.ledger.spend(call.sessionID))
-  context.ledger.reserve(call.id, call.sessionID, price.credits, caps)
-  await context.ledger.flush()
+  // The hold is in the store before the call is dispatched, so a crash cannot lose a reservation for a call that ran.
+  await context.ledger.reserve(call.id, call.sessionID, price.credits, caps)
   return { price, tracked: true }
 }
 
@@ -885,7 +933,9 @@ function quoteSync(context: Omit<GuardInput, "estimate">, tool: string, args: Re
   let price = priceOf(tool, args) ?? context.ledger.rememberedPrice(tool, args)
   if (price === undefined || !(price.credits > 0)) throw unknownPrice(tool, priced(tool))
   price = clamp(price, caps, args, context.ledger.spend(call.sessionID))
-  context.ledger.reserve(call.id, call.sessionID, price.credits, caps)
+  // Synchronous by the shared shaper contract: this path cannot await the store before the call is dispatched, so it
+  // decides from this process's book and the write follows. See the residual in SECURITY.md.
+  void context.ledger.reserve(call.id, call.sessionID, price.credits, caps)
   return { price, tracked: true }
 }
 

@@ -91,6 +91,11 @@ A price is **reserved** in the ledger before the call is sent and settled into a
 parallel turn cannot spend one budget twice. A call that fails, and a hold still open after ten minutes, is charged the
 reserved price: the plugin cannot tell a free failure from a billed one. A later higher figure may replace that charge.
 A zero or a missing result does not free the budget. Recorded spend is `{ at, credits, sessionID, id }`, with the open
-holds, in `ctx.storage`. Pruning the detail log folds an in-window charge into a total it cannot shrink. Every reserve
-re-reads and merges before it writes, so two ledgers on one storage share one daily cap. Two machines do not. Two
-locations keep their own tools-RPC shapers. On the script path, one priced call per session and method is in flight.
+holds, in `ctx.storage`. Pruning the detail log folds an in-window charge into a total it cannot shrink. Every write
+re-reads, merges and then reads itself back, rewriting when another writer's set dropped a row, so a charge that
+settled is never lost. Two ledgers handed one storage object share a book and one daily cap, as two locations in one
+OpenCode do. Two OpenCodes on one data directory do not decide together: `ctx.storage` has no compare-and-set, so each
+admits against what it has read, and they only converge on the charge after it is written. The model path re-reads the
+store before it reserves and awaits the hold's write before dispatch; the script path's shaper is synchronous by the
+shared contract and can do neither. Two machines share nothing. Two locations keep their own tools-RPC shapers. On the
+script path, one priced call per session and method is in flight.

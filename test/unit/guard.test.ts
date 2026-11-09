@@ -43,16 +43,42 @@ describe("nothing that may spend runs unguarded (DR-3)", () => {
   })
 })
 
-describe("two ledgers on one storage share one cap", () => {
-  test("a reservation in one ledger is visible to the other", () => {
-    const stored = new Map<string, unknown>()
-    const store = { get: async (key: string) => stored.get(key) as never, set: async (key: string, value: unknown) => void stored.set(key, value) }
-    const first = new Ledger({ storage: store })
-    const second = new Ledger({ storage: store })
+describe("two ledgers handed one storage object share one cap", () => {
+  const stored = () => {
+    const records = new Map<string, unknown>()
+    return { records, handle: () => ({ get: async (key: string) => records.get(key) as never, set: async (key: string, value: unknown) => void records.set(key, value) }) }
+  }
+
+  test("a reservation in one ledger is visible to the other at once", () => {
+    // One storage object is one location in one OpenCode: the two ledgers share a book, so the second sees the first's
+    // hold with nothing awaited.
+    const store = stored()
+    const handle = store.handle()
+    const first = new Ledger({ storage: handle })
+    const second = new Ledger({ storage: handle })
     quoteCallSync({ ledger: first, caps: () => caps() }, "creative_generate_speech", { text: "x".repeat(600) }, call("a"))
     expect(first.spend("ses_a").sessionCredits).toBe(1200)
     expect(() => quoteCallSync({ ledger: second, caps: () => caps() }, "creative_generate_speech", { text: "x".repeat(600) }, call("b"))).toThrow(SpendRefused)
     expect(second.spend("ses_a").sessionCredits).toBe(1200)
+  })
+
+  test("two storage objects over one store do not decide together, and both charges survive", async () => {
+    // Two OpenCodes on one data directory. Neither can see the other's reservation before it is written, so both are
+    // admitted: that is the documented limit of a cap with no compare-and-set, not a cap that holds. What must hold is
+    // that neither charge is lost, so the next call in each sees all 2,400.
+    const store = stored()
+    const first = new Ledger({ storage: store.handle() })
+    const second = new Ledger({ storage: store.handle() })
+    await Promise.all([first.hydrate(), second.hydrate()])
+    quoteCallSync({ ledger: first, caps: () => caps() }, "creative_generate_speech", { text: "x".repeat(600) }, call("a"))
+    quoteCallSync({ ledger: second, caps: () => caps() }, "creative_generate_speech", { text: "x".repeat(600) }, call("b"))
+    first.settle("a", "ses_a", 1200)
+    second.settle("b", "ses_a", 1200)
+    await Promise.all([first.flush(), second.flush()])
+    const restarted = new Ledger({ storage: store.handle() })
+    await restarted.hydrate()
+    expect(restarted.daily()).toBe(2400)
+    expect(() => quoteCallSync({ ledger: restarted, caps: () => caps() }, "creative_generate_speech", { text: "x".repeat(600) }, call("c"))).toThrow(SpendRefused)
   })
 })
 
