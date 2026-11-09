@@ -39,10 +39,15 @@ describe("docs", () => {
     expect(flat(file)).not.toMatch(/opencode-elevenlabs@\d|\bv?\d+\.\d+\.\d+-|\bv?0\.0\.\d\b|not (yet )?published|"private"/i)
   })
 
-  test("only the README's Known limits calls the tool table provisional, and nothing else does", () => {
-    const readme = flat("README.md")
-    expect([...readme.matchAll(/provisional/gi)]).toHaveLength(1)
-    for (const file of ["SECURITY.md", "CONTRIBUTING.md", ...DOCS, ...SKILLS]) expect({ file, hits: (flat(file).match(/provisional/gi) ?? []).length }).toEqual({ file, hits: 0 })
+  // This used to assert that the README's Known limits was the one place calling the tool table provisional. The table
+  // is the live catalogue now (test/fixtures/README.md), so no file may call it provisional, and Known limits says
+  // where the table came from instead.
+  test("nothing calls the tool table provisional, and the README says the table was captured live", () => {
+    for (const file of FILES) expect({ file, hits: (flat(file).match(/provisional/gi) ?? []).length }).toEqual({ file, hits: 0 })
+    const limits = /## Known limits([\s\S]*?)## Uninstall/.exec(flat("README.md"))?.[1] ?? ""
+    expect(limits).toMatch(/live/i)
+    // The one fact still unverified is named there, and nowhere is it stated as settled.
+    expect(limits).toContain("unverified until the live reconcile")
   })
 
   // Once the plugin is removed and OpenCode reloads, `mcp logout elevenlabs` finds no server: the README signs out first,
@@ -127,12 +132,22 @@ describe("docs", () => {
     }
   })
 
-  // DR-2 and DR-3: what the docs promise about money is what the code does.
-  test("the docs say transcription bills, and that read-only does not stop it", () => {
-    expect(flat("README.md")).toContain("330 per minute for Speech to Text")
-    expect(flat("README.md")).toContain("denies the generations and **not** the transcription")
-    expect(flat("SECURITY.md")).toContain("330 credits a minute")
-    expect(flat("docs/configuration.md")).toContain("`access: \"read-only\"` is about **changes**, not money")
+  // DR-2 and DR-3: what the docs promise about money is what the code does. This used to assert a per-minute rate for
+  // transcription (330 credits) and that `read-only` left it running. Both are gone: there is no rate table here, and
+  // a transcription is classed as a change, so `read-only` denies it with the rest of the spending tools.
+  test("the docs say transcription spends, and that read-only denies every spending tool", () => {
+    expect(flat("README.md")).toContain("Transcription spends like everything else")
+    expect(flat("README.md")).toContain("`access: \"read-only\"` denies it along with every other tool that can spend")
+    expect(flat("SECURITY.md")).toContain("**Transcription bills too**")
+    expect(flat("docs/configuration.md")).toContain("`access: \"read-only\"` denies every tool that can spend, `creative_transcribe_audio` included")
+  })
+
+  // No doc states a credit rate of its own: every figure comes from ElevenLabs' estimate at call time, so a per-unit
+  // rate written here would be a second, unchecked source of truth.
+  test.each(FILES)("%s states no per-unit credit rate of its own", (file) => {
+    // A number of credits per unit generated. Saying there is *no* such rate ("no credits per character") is allowed;
+    // naming a figure is not.
+    expect(flat(file)).not.toMatch(/\b\d[\d,.]* ?credits? (?:a|an|per|\/) ?(?:minute|second|character|word|image|generation|video|voice)\b/i)
   })
 
   test("the README names every billed tool in its spending section, and the estimate caveat", () => {
@@ -250,17 +265,21 @@ describe("the priced-argument allowlists", () => {
   /** Argument names every priced tool allows, whatever it generates: the part the prose states once. */
   const common = [...PRICED_ARGUMENTS.values()].reduce((kept, allowed) => kept.filter((name) => allowed.has(name)), [...(PRICED_ARGUMENTS.values().next().value ?? [])])
 
+  // This used to expect `estimateOnly` beside `estimate_only`: the live schemas have only the snake_case name, so the
+  // camelCase spelling is gone from every allowlist and from the prose.
   test("the prose states the arguments every priced tool allows, and no more", () => {
-    expect([...common].sort()).toEqual(["context", "estimateOnly", "estimate_only"])
+    expect([...common].sort()).toEqual(["context", "estimate_only", "flow_id"])
     const sentence = /Every priced call may carry ([^.]*)\./.exec(section.replace(/\s+/g, " "))?.[1] ?? ""
     expect(names(sentence).sort()).toEqual([...common].sort())
   })
 
-  test("the count keys are documented for exactly the tools that take them", () => {
+  // This used to list three transcription names and four count keys. The live catalogue has one transcription tool
+  // and one batch-size name, `generations_count`, so the prose is singular and the exception is a single tool.
+  test("the count key is documented for exactly the tools that take it", () => {
     const refuses = [...PRICED_ARGUMENTS].filter(([, allowed]) => !GENERATION_KEYS.every((key) => allowed.has(key))).map(([tool]) => tool)
     // The one exception the prose names. If another tool ever stops taking a count, this sentence stops being true.
-    expect(refuses.sort()).toEqual(["creative_transcribe_audio", "creative_transcription", "speech_to_text"])
-    const sentence = /Every priced call \*\*except a transcription\*\* may also carry the count keys ([^.]*)\./.exec(section.replace(/\s+/g, " "))?.[1] ?? ""
+    expect(refuses.sort()).toEqual(["creative_transcribe_audio"])
+    const sentence = /Every priced call \*\*except a transcription\*\* may also carry the count key ([^.]*)\./.exec(section.replace(/\s+/g, " "))?.[1] ?? ""
     expect(names(sentence).sort()).toEqual([...GENERATION_KEYS].sort())
   })
 

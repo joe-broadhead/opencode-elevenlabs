@@ -13,9 +13,9 @@ known tools through a tools RPC. It adds one tool of its own and has no runtime 
 | `src/plugin.ts` | Setup: the server, the namespace, the rules, the guard's hooks, the commands, the tools RPC |
 | `src/constants.ts` | Ids, the region table, the scope pin, the media host, the host range, `TESTED_HOSTS` and the codes |
 | `src/options.ts` | Option parsing and validation |
-| `src/elevenlabs-tools.ts` | The one tool table: reads, export, writes, billed generations, deletes, transcript lists, `classify()` |
+| `src/elevenlabs-tools.ts` | The one tool table: the 189 classified tools — reads, export, writes, spending tools, deletes — the transcript lists and `classify()` |
 | `src/permissions.ts` | The generated default rules, their placement, and the agents that need them |
-| `src/billing.ts` | Prices, the rolling ledger, the pre-call refusal, the cost line, the RPC `cost` object |
+| `src/billing.ts` | ElevenLabs' estimate as the only price, the argument allowlists, the rolling ledger, the pre-call refusal, the cost line, the RPC `cost` object |
 | `src/media/policy.ts` | The export-root path policy and the file write |
 | `src/media/save.ts` | The link checks, the download and the extension and duration rules |
 | `src/media/tool.ts` | `elevenlabs_save_media`: its schema, its own permission assert, and its tools-RPC method |
@@ -45,9 +45,11 @@ place and keeps the modules it already loaded for unchanged paths. Only `@openco
 8. `ctx.skill.transform`, `ctx.command.transform` (`/elevenlabs-status`, `/elevenlabs-doctor`) and `ctx.rpc.register`
    (`elevenlabs/status`).
 9. `registerToolsRpc` registers `elevenlabs.tools` with the spending guard's shapers.
-10. `ctx.tool.hook("execute.before")` prices a billed call, may write a clamped `generations_count`, and refuses one that
-    does not fit before it is sent. `ctx.tool.hook("execute.after")` charges the ledger and appends the cost line, and the
-    expiry line for a generation's link.
+10. `ctx.tool.hook("execute.before")` prices a spending call from ElevenLabs' own estimate, may cut a `generations_count`
+    the caller named to what the budget affords, and refuses a call that does not fit before it is sent.
+    `ctx.tool.hook("execute.after")` charges the ledger and appends the cost line, and the expiry line for a
+    generation's link. An `estimate_only` call is neither priced nor charged: its answer is remembered as the price of
+    the paid call with the same arguments.
 11. `watchIntegration` starts. Setup returns one cleanup that stops it, both hooks and the tools RPC.
 
 Transforms are synchronous and never throw: a failure is kept as a problem for status, and cleared when the next replay
@@ -79,26 +81,43 @@ succeeds.
 
 ## The spending guard
 
-`priceOf` computes a price from ElevenLabs' published formula for speech, music, sound effects and a transcription whose
-file the plugin can measure. A number the caller types may raise that price; it cannot lower one, and a price of 0 is a
-refusal. Image and video have no published price, so the model path awaits a real `estimate_only: true` call through the
-host's executor, once, and the script path uses a price the script fetched itself, remembered for ten minutes. A call
-that cannot be priced is refused (`PRICE_UNKNOWN`), never guessed. While either cap is on, a name that starts with
-`creative_` and is not priced by the table the guard consults is refused before dispatch. There is no keyword list. A
-price that does not fit is refused before dispatch (`SPEND_CAP_REACHED`).
+**ElevenLabs is the only source of a price.** This plugin computes none of its own: no rate per character, per second
+or per minute, and no measurement of a local file. A call that can spend is priced by sending ElevenLabs the same call
+with `estimate_only: true` and the same arguments, and reading the figure out of its answer (`estimatePrice` in
+`src/billing.ts`). `ESTIMATE_TOOLS` holds the seven tools whose live schema declares `estimate_only`; `SPEND_TOOLS`
+holds the nine that can spend. A spending tool with no estimate — `creative_design_voice` and `agents_run_tests` — has
+no price at all, so while either cap is on it is refused (`PRICE_UNKNOWN`) rather than run unpriced.
 
-One list decides that a tool is priced. `PRICED_NAMES` in `src/elevenlabs-tools.ts` holds every name each priced
-operation may arrive under, and the gate, the rate table, the argument allowlists below and the formula that prices
-the call are all built from it, so a name documented here as priced is one the gate holds, whatever its prefix
-(RR5-2). `text_to_speech` and `speech_to_text` are ElevenLabs' canonical names for two of these operations: nothing in
-this repository reaches them today, and a live server that uses them is guarded on the first call rather than after a
-reconcile finds them unguarded.
+The figure ElevenLabs answers with is the **batch total** for the call it was sent, which live reconcile 1 measured: an
+estimate for four images came back as 761.5151418103446 credits, about 190 each. It is often fractional, and a
+fractional estimate is a real figure — the ledger rounds it up (`Math.ceil`) and the cost line names the figure it
+rounded from. When the call states no count, the batch is the server's own default for that tool
+(`GENERATION_DEFAULTS`: four for an image or an image edit, two for speech, one for a video), so a price divided per
+generation is divided by that default and the cost line says so. A tool whose schema declares `generations_count` with
+no default of its own — `creative_generate_in_flow`, `creative_run_flow_nodes` — gets no per-generation figure, only
+the total.
 
-Every such refusal names the argument that caused it: an argument outside the tool's allowlist, a file the price does
-not cover, or the length, text or count field no number could be read out of. The refusal is written for the tool it
-refuses. Speech, music, sound effects and transcription are priced from the published rates above, so theirs says the
-rate exists and names what to pass; only image and video, which this plugin does not price at all, are told they have
-no published price and offered the `estimate_only` route — which is the only route either of them has.
+**An estimate is free but not harmless.** Live reconcile 1 measured two of them against the workspace balance and saw
+no movement and no new billable request, and each one created a flow and a node in the owner's workspace. So the guard
+asks for one estimate per set of arguments, remembers the figure for ten minutes (`RESERVATION_MS`), and reuses it for
+the paid call rather than creating a second flow. Different arguments are a different call and get their own estimate.
+
+**The estimate is asked for only where the paid call could run.** `estimatorFor` asserts the paid tool's own permission
+(`elevenlabs_<tool>`, through `ctx.permission.assert`) before it sends anything. Under `access: "ask-changes"` that is
+the one prompt for the generation: the user is asked once, and the estimate goes out only if they allow it — so an
+estimate never creates a flow for a generation the user is about to refuse. Under `access: "read-only"` every spending
+tool is denied, the assert fails, and no estimate is sent either. A declined or failed assert leaves the call with no
+price, which a cap turns into `PRICE_UNKNOWN`.
+
+While either cap is on, a name that starts with `creative_` and is not classified as something that cannot spend is
+priced or refused before dispatch. There is no keyword list. A price that does not fit is refused before dispatch
+(`SPEND_CAP_REACHED`), and a count the caller named is first cut to what the budget affords; a call that named no count
+is refused at its whole figure rather than quietly given a smaller batch than it asked for.
+
+Each refusal names what it could not price and what to do about it, in two shapes. A tool that takes `estimate_only` is
+told to send the same call with `estimate_only: true` first. A tool that does not — `creative_design_voice`,
+`agents_run_tests`, and any `creative_*` name the table does not know — is told that ElevenLabs offers no estimate for
+it and that both caps must be `null` to run it.
 
 A price is **reserved** in the ledger before the call is sent and settled into a charge when its result arrives, so a
 parallel turn cannot spend one budget twice. A call that fails, and a hold still open after ten minutes, is charged the
@@ -137,80 +156,84 @@ call per session and method is in flight.
 
 ### Argument allowlists
 
-Every tool the guard prices has a list of the argument names it may carry while a cap is on. An argument outside its
-tool's list is one whose effect on the bill this plugin does not know, so the call is refused (`PRICE_UNKNOWN`) and the
-refusal names the argument, rather than being priced as if the argument were not there. With both caps off nothing is
-priced and the same call runs. The lists come from the schemas the plugin knows — `test/fixtures/live-tools.json` and
-the fake server in `test/host/fake-mcp.ts` — and from the names the pricing itself reads. Neither source has been
-checked against a live account, so confirming each priced tool's real argument names is one of the live-reconcile
-steps in `test/fixtures/README.md`.
+Every tool the guard prices has a list of the argument names it may carry while a cap is on, and each list is that
+tool's own live schema, name for name, taken from `test/fixtures/live-tools.json` and held against it by
+`test/unit/live-schema.test.ts`. An argument outside the list is one ElevenLabs' own schema for that tool does not
+have, so the call is refused (`PRICE_UNKNOWN`) and the refusal names the argument. The estimate is not asked for in
+that case either: it would answer for arguments nothing here can account for, and leave another flow behind for a call
+that is going to be refused. With both caps off nothing is priced and the same call runs. Live reconcile 2 is where
+the lists are checked again, by the step that says to confirm each priced tool's real argument names in
+`test/fixtures/README.md`.
 
-Every priced call may carry `estimate_only`, `estimateOnly` and `context`. Every priced call **except a transcription**
-may also carry the count keys `generations_count`, `generations`, `variations`, `num_generations` and `num_outputs`,
-which all multiply the price: a call stating more than one is priced from the largest, and a clamp writes the allowed
-count into every one of them. A transcription takes none of them — it bills for the audio it is sent, once, and a count
-beside that audio is an argument whose effect on the bill this plugin does not know, so the call is refused. Beyond
-those, by tool:
+Every priced call may carry `estimate_only`, `context` and `flow_id`. Every priced call **except a transcription** may also carry
+the count key `generations_count`, which is the only batch-size name in the live catalogue — it appears on six tools,
+and a count under any other name is an argument the live schema does not have. A transcription takes none: it
+transcribes the node it is connected to, once.
 
 | Tools | Arguments |
 |---|---|
-| `creative_generate_speech`, `creative_speech`, `text_to_speech` | `text`, `script`, `message`, `takes`, `num_takes`, `voice_id`, `model_id` |
-| `creative_transcribe_audio`, `speech_to_text`, `creative_transcription` | `path`, `file`, `file_path`, `audio_path`, `filename`, `audio_file`, `input_file`, `duration_ms`, `audio_duration_ms`, `duration_seconds`, `duration`, `audio_duration_seconds`, `model_id`, `language_code`, `timestamps_granularity`, `diarize`, `use_speaker_library`, `detect_speaker_roles`, `num_speakers`, `diarization_threshold`, `keyterms`, `tag_audio_events`, `entity_detection`, `entity_redaction`, `no_verbatim`, `use_multi_channel`, `multichannel_output_style`, `webhook`, `webhook_id`, `webhook_metadata`, `temperature`, `seed`, `additional_formats`, `file_format`, `enable_logging` |
-| `creative_generate_music`, `creative_compose_music` | `prompt`, `music_length_ms`, `duration_seconds`, `duration`, `composition_plan` |
-| `creative_generate_sound_effect`, `creative_sound_effects` | `prompt`, `duration_seconds` |
-| `creative_generate_image` | `prompt`, `model_id` |
-| `creative_generate_video` | `prompt`, `model_id`, `duration_seconds` |
+| `creative_generate_image`, `creative_generate_video`, `creative_edit_image` | `prompt`, `model_id`, `connect_from` |
+| `creative_generate_speech` | `prompt`, `model_id`, `voice_id`, `view_state_id` |
+| `creative_generate_in_flow` | `prompt`, `model_id`, `voice_id`, `node_type`, `connect_from`, `view_state_id` |
+| `creative_run_flow_nodes` | `node_ids` |
+| `creative_transcribe_audio` | `model_id`, `connect_from`, `view_state_id` |
 
-Two names are deliberately absent. `transcript_edit` is documented as a 30% surcharge billed for at least ten seconds,
-which is a price this plugin does not compute. `connect_from` points the server at a file somewhere this plugin cannot
-measure, and for a transcription the file is the whole of the price. Any other tool has no list, because the guard
-cannot price it at all and a cap already refuses it.
+`connect_from` is on these lists because that is how a live creative tool is given its input: a node on the same flow,
+not a file on this machine. `creative_transcribe_audio` has no file or path argument at all — its audio comes from the
+node it is connected to, and the server never sees anything on this disk.
 
-A `composition_plan` is priced at the sum of its sections' `duration_ms` (or `duration_seconds`), and the call is
-priced at whichever is longer, that sum or a length the call states. A plan whose durations cannot be read — no
-sections, a section with no duration, a duration no number can be read out of — is `PRICE_UNKNOWN`. A length above
-ElevenLabs' published maximum is priced as stated: over-pricing a call is the safe side, and no refusal is owed.
+The two spending tools with no list are `creative_design_voice` and `agents_run_tests`, because their live schemas
+declare no `estimate_only` and nothing here can price them; a cap refuses them outright, so a list of arguments would
+decide nothing.
 
-### Two durations, and why they never meet
+### What each tool is allowed to do
 
-`elevenlabs_save_media` prints how long a saved file is, and the spending guard decides what a file costs. These read
-different things on purpose.
+`classify()` puts each of the 190 live tools in one class, from its own name, description and schema: 83 reads, 2
+exports, 81 writes, 9 that can spend, 14 destructive, and one left unclassified. The class is the worst thing a tool
+can do; it never decides whether a call runs, only what the generated default rules give it.
 
-The guard measures a local PCM WAV the way a decoder does — the `fmt ` fields and the `data` bytes — and refuses every
-other container (`PRICE_UNKNOWN`). It calls `riffReadingWith` itself. Nothing it reads is a figure the file states
-about itself, because a file that sets its own duration would set its own price. A WAV holding more than one `data`
-chunk is refused as well: CoreAudio reads the last such chunk and Python's `wave` the first, so its length depends on
-which decoder opens it, and a rule that picked one would be picking the cheaper reading of a file. More than one
-`fmt ` chunk is refused for the same reason. The sample rate is what turns bytes into seconds, so two `fmt ` chunks
-are two lengths for one file, as far apart as their rates are; a `fmt ` chunk counts here whether or not this plugin
-can read it, because a decoder that reads the one this plugin rejects disagrees with it about the whole file.
+Two of them are judgement calls, recorded here because nothing in the catalogue settles them:
 
-A `data` size that understates the bytes after it — a truncated file, one still being written, a bad mux — admits two
-readings, and `riffReadingWith` returns both. The price is taken at the longer one, every byte after `data`, unless a
-well-formed chunk begins exactly where the stated size ends, which is what real trailing metadata looks like. Which
-reading ElevenLabs' server bills is not measured: both decoders to hand, macOS `afinfo` and Python's `wave`, stop at
-the stated size, so on their behaviour a file stating 8,000 bytes while holding 480,000 is priced 55 times too long.
-It is priced that way because the shorter reading can under-price a cap and the longer one cannot, and because this is
-the over-priced side a cap refuses rather than overspends on. The cost line names the reading it used, so an owner
-reading a bill can see it, and measuring the server's real behaviour is item 10 of the live reconcile in
-`test/fixtures/README.md`.
+- **`agents_run_tests` is counted as spending.** A test run makes the agent hold conversations, which bills the agent's
+  own LLM usage. ElevenLabs gives no estimate for it, so while a cap is on it is refused rather than run unpriced.
+  `agents_create_test` and the other test tools only describe a test, and are ordinary writes.
+- **`creative_design_voice` is counted as spending** and `creative_save_designed_voice` is a write: designing previews
+  is the part that generates audio.
+- **`creative_create_asset_upload` is a write, not an export.** It opens an upload into the workspace; nothing leaves
+  it. The two exports are `agents_get_link`, which mints a link usable outside the workspace, and
+  `creative_get_generations`, which returns the signed links a flow's generations can be downloaded from.
 
-A measured price is only as good as the instant it was taken, so the guard stamps every file it names — device, inode,
-size and last modification — before the measurement reads a byte, and again immediately before the hold. A stamp that
-moved refuses the call (`PRICE_UNKNOWN`), and nothing is reserved, because a file still being written is an ordinary
-input and a file that grew between the two readings would be dispatched on the shorter one's price. What this cannot
-reach is the window after the dispatch: ElevenLabs' server opens the file itself, and no check here holds it still
-while it reads.
+**`get_more_tools` is deliberately unclassified.** It is ElevenLabs' own catalogue-paging tool: it returns tool
+definitions rather than doing anything to the workspace, and what it returns is whatever the server decides to hand
+back next, which is not a class. It is not in `ALL_TOOLS`, so it gets no default rule of its own and no tools-RPC
+method; under the `elevenlabs_*` rule the model can still call it. `/elevenlabs-status` counts it in its unknown row,
+and `npm run drift` reports it as known-and-unclassified rather than as drift.
 
-A stamp answers for the file; the argument that names it is held still separately. Before anything is priced, the
-guard reads each name that may carry audio once and writes that reading back over the argument, so the measurement,
-both stampings and the call that is dispatched all see the one string rather than one read each. An argument that
-keeps its own answer after the write — a value that cannot be replaced, or an object that intercepts its own reads —
-is refused by name (`PRICE_UNKNOWN`), because a reading nothing can pin to the call about to be sent is not a price.
-Neither shipped path can produce one: both hand the guard a JSON-parsed object.
+### The one duration, and what it is not
 
-The saved line uses `durationOf`, which measures a WAV the same way and otherwise reads the duration an MP4 or M4A
-states in the `mvhd` box inside its `moov` — the format ElevenLabs returns, which carries no length anywhere a
-decoder-free reader can compute. That walk is bounded: every read is inside the file's own size, the number of boxes
-it steps through is capped, and a stated duration longer than the file's bytes could hold at 8 kbps is dropped rather
-than shown. It is a display figure and nothing prices a call from it.
+`elevenlabs_save_media` prints how long a saved file is. Nothing else in the plugin reads a file's length, and no
+price comes from one.
+
+It used to. Until live reconcile 1 the guard priced a transcription by measuring the local WAV it was given, at a
+per-minute rate written down here. The live catalogue ended that: `creative_transcribe_audio` takes no file and no
+path — its arguments are `connect_from`, `flow_id`, `model_id`, `view_state_id`, `context` and `estimate_only` — so
+the audio it bills for is a node on a flow in the workspace, and the server never opens anything on this disk. A
+duration measured here would have answered for a file ElevenLabs was not charging for. Transcription is now priced
+the way every other spending call is, from ElevenLabs' own estimate, and the whole of the measuring apparatus the old
+price rested on — the stamping of each file's device, inode, size and modification time before and after the
+measurement, the freezing of the arguments that named them, the refusal of a file that moved between the two
+readings — went with it. There is no local file in a price to protect.
+
+What remains is `durationOf`, and it is a display figure. The saved line reads a PCM RIFF/WAVE file the way a decoder
+does — the `fmt ` fields and the bytes behind `data` — and otherwise reads the duration an MP4 or M4A states in the
+`mvhd` box inside its `moov`, which is the format ElevenLabs returns and carries no length a decoder-free reader
+could compute. That walk is bounded: every read is inside the file's own size, the number of boxes it steps through
+is capped, and a stated duration longer than the file's bytes could hold at 8 kbps is dropped rather than shown. A
+file whose length depends on which decoder opens it — two `data` chunks, which CoreAudio and Python's `wave` read
+differently, or two `fmt ` chunks, which are two sample rates and so two lengths — carries no duration on the saved
+line at all. A `data` size that understates the bytes behind it is reported at the longer reading, with
+`understated` saying so, so a line that disagrees with the owner's own player can be explained.
+
+The rigour is kept because a figure shown to the owner should be one a decoder would agree with. It is not kept
+because anything depends on it: `savedText` prints `Saved <mime> to <path> (<size>, <n> s).`, drops the seconds when
+the file states none, and no cap, hold or charge reads that number.

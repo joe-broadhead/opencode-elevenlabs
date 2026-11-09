@@ -1,7 +1,7 @@
 # ElevenLabs for OpenCode
 
 Manage the voice and chat agents in your ElevenLabs workspace, review what callers said to them, and generate speech,
-images, video, music and sound through ElevenLabs' official MCP server, from OpenCode.
+images and video through ElevenLabs' official MCP server, from OpenCode.
 
 Unofficial; not affiliated with ElevenLabs.
 
@@ -52,7 +52,7 @@ One tool and one guard do more than relay ElevenLabs:
 A script can call the same tools with no model, under the same spending guard:
 
 ```sh
-opencode api post /api/rpc/elevenlabs.tools/agents_list -H "x-opencode-directory:$PWD" -d '{"input":{"sessionID":"ses_…","input":{}}}'
+opencode api post /api/rpc/elevenlabs.tools/agents_list -H "x-opencode-directory:$PWD" -d '{"input":{"sessionID":"ses_…","input":{"context":"list my agents"}}}'
 ```
 
 [docs/scripting.md](https://github.com/joe-broadhead/opencode-elevenlabs/blob/HEAD/docs/scripting.md) has the envelope,
@@ -79,20 +79,30 @@ Generations are billed in **credits** against the workspace you signed in with.
   overlap: calls that wait for one another see one another, and those same eight, run one after the next, spend only
   the 9,000 that fits. Size a cap as the bound you can afford to be crossed once per extra OpenCode, not as a hard
   limit on the account. Two machines share nothing: the store cannot see them.
-- **Image and video are priced by ElevenLabs, not by this plugin.** Their cost depends on the model, the resolution and
-  the duration, and ElevenLabs publishes no per-unit figure, so before an image or video generation the plugin asks
-  ElevenLabs for a price with `estimate_only: true`. The cost line says "at most" until the live reconcile proves the
-  unit. If the price cannot be had, the call is refused rather than run unpriced.
-- **Speech, music, sound effects and transcription use ElevenLabs' published rates** (1 credit per character, two takes,
-  900 per minute, 200 per generation, 330 per minute for Speech to Text), so their cost line says "at most". A caller
-  `takes` below two does not lower the speech price. A transcription is priced from the file about to be sent, not from
-  a duration the caller types; that duration may raise the price, and a file whose container duration cannot be read is
-  refused. The file is checked again just before the price is held, and one that changed in between is refused rather
-  than sent on the old price. A transcription is a read, but it bills: `access: "read-only"` denies the generations and **not** the
-  transcription, so the caps are what bound it.
-- **A call that may spend is priced before it runs, or refused.** While either cap is on, a name that starts with creative_ is priced by the table the guard consults or refused PRICE_UNKNOWN before it is sent, unless that table classifies the name as a read, write, export or delete that does not spend.
-  Image and video, which the table prices only from ElevenLabs' estimate, are the exception that asks for that estimate.
-  A computed price of 0 is a refusal, not a free call.
+- **Every price comes from ElevenLabs, never from this plugin.** There is no rate table here: no credits per character,
+  per second or per minute, and nothing measures a file on this machine. Before a call that can spend, the plugin sends
+  ElevenLabs the **same call with `estimate_only: true`** and uses the figure that comes back. Nine tools can spend:
+  `creative_generate_speech`, `creative_generate_image`, `creative_generate_video`, `creative_edit_image`,
+  `creative_generate_in_flow`, `creative_run_flow_nodes`, `creative_transcribe_audio`, `creative_design_voice` and
+  `agents_run_tests`. The first seven take `estimate_only`; the last two do not, so while a cap is on they are refused
+  rather than run unpriced.
+- **An estimate is free, but it is not nothing.** Measured against a real workspace: two estimates moved the balance by
+  zero credits, and each left a flow and a node behind in the workspace. So one estimate is asked per set of arguments,
+  the figure is kept for ten minutes, and the paid call reuses it instead of creating a second flow. The estimate is
+  sent only where the paid call could run: under `access: "ask-changes"` you are asked once, for the generation, and
+  nothing is estimated if you say no; under `access: "read-only"` every spending tool is denied and no estimate is sent
+  either.
+- **The figure is the whole batch.** ElevenLabs answers for every generation the call asks for, not for one — a
+  four-image estimate came back as 761.5151418103446 credits, about 190 an image. Credits are charged as whole numbers,
+  so a fractional figure is rounded up. A batch that does not fit is cut to the number of generations the budget
+  affords, and a call that named no count is refused whole rather than quietly given a smaller batch.
+- **A call that cannot be priced is refused, not guessed.** While either cap is on, a name that starts with creative_ is priced by ElevenLabs' own estimate or refused PRICE_UNKNOWN before it is sent, unless the tool table classifies the name as a read, write, export or delete that does not spend.
+  A failed or missing estimate, an argument ElevenLabs' own schema for that tool does not have, and a tool with no
+  estimate at all each end there. The refusal says what to do: send the same call with `estimate_only: true`, or set
+  both caps to `null`. A price of 0 is a refusal, not a free call.
+- **Transcription spends like everything else.** `creative_transcribe_audio` transcribes a node on a flow — it takes no
+  file and no path — and it is priced from its own estimate. It is **not** a read: `access: "read-only"` denies it along
+  with every other tool that can spend.
 - **Two calls that start together cannot both spend the same budget.** The price is reserved in the ledger before the call
   is sent and settled when its result arrives. A call that fails, or whose result never arrives, is charged the reserved
   price: the plugin cannot tell a free failure from a billed one, and over-counting is the safe side. A later result that
@@ -186,55 +196,207 @@ spend your credits without asking, and so can a tool ElevenLabs adds later. Rest
    ```
 
 The plugin inserts this block directly after each agent's base rule that allows everything, generated from
-`defaultRules("all")` in `src/permissions.ts`:
+`defaultRules("all")` in `src/permissions.ts`. It is one rule per live tool, 190 of them, so it is folded here:
+
+<details>
+<summary>The 190 rules <code>access: "all"</code> inserts</summary>
 
 ```json
 [
   { "action": "elevenlabs_*", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_calculate_llm_usage", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_count_conversations", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_get", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_get_alert", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_get_branch", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_get_branches_commit_status", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_get_config_summary", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_get_conversation", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_get_conversation_summary", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_get_insights_report", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_get_kb_dependents", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_get_kb_document", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_get_kb_rag_indexes", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_get_knowledge_size", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_get_latest_bi_report", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_get_mcp_server", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_get_memory", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_get_merge_conflicts", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_get_merge_proposal", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_get_phone_number", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_get_procedure", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_get_procedure_draft", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_get_rebase_conflicts", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_get_summaries", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_get_test", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_get_test_result_summary", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_get_test_run", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_get_test_run_failures", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_get_test_run_summary", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_get_tool", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_get_tool_dependents", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_get_tool_executions", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_get_topics", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_get_topics_summary", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_get_triage_ticket", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_get_triage_ticket_assignable_users", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_get_version", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_get_widget", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_list", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_list_alerts", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_list_branches", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_list_channels", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_list_conversations", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_list_deployments", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_list_knowledge_base", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_list_llms", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_list_mcp_server_tools", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_list_mcp_servers", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_list_memories", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_list_merge_proposals", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_list_phone_numbers", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_list_procedures", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_list_secrets", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_list_test_runs", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_list_tests", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_list_tools", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_list_triage_tickets", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_list_trigger_connections", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_merge_branch_preview", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_query_analytics", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_query_knowledge_base_rag", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_read_string_field", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_rebase_branch_preview", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_resolve_conversation", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_search_conversation_messages", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_search_knowledge_base", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_search_procedures", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_semantic_search_conversation_messages", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_suggest_merge_proposal_reviewers", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_creative_get_available_assets", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_creative_get_brand_kit", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_get_flow", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_creative_get_flow_node", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_get_flow_node_types", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_get_flow_run_status", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_get_model_guide", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_creative_get_model_schema", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_creative_get_view_state", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_creative_get_voice_design_previews", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_creative_list_brand_kits", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_creative_list_flows", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_list_voices", "resource": "*", "effect": "allow" },
-  { "action": "elevenlabs_creative_transcribe_audio", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_creative_show_flow_results", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_get_link", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_creative_get_generations", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_add_triage_ticket_comment", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_add_triage_ticket_turn_comment", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_append_to_string_field", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_bulk_move_knowledge_base", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_comment_on_merge_proposal", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_compute_kb_rag_index", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_create", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_create_branch", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_create_code_tool", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_create_deployment", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_create_draft", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_create_kb_crawl", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_create_kb_folder", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_create_kb_text", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_create_kb_url", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_create_manual_triage_ticket", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_create_mcp_server", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_create_merge_proposal", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_create_procedure", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_create_test", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_create_test_folder", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_create_tool", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_create_triage_ticket", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_disable_built_in_tool", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_duplicate", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_edit_string_field", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_merge_branch", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_merge_merge_proposal", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_move_tests", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_rebase_branch", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_review_merge_proposal", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_update", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_update_agent_behavior", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_update_analysis", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_update_branch", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_update_client_overrides", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_update_code_tool", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_update_conversation", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_update_end_call_tool", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_update_guardrails", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_update_kb_document", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_update_keypad_tone_tool", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_update_language_detection_tool", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_update_language_presets", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_update_mcp_server", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_update_merge_proposal", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_update_operations", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_update_phone_number", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_update_procedure_draft", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_update_prompt_settings", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_update_skip_turn_tool", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_update_speech_recognition", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_update_test", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_update_tool", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_update_transfer_to_agent_tool", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_update_transfer_to_number_tool", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_update_triage_ticket", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_update_turn_taking", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_update_voice", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_update_voicemail_detection_tool", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_update_widget", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_update_workflow", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_creative_add_brand_kit_item", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_creative_add_flow_asset_node", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_creative_add_flow_node", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_attach_reference_file", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_creative_connect_flow_nodes", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_creative_create_asset_upload", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_creative_create_brand_kit", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_creative_create_brand_kit_from_website", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_create_flow", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_creative_disconnect_flow_nodes", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_creative_duplicate_flow_nodes", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_creative_finalize_asset_upload", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_creative_save_designed_voice", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_creative_save_view_state", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_creative_update_brand_kit", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_creative_update_brand_kit_item", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_creative_update_flow_nodes", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_creative_update_node", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_upload_flow_reference", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_run_tests", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_creative_design_voice", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_edit_image", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_generate_image", "resource": "*", "effect": "allow" },
-  { "action": "elevenlabs_creative_generate_music", "resource": "*", "effect": "allow" },
-  { "action": "elevenlabs_creative_generate_sound_effect", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_creative_generate_in_flow", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_generate_speech", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_generate_video", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_creative_run_flow_nodes", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_creative_transcribe_audio", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_bulk_delete_knowledge_base", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_delete", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_delete_draft", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_delete_kb_document", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_delete_mcp_server", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_delete_phone_number", "resource": "*", "effect": "allow" },
-  { "action": "elevenlabs_agents_delete_tool", "resource": "*", "effect": "allow" }
+  { "action": "elevenlabs_agents_delete_procedure", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_delete_procedure_draft", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_delete_test", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_delete_tool", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_delete_triage_ticket", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_creative_delete_brand_kit", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_creative_delete_brand_kit_item", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_creative_delete_flow_nodes", "resource": "*", "effect": "allow" }
 ]
 ```
+
+</details>
 
 Everything later wins: an agent's own stricter rules (Explore cannot use ElevenLabs), your `permissions` in
 `opencode.json`, and your saved answers. In an unattended run such as `opencode run`, a tool that asks is refused:
@@ -314,20 +476,25 @@ in your config shadows the plugin's. **Rename or move** that file, then restart 
 
 ## Known limits
 
-- **The tool table is provisional.** It holds the 40 tool names ElevenLabs' own MCP skills name; the live list is
-  reconciled after a sign-in (`test/fixtures/README.md`). A tool ElevenLabs adds later still runs, under the
-  `elevenlabs_*` rule, and status names it as unknown until it is classified.
+- **The tool table is the live catalogue.** It was captured from a signed-in workspace: 190 tools, with each one's real
+  argument names, defaults and enums, kept in `test/fixtures/live-tools.json` and checked by `npm run drift`. A tool
+  ElevenLabs adds after that capture still runs, under the `elevenlabs_*` rule, and `/elevenlabs-status` names it as
+  unknown until it is classified.
+- **Every live tool requires a `context` argument**, a short line saying why the call is being made. ElevenLabs reads
+  it; the plugin only passes it on.
 - **The caps bound this plugin, not the account.** The workspace balance needs the optional API key.
 - **No dollar figure is derived from credits.**
-- **Image and video prices come from ElevenLabs.** If the estimate is unavailable the call is refused rather than guessed.
-- **Two facts about that estimate are unverified until the live reconcile:** that `estimate_only: true` costs nothing, and
-  whether its figure is one generation's or the total for the generations asked for. The plugin reads it as one
-  generation's and multiplies by the count, which over-states a batch total rather than under-stating a per-generation
-  figure; the cost line therefore says "at most" whenever a count multiplies it, and the reconcile measures both against
-  a real workspace before this line is removed.
-- **Durations are read from the container.** WAV and MP4/M4A state one; MP3, Ogg and WebM do not, and the field is left
-  out rather than estimated. A WAV holding more than one `data` chunk, or more than one `fmt ` chunk, states two
-  durations, and real decoders disagree about which counts, so it is treated as stating none.
+- **Prices come from ElevenLabs' own estimate.** If the estimate is unavailable the call is refused rather than
+  guessed, and a tool ElevenLabs offers no estimate for cannot run while a cap is on.
+- **One fact about a paid call stays unverified until the live reconcile:** whether a finished generation reports what
+  it really cost, and in which field of its result. Until that is measured a call is charged the estimate it was
+  reserved at, and a later figure can only raise that charge, never lower it. What the live pass did settle is on the
+  estimate's side: an estimate moved the balance by nothing, its figure covers the whole batch rather than one
+  generation, it can be fractional, and it leaves a flow and a node behind in the workspace.
+- **Durations are read from the container, and only for display.** WAV and MP4/M4A state one; MP3, Ogg and WebM do not,
+  and the field is left out rather than estimated. A WAV holding more than one `data` chunk, or more than one `fmt `
+  chunk, states two durations, and real decoders disagree about which counts, so it is treated as stating none. No
+  price reads any of this.
 
 ## Uninstall
 
