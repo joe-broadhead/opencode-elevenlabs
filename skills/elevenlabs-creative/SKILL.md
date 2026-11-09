@@ -4,6 +4,8 @@ description: Generate and keep speech, images, video, music and sound effects wi
 license: MIT
 ---
 
+If no `elevenlabs_*` tools are in this session, no one is signed in: run `/connect`, choose ElevenLabs, and sign in; on Jelly, call `jelly_connection_request` instead.
+
 # ElevenLabs generation
 
 Generations land on a **Flow**, the editable canvas that holds the prompt and the results. They **spend the workspace's

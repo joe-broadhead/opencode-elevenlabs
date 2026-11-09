@@ -37,6 +37,17 @@ describe("skills", () => {
     expect(text.match(JARGON)?.[0]).toBeUndefined()
   })
 
+  test.each(NAMES)("%s opens by saying how to sign in when the tools are not there (T12)", (name) => {
+    // A model that loads the skill with no tools in the session must be told what to do about it before anything
+    // else, so the line is the first one of the body, above the heading.
+    const body = parseSkill(name, join(SKILLS_DIR, name, "SKILL.md"), read(name)).content.trimStart()
+    const first = body.split("\n")[0] ?? ""
+    expect(first).toContain("`elevenlabs_*`")
+    expect(first).toContain("`/connect`")
+    expect(first).toContain("ElevenLabs")
+    expect(first).toContain("`jelly_connection_request`")
+  })
+
   test.each(NAMES)("%s names only ElevenLabs tools and the plugin's own tool", (name) => {
     const named = [...read(name).matchAll(TOOL_SHAPED)].map((match) => match[1]!)
     expect(named.filter((tool) => !KNOWN.has(tool))).toEqual([])

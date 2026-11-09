@@ -4,6 +4,8 @@ description: Read and review what people said to the user's ElevenLabs agents - 
 license: MIT
 ---
 
+If no `elevenlabs_*` tools are in this session, no one is signed in: run `/connect`, choose ElevenLabs, and sign in; on Jelly, call `jelly_connection_request` instead.
+
 # ElevenLabs call review
 
 A conversation holds a real person's words, the identifier your integration gave them, the phone number they called from,

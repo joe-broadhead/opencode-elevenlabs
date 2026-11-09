@@ -4,6 +4,8 @@ description: Manage the voice and chat agents in the user's ElevenLabs workspace
 license: MIT
 ---
 
+If no `elevenlabs_*` tools are in this session, no one is signed in: run `/connect`, choose ElevenLabs, and sign in; on Jelly, call `jelly_connection_request` instead.
+
 # ElevenLabs agents
 
 Read this before the first `agents_*` call. Every tool takes a `context` parameter: pass one short line naming the user's
