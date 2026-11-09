@@ -128,29 +128,40 @@ const AUDIO_PATHS = ["path", "file", "file_path", "audio_path", "filename", "aud
  * states no duration is not measured at all: pricing it from a byte floor would under-price Opus, which sits under
  * 32 kbit/s.
  */
-export function measureAudio(input: Record<string, unknown>): { readonly durationSeconds: number; readonly bytes: number } | undefined {
+export function measureAudio(input: Record<string, unknown>): { readonly durationSeconds: number } | undefined {
+  let longest: number | undefined
+  // The fixed list is walked, not the caller's keys, so two names for two files give one price whichever order they
+  // are written in. Every one of them is measured: the server may read the argument this plugin passed over.
   for (const name of AUDIO_PATHS) {
     const value = input[name]
     if (typeof value !== "string" || value.length === 0 || value.includes("\0")) continue
+    // A URL names no local file. Nothing here can measure it, and nothing here claims to.
     if (/^[a-z][a-z0-9+.-]*:/i.test(value)) continue
-    let fd: number | undefined
-    try {
-      const stat = statSync(value)
-      if (!stat.isFile() || stat.size <= 0) continue
-      fd = openSync(value, "r")
-      const head = Buffer.alloc(Math.min(stat.size, 64 * 1024))
-      const read = readSync(fd, head, 0, head.length, 0)
-      // The whole file's size is what bounds a RIFF `data` header, so it is passed with the head that was read.
-      const durationSeconds = durationIn(head.subarray(0, read), stat.size)
-      if (durationSeconds === undefined || !(durationSeconds > 0)) return undefined
-      return { durationSeconds, bytes: stat.size }
-    } catch {
-      continue
-    } finally {
-      if (fd !== undefined) closeSync(fd)
-    }
+    const measured = measureFile(value)
+    // A named file this plugin cannot measure is one the call may still send: a price covering the rest is no price.
+    if (measured === undefined) return undefined
+    if (longest === undefined || measured > longest) longest = measured
   }
-  return undefined
+  return longest === undefined ? undefined : { durationSeconds: longest }
+}
+
+/** One local file's duration, or undefined when it cannot be read or its container states nothing measurable. */
+function measureFile(path: string): number | undefined {
+  let fd: number | undefined
+  try {
+    const stat = statSync(path)
+    if (!stat.isFile() || stat.size <= 0) return undefined
+    fd = openSync(path, "r")
+    const head = Buffer.alloc(Math.min(stat.size, 64 * 1024))
+    const read = readSync(fd, head, 0, head.length, 0)
+    // The whole file's size is what bounds a RIFF `data` header, so it is passed with the head that was read.
+    const durationSeconds = durationIn(head.subarray(0, read), stat.size)
+    return durationSeconds !== undefined && durationSeconds > 0 ? durationSeconds : undefined
+  } catch {
+    return undefined
+  } finally {
+    if (fd !== undefined) closeSync(fd)
+  }
 }
 
 /**

@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { measureAudio, priceOf, transcriptionPrice } from "../../src/billing.js"
-import { brokenRiff, WAV_FIXTURES } from "../fixtures/wav.js"
+import { brokenRiff, buildWav, WAV_FIXTURES } from "../fixtures/wav.js"
 
 const root = mkdtempSync(join(tmpdir(), "elevenlabs-rr2-"))
 afterAll(() => rmSync(root, { recursive: true, force: true }))
@@ -54,5 +54,41 @@ describe("RR2-1 — the file sets the price, not one header field", () => {
     expect(measureAudio({ path: broken })).toBeUndefined()
     expect(transcriptionPrice({ path: broken })).toBeUndefined()
     expect(priceOf("creative_transcribe_audio", { path: broken })).toBeUndefined()
+  })
+})
+
+describe("RR2-2 — every argument that names a local file is measured", () => {
+  const short = wav("one-second", buildWav({ seconds: 1 }))
+  const long = paths.canonical
+
+  test("the longest file sets the price, whichever key holds it and in whichever order", () => {
+    // d107a11 measured the first name in its own fixed list and priced 6 credits for a call carrying a full minute.
+    const pairs: Record<string, unknown>[] = [
+      { path: short, file: long },
+      { file: long, path: short },
+      { audio_file: long, path: short },
+      { path: short, audio_file: long },
+      { input_file: long, file_path: short },
+      { file_path: short, input_file: long },
+    ]
+    for (const input of pairs) {
+      expect({ keys: Object.keys(input).join("+"), credits: transcriptionPrice(input)?.credits }).toEqual({
+        keys: Object.keys(input).join("+"),
+        credits: 330,
+      })
+    }
+  })
+
+  test("a named file that cannot be measured makes the whole call PRICE_UNKNOWN", () => {
+    // The server may read the argument the plugin ignored, so a price that covers only one of two files is no price.
+    expect(measureAudio({ path: long, file: join(root, "absent.wav") })).toBeUndefined()
+    expect(transcriptionPrice({ file: join(root, "absent.wav"), path: long })).toBeUndefined()
+    expect(measureAudio({ path: long, audio_file: wav("broken-second", brokenRiff()) })).toBeUndefined()
+  })
+
+  test("a URL is not a local file, so it is passed over rather than refused", () => {
+    expect(transcriptionPrice({ path: long, audio_file: "https://example.test/clip.wav" })?.credits).toBe(330)
+    // A URL on its own still leaves nothing measured, so there is still no price.
+    expect(transcriptionPrice({ audio_file: "https://example.test/clip.wav" })).toBeUndefined()
   })
 })
