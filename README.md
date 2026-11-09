@@ -93,6 +93,11 @@ Generations are billed in **credits** against the workspace you signed in with.
   reports a higher figure may replace that charge. A missing result, a zero, or an error does not free the budget. A hold
   still open after ten minutes is settled at the reserved price rather than dropped. On the script path, one priced call
   per session and method is in flight; a second is refused until the first settles.
+- **Past a thousand priced calls in a day, the oldest ones are counted by the hour.** The detail log keeps the newest
+  1,000 charges; an older charge still inside the window is folded into a total for its session and the hour it was
+  spent in, which nothing afterwards can shrink. A folded total is kept while any minute of its hour is still inside the
+  24 hours, so a folded charge can go on counting for up to an hour after its own day ran out. The cap errs high, never
+  low, and only on a day that busy.
 - **The caps bound this plugin, not your account.** Someone generating in the ElevenLabs app spends from the same pool,
   and so does a second MCP entry pointing at ElevenLabs under another name: its tools carry that name's prefix, which
   this plugin's guard never sees. `/elevenlabs-status` names such an entry when it finds one.

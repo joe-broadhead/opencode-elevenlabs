@@ -367,6 +367,13 @@ const WINDOW_MS = 24 * 60 * 60 * 1000
 export const RESERVATION_MS = 10 * 60 * 1000
 /** The detail log is bounded. An in-window charge that no longer fits is folded into a total prune cannot shrink. */
 const MAX_ENTRIES = 1_000
+/**
+ * How finely a folded total keeps its time (RR2-9). A folded charge loses its own timestamp, so it ages with the bucket
+ * it joined: one bucket per hour bounds the over-count at one hour, where one bucket per session bounded it at a day.
+ */
+const BUCKET_MS = 60 * 60 * 1000
+/** The hour a charge belongs to, as the start of that hour. Folded credits age from here. */
+const bucketOf = (at: number) => Math.floor(at / BUCKET_MS) * BUCKET_MS
 /** How many times a write is read back and rewritten when another writer's set dropped rows of this book's. */
 const PERSIST_ATTEMPTS = 3
 
@@ -386,12 +393,21 @@ interface Hold {
   at: number
 }
 
-/** Credits still inside the window that were folded out of the detail log. `at` is the newest folded charge. */
+/**
+ * Credits still inside the window that were folded out of the detail log, one total per session and hour. `at` is the
+ * start of that hour, never a charge's own time: a bucket is kept while any minute of it is still inside the window.
+ */
 interface Rolled {
   at: number
   credits: number
   sessionID: string
 }
+
+/** Whether a folded bucket can still hold credits inside the window: its last minute has not aged out. */
+const bucketLive = (item: Rolled, now: number) => item.at + BUCKET_MS >= now - WINDOW_MS
+
+/** The bucket for a session and hour, matched the one way everywhere a folded total is merged or compared. */
+const sameBucket = (a: { sessionID: string; at: number }, b: { sessionID: string; at: number }) => a.sessionID === b.sessionID && a.at === b.at
 
 interface Book {
   entries: Entry[]
@@ -604,7 +620,7 @@ export class Ledger {
     const inWindow = book.entries.filter((entry) => entry.at >= now - WINDOW_MS)
     if (inWindow.length !== book.entries.length) changed = true
     book.entries = inWindow
-    const rolled = book.rolled.filter((item) => item.at >= now - WINDOW_MS)
+    const rolled = book.rolled.filter((item) => bucketLive(item, now))
     if (rolled.length !== book.rolled.length) changed = true
     book.rolled = rolled
     if (book.entries.length > MAX_ENTRIES) {
@@ -669,14 +685,17 @@ const total = (book: Book, sessionID: string | undefined) => {
   return spent + folded + reserved
 }
 
+/**
+ * Moves one charge out of the detail log into its session's total for the hour it was spent (RR2-9). The bucket's time
+ * never moves: a charge folded now joins the hour it happened in, so it ages out when that hour does, rather than when
+ * the newest charge that happened to share its bucket does.
+ */
 const fold = (book: Book, entry: Entry) => {
   book.folded.add(entry.id)
-  const existing = book.rolled.find((item) => item.sessionID === entry.sessionID)
-  if (!existing) book.rolled.push({ at: entry.at, credits: entry.credits, sessionID: entry.sessionID })
-  else {
-    existing.credits += entry.credits
-    if (entry.at > existing.at) existing.at = entry.at
-  }
+  const at = bucketOf(entry.at)
+  const existing = book.rolled.find((item) => sameBucket(item, { sessionID: entry.sessionID, at }))
+  if (!existing) book.rolled.push({ at, credits: entry.credits, sessionID: entry.sessionID })
+  else existing.credits += entry.credits
 }
 
 const serialize = (book: Book) => ({
@@ -719,8 +738,10 @@ const parseRolled = (value: unknown): Rolled[] =>
     ? value.flatMap((item) => {
         if (item === null || typeof item !== "object") return []
         const rolled = item as Record<string, unknown>
+        // A record written before the hourly buckets holds the newest folded charge's own time; rounding it to its
+        // hour makes it one of this book's buckets, and the keep rule never shortens the window it had.
         return typeof rolled.at === "number" && typeof rolled.credits === "number" && typeof rolled.sessionID === "string"
-          ? [{ at: rolled.at, credits: rolled.credits, sessionID: rolled.sessionID }]
+          ? [{ at: bucketOf(rolled.at), credits: rolled.credits, sessionID: rolled.sessionID }]
           : []
       })
     : []
@@ -743,8 +764,8 @@ function storedHas(book: Book, stored: StoredLedger, now: number): boolean {
     if (found === undefined || found < held.credits) return false
   }
   for (const item of book.rolled) {
-    if (item.at < now - WINDOW_MS) continue
-    const found = stored.rolled.find((other) => other.sessionID === item.sessionID)
+    if (!bucketLive(item, now)) continue
+    const found = stored.rolled.find((other) => sameBucket(other, item))
     if (found === undefined || found.credits < item.credits) return false
   }
   return true
@@ -770,13 +791,12 @@ function unionInto(book: Book, stored: StoredLedger, now: number) {
     if (!book.holds.has(hold.id)) book.holds.set(hold.id, { sessionID: hold.sessionID, credits: hold.credits, at: hold.at })
   }
   for (const rolled of stored.rolled) {
-    if (rolled.at < now - WINDOW_MS) continue
-    const existing = book.rolled.find((item) => item.sessionID === rolled.sessionID)
+    if (!bucketLive(rolled, now)) continue
+    const existing = book.rolled.find((item) => sameBucket(item, rolled))
+    // Two books fold different charges into one hour, so the totals overlap by an unknown amount: the larger is kept,
+    // as it always was. Summing would count a charge both books folded twice.
     if (!existing) book.rolled.push({ ...rolled })
-    else {
-      existing.credits = Math.max(existing.credits, rolled.credits)
-      if (rolled.at > existing.at) existing.at = rolled.at
-    }
+    else existing.credits = Math.max(existing.credits, rolled.credits)
   }
 }
 

@@ -3,7 +3,20 @@ import { afterAll, describe, expect, test } from "bun:test"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { Ledger, MUSIC_MIN_MS, measureAudio, priceOf, quoteCall, quoteCallSync, RATES, RESERVATION_MS, settlementOf, SpendRefused, transcriptionPrice } from "../../src/billing.js"
+import {
+  Ledger,
+  LEDGER_KEY,
+  MUSIC_MIN_MS,
+  measureAudio,
+  priceOf,
+  quoteCall,
+  quoteCallSync,
+  RATES,
+  RESERVATION_MS,
+  settlementOf,
+  SpendRefused,
+  transcriptionPrice,
+} from "../../src/billing.js"
 import { REGIONS } from "../../src/constants.js"
 import { mustPrice } from "../../src/elevenlabs-tools.js"
 import { shapersFor } from "../../src/host/tools-rpc.js"
@@ -455,5 +468,95 @@ describe("RR2-8 — the money gate folds case, as the permission gate does", () 
     const uncapped = buildStatus({ ...facts, otherServers: ["elevenlabs2", "voice"], spend: { dailyCredits: 0, sessionCap: null, dailyCap: null } })
     expect(formatStatus(uncapped)).toContain("mcp.servers.elevenlabs2 and mcp.servers.voice also point at ElevenLabs and are outside these caps")
     expect(uncapped.nextStep).toBe("Nothing to do.")
+  })
+})
+
+describe("RR2-9 — folded credits age from when they were spent", () => {
+  const HOUR = 60 * 60 * 1_000
+
+  /** A ledger whose detail log has just overflowed: 1,000 charges at t0, then 1,001 an hour-aligned 23 hours later. */
+  const overflowed = () => {
+    let now = 0
+    const ledger = new Ledger({ now: () => now })
+    for (let i = 0; i < 1_000; i++) ledger.record("ses_a", 1, 0)
+    now = 23 * HOUR
+    for (let i = 0; i < 1_001; i++) ledger.record("ses_a", 1, now)
+    return { ledger, advance: (to: number) => void (now = to) }
+  }
+
+  test("a charge that aged out stops counting, whatever newer charge shares its total", () => {
+    const { ledger, advance } = overflowed()
+    // 2,001 charges of one credit, and the fold has taken t0's 1,000 rows plus one of the new ones.
+    expect(ledger.daily()).toBe(2_001)
+    advance(26 * HOUR)
+    // d107a11 answered 2,001 here: t0's thousand credits were folded into a total stamped 23h, so they aged from there
+    // and stayed for another day. Only the 1,001 spent at 23h are still inside the window.
+    expect(ledger.daily()).toBe(1_001)
+    expect(ledger.spend("ses_a").sessionCredits).toBe(1_001)
+    advance(49 * HOUR)
+    expect(ledger.daily()).toBe(0)
+  })
+
+  test("what is left over is one hour of it, not a day", () => {
+    const { ledger, advance } = overflowed()
+    // The hour a folded charge joined is kept while any minute of it is still in the window, so a bucket outlives its
+    // newest charge by up to an hour. One credit of the 23h hour, never the thousand of t0's.
+    advance(47 * HOUR + 59 * 60 * 1_000)
+    expect(ledger.daily()).toBe(1)
+  })
+
+  test("each session and each hour folds into its own total", () => {
+    let now = 3 * HOUR
+    const ledger = new Ledger({ now: () => now })
+    // 1,600 charges of one credit, 400 in each of four hours, alternating between two sessions. The detail log holds
+    // the last 1,000, so the first 600 are folded: all 400 of hour 0, and 200 of hour 1.
+    for (let i = 0; i < 1_600; i++) ledger.record(i % 2 === 0 ? "ses_a" : "ses_b", 1, Math.floor(i / 400) * HOUR)
+    expect(ledger.daily()).toBe(1_600)
+    expect(ledger.spend("ses_a").sessionCredits).toBe(800)
+    // d107a11 folded all 600 into one total per session, stamped with the newest charge's time, so none of them aged
+    // out until hour 1's clock ran down. Hour 0's 400 go first, on their own hour.
+    now = 25 * HOUR + 1
+    expect(ledger.daily()).toBe(1_000)
+    expect(ledger.spend("ses_a").sessionCredits).toBe(500)
+    expect(ledger.spend("ses_b").sessionCredits).toBe(500)
+    // Then hour 1's folded 200, an hour later, leaving the two hours still in the detail log.
+    now = 26 * HOUR + 1
+    expect(ledger.daily()).toBe(400)
+    now = 28 * HOUR
+    expect(ledger.daily()).toBe(0)
+    expect(ledger.spend("ses_b").sessionCredits).toBe(0)
+  })
+
+  test("a folded total keeps its own hour through the store", async () => {
+    const store = new Map<string, unknown>()
+    const storage = { get: async (key: string) => store.get(key) as never, set: async (key: string, value: unknown) => void store.set(key, value) }
+    store.set(LEDGER_KEY, {
+      entries: [],
+      holds: [],
+      // One bucket in hour 0, and a total written before the buckets, stamped half past hour 1.
+      rolled: [
+        { at: 0, credits: 400, sessionID: "ses_a" },
+        { at: HOUR + 30 * 60 * 1_000, credits: 200, sessionID: "ses_b" },
+      ],
+    })
+    let now = 3 * HOUR
+    const ledger = new Ledger({ storage, now: () => now })
+    await ledger.hydrate()
+    ledger.record("ses_a", 7, 3 * HOUR)
+    await ledger.flush()
+    expect(ledger.daily()).toBe(607)
+    now = 25 * HOUR + 45 * 60 * 1_000
+    // Hour 0's total has aged out. The one stamped mid-hour was read back as hour 1's bucket, so it is kept while any
+    // minute of that hour is in the window: d107a11 aged it from 01:30 and had already dropped it here. Rounding down
+    // only ever lengthens the window a stored total had, which is the side a cap must err on.
+    expect(ledger.daily()).toBe(207)
+    // A separate storage object is a separate book: this ledger starts empty and learns the buckets from the store.
+    const second = new Ledger({ storage: { get: storage.get, set: storage.set }, now: () => now })
+    await second.hydrate()
+    expect(second.daily()).toBe(207)
+    expect(second.spend("ses_b").sessionCredits).toBe(200)
+    now = 26 * HOUR + 1
+    expect(second.daily()).toBe(7)
+    expect(second.daily()).toBe(ledger.daily())
   })
 })

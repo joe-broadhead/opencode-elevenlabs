@@ -91,7 +91,9 @@ A price is **reserved** in the ledger before the call is sent and settled into a
 parallel turn cannot spend one budget twice. A call that fails, and a hold still open after ten minutes, is charged the
 reserved price: the plugin cannot tell a free failure from a billed one. A later higher figure may replace that charge.
 A zero or a missing result does not free the budget. Recorded spend is `{ at, credits, sessionID, id }`, with the open
-holds, in `ctx.storage`. Pruning the detail log folds an in-window charge into a total it cannot shrink. Every write
+holds, in `ctx.storage`. Pruning the detail log folds an in-window charge into a total for its session and the hour it
+was spent in, which nothing afterwards can shrink; that total is kept while any minute of its hour is still inside the
+window, so a folded charge counts for up to an hour past its own day, and never less than it. Every write
 re-reads, merges and then reads itself back, rewriting when another writer's set dropped a row, so a charge that
 settled is never lost. Two ledgers handed one storage object share a book and one daily cap, as two locations in one
 OpenCode do. Two OpenCodes on one data directory do not decide together: `ctx.storage` has no compare-and-set, so each
