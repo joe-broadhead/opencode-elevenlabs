@@ -3,7 +3,7 @@ import { afterAll, describe, expect, test } from "bun:test"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { Ledger, MUSIC_MIN_MS, measureAudio, priceOf, quoteCall, quoteCallSync, RATES, RESERVATION_MS, transcriptionPrice } from "../../src/billing.js"
+import { Ledger, MUSIC_MIN_MS, measureAudio, priceOf, quoteCall, quoteCallSync, RATES, RESERVATION_MS, SpendRefused, transcriptionPrice } from "../../src/billing.js"
 import { shapersFor } from "../../src/host/tools-rpc.js"
 import { brokenRiff, buildWav, WAV_FIXTURES } from "../fixtures/wav.js"
 
@@ -278,5 +278,60 @@ describe("RR2-5 — two locations on one data directory", () => {
     const restarted = new Ledger({ storage: store.handle() })
     await restarted.hydrate()
     expect(restarted.daily()).toBe(1_200)
+  })
+})
+
+describe("RR2-6 — an estimate with no money behind it cannot block a method for ever", () => {
+  const caps = () => ({ sessionCreditCap: 100_000, dailyCreditCap: 100_000 })
+  const shape = (sessionID = "ses_a", action = "elevenlabs_creative_generate_speech") => ({ sessionID, agent: "build", action })
+  const paid = { text: "x".repeat(750) }
+
+  /** An estimate_only shapeInput whose result never arrives: an upstream error, a timeout, a cancelled script. */
+  const abandonedEstimate = () => {
+    let now = 0
+    const ledger = new Ledger({ now: () => now })
+    const shapers = shapersFor({ ledger, caps })
+    const call = shape()
+    shapers.input("creative_generate_speech", { text: "hi", estimate_only: true }, call)
+    return { ledger, shapers, call, advance: (ms: number) => void (now += ms) }
+  }
+
+  test("a paid call of that method is refused while the estimate could still return, and admitted once it cannot", () => {
+    // d107a11 refused it at once, after 11 minutes and after 25 hours: the estimate flight was never forgiven.
+    const { ledger, shapers, call, advance } = abandonedEstimate()
+    expect(() => shapers.input("creative_generate_speech", paid, call)).toThrow(SpendRefused)
+    advance(RESERVATION_MS + 1)
+    shapers.input("creative_generate_speech", paid, call)
+    expect(ledger.spend("ses_a").sessionCredits).toBe(1_500)
+  })
+
+  test("the refusal's next step can be carried out", () => {
+    const { shapers, call } = abandonedEstimate()
+    try {
+      shapers.input("creative_generate_speech", paid, call)
+      throw new Error("expected a refusal")
+    } catch (error) {
+      expect(error).toBeInstanceOf(SpendRefused)
+      // "Wait for that call to finish" was a step that could never be taken: the flight outlived every call.
+      expect((error as SpendRefused).nextStep).toContain("ten-minute reservation")
+    }
+  })
+
+  test("the abandoned estimate's late result cannot settle the paid call that replaced it", () => {
+    const { ledger, shapers, call, advance } = abandonedEstimate()
+    advance(RESERVATION_MS + 1)
+    shapers.input("creative_generate_speech", paid, call)
+    expect(ledger.spend("ses_a").sessionCredits).toBe(1_500)
+    shapers.result("creative_generate_speech", { output: { credits: 1 }, text: "" }, call)
+    expect(ledger.spend("ses_a").sessionCredits).toBe(1_500)
+    shapers.result("creative_generate_speech", { output: { credits: 1 }, text: "" }, call)
+    expect(ledger.spend("ses_a").sessionCredits).toBe(1_500)
+  })
+
+  test("an estimate that does return still settles nothing and still frees the method", () => {
+    const { ledger, shapers, call } = abandonedEstimate()
+    shapers.result("creative_generate_speech", { output: { credits: 42 }, text: "" }, call)
+    shapers.input("creative_generate_speech", paid, call)
+    expect(ledger.spend("ses_a").sessionCredits).toBe(1_500)
   })
 })

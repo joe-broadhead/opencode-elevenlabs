@@ -291,7 +291,7 @@ Every state, and every sentence `/elevenlabs-status` and `/elevenlabs-doctor` ca
 | `SAVE_FAILED` | the file could not be written | check `mediaRoot`, its permissions, and the `external_directory` rule |
 | `SERVER_NOT_REGISTERED` | the MCP server could not be registered | restart OpenCode |
 | `SKILLS_INVALID` | a skill failed to load | reinstall the plugin |
-| `SPEND_CAP_REACHED` | the call would exceed a credit cap, or a priced call of the same method is already in flight, so it was refused before it was sent | raise the cap, set it to `null`, wait for the 24-hour window, or wait for the in-flight call to finish |
+| `SPEND_CAP_REACHED` | the call would exceed a credit cap, or a priced call of the same method is already in flight, so it was refused before it was sent | raise the cap, set it to `null`, wait for the 24-hour window, or wait for the in-flight call to return or for its ten-minute reservation to run out |
 | `STATUS_UNAVAILABLE` | the status report could not be read | restart OpenCode, then run `/elevenlabs-status` |
 
 An upstream error from ElevenLabs, a rate limit included, passes through unchanged.

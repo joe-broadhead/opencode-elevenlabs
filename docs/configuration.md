@@ -296,7 +296,7 @@ Every code the plugin raises, in the order the table lists them:
 | `SAVE_FAILED` | The file could not be written, or the folder changed while it was. | Check `mediaRoot`, its permissions, and the `external_directory` rule. |
 | `SERVER_NOT_REGISTERED` | The MCP server could not be registered. | Restart OpenCode. |
 | `SKILLS_INVALID` | A skill file is missing or malformed. | Reinstall the plugin. |
-| `SPEND_CAP_REACHED` | The call would exceed `sessionCreditCap` or `dailyCreditCap`, or a priced call of the same method is already in flight. | Raise the cap, set it to `null`, wait for the 24-hour window to roll, or wait for the in-flight call to finish. |
+| `SPEND_CAP_REACHED` | The call would exceed `sessionCreditCap` or `dailyCreditCap`, or a priced call of the same method is already in flight. | Raise the cap, set it to `null`, wait for the 24-hour window to roll, or wait for the in-flight call to return or for its ten-minute reservation to run out. |
 | `STATUS_UNAVAILABLE` | The status report could not be read. | Restart OpenCode, then run `/elevenlabs-status` again. |
 
 An upstream error from ElevenLabs passes through unchanged, a `429` rate limit included: wait for the window it names.
