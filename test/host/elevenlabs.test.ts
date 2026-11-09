@@ -305,7 +305,7 @@ describe(`elevenlabs_save_media on OpenCode ${HOST_VERSION}`, () => {
     expect((outcome as { error: string }).error).toContain("MEDIA_EXPIRED")
   })
 
-  test("a session that denies external_directory writes nothing, and the refusal names the rule (DR-8)", async () => {
+  test("a session that denies external_directory writes nothing, and the refusal names the rule", async () => {
     const sessionID = (
       await host.client.sessions.create({ agent: "build", location: host.location, permissions: [{ action: "external_directory", resource: "*", effect: "deny" }] })
     ).id
@@ -325,7 +325,7 @@ describe(`elevenlabs_save_media on OpenCode ${HOST_VERSION}`, () => {
   })
 })
 
-// DR-10: a figure that arrives only in the text part is still the charge.
+// a figure that arrives only in the text part is still the charge.
 describe(`a text-only credit figure on OpenCode ${HOST_VERSION}`, () => {
   let host: Host
   beforeAll(async () => {

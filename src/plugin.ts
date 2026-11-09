@@ -84,7 +84,7 @@ const SAFE_SERVER = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/
 const LISTED_OTHERS = 5
 
 /**
- * The other `mcp.servers` entries that point at one of ElevenLabs' own addresses (RR2-8). OpenCode treats each as its
+ * The other `mcp.servers` entries that point at one of ElevenLabs' own addresses. OpenCode treats each as its
  * own server with its own tool prefix, so this plugin's hooks never see their calls and its credit caps do not bind
  * them. Nothing is changed: a second entry is the owner's to keep, and status only names it.
  */
@@ -131,7 +131,7 @@ export function registerServer(
 }
 
 /**
- * Whether the money guard runs for a server entry (DR-11). It is true for every entry that is ElevenLabs' — the plugin's
+ * Whether the money guard runs for a server entry. It is true for every entry that is ElevenLabs' — the plugin's
  * own, the user's adopted one, and a stale entry at another region's URL, which OpenCode still connects and still lists
  * tools for. Only a server at another vendor's URL is not ours to price.
  */
@@ -139,7 +139,7 @@ export const guardsSource = (source: ServerSource | undefined) => source !== und
 
 /**
  * The tool name without the server prefix, lowercased, or undefined when the call is not one of this server's. Case is
- * folded on both halves (RR2-8): the prefix, as the permission rules fold it, and the name, so every price lookup and
+ * folded on both halves: the prefix, as the permission rules fold it, and the name, so every price lookup and
  * every remembered estimate downstream is keyed the one way.
  *
  * Only this plugin's own server entry is stripped. A second MCP entry pointing at ElevenLabs under another name is a
@@ -221,7 +221,7 @@ export function createElevenlabsPlugin(seam: ElevenlabsSeam = {}) {
       await ledger.hydrate()
       // The setup read above is one moment, and a process that spends nothing never takes another: its book would
       // decide for the rest of its life from what the store held when it started. This timer is what bounds that —
-      // the book another OpenCode's spending is read into is at most one interval old (RR5-3). It is unref'd, so it
+      // the book another OpenCode's spending is read into is at most one interval old. It is unref'd, so it
       // never holds the process open, and it is stopped when the plugin is disposed.
       const refreshing = setInterval(() => ledger.catchUp(), LEDGER_REFRESH_MS)
       refreshing.unref?.()
@@ -238,7 +238,7 @@ export function createElevenlabsPlugin(seam: ElevenlabsSeam = {}) {
       // `managed` decides whether this plugin owns the server entry: it may rename it and add its namespace and tool.
       const managed = () => source?.type === "plugin" || source?.type === "adopted"
       /**
-       * The guard's own predicate (DR-11): every ElevenLabs entry is guarded, a stale region entry included, because
+       * The guard's own predicate: every ElevenLabs entry is guarded, a stale region entry included, because
        * OpenCode still connects it and still lists its tools. Only another vendor's server at the same name is not ours.
        */
       const guarded = () => source !== undefined && source.type !== "conflict"
@@ -351,7 +351,7 @@ export function createElevenlabsPlugin(seam: ElevenlabsSeam = {}) {
         const args = (typeof event.input === "object" && event.input !== null ? event.input : {}) as Record<string, unknown>
         const before = pending.get(event.id)
         pending.delete(event.id)
-        // An estimate is free and is not a charge: remember it, so the paid call that follows can be priced (DR-5).
+        // An estimate is free and is not a charge: remember it, so the paid call that follows can be priced.
         if (isEstimate(tool, args)) {
           if (event.status === "completed") {
             const price = estimatePrice(tool, args, { ...(event.result.output === undefined ? {} : { output: event.result.output }), ...(event.result.content === undefined ? {} : { content: event.result.content }) })
@@ -369,7 +369,7 @@ export function createElevenlabsPlugin(seam: ElevenlabsSeam = {}) {
         }
         // The floor is the ledger's own row for this call, not this hook's memory of it: once the first result has
         // been settled `pending` is empty and the hold is a charge, and a second result for the same call measured
-        // against nothing would read as a raise above zero and lower the charge to itself (RR4-5).
+        // against nothing would read as a raise above zero and lower the charge to itself.
         const recorded = ledger.recorded(event.id)
         const floor = recorded?.credits ?? before?.credits ?? 0
         const settled = settlementOf(event.result, floor, caps().dailyCreditCap, recorded?.kind ?? "hold")

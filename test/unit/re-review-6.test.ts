@@ -1,12 +1,12 @@
-// From the review of the estimate-first reconcile. RE-1 and RE-2 are covered where the behaviour they changed already
+// From the review of the estimate-first reconcile. and are covered where the behaviour they changed already
 // lived — the tool table's own tests, the money gate's, and `billing.test.ts`'s strict-parse block — so what is here
-// is RE-5 to RE-8.
+// is to.
 //
-// RE-5 to RE-7 are reproductions: five of these tests failed at e07ebfc and pass after the fix, and the rest of each
+// to are reproductions: five of these tests failed at e07ebfc and pass after the fix, and the rest of each
 // block states what already held, so a fix cannot quietly take it away. The three were filed as nits and fixed anyway,
 // each because a guard was deciding from the wrong thing.
 //
-// RE-8 is different: nothing was broken, and nothing in it failed at e07ebfc. It is the coverage the review found
+// is different: nothing was broken, and nothing in it failed at e07ebfc. It is the coverage the review found
 // missing — four documents promised the user is "asked once" and no test counted a single assert, so a second prompt
 // would have been invisible here. What a host shows is still a host's to settle, and live pass 2 counts it.
 import { afterAll, describe, expect, test } from "bun:test"
@@ -41,7 +41,7 @@ const refusal = async (run: Promise<unknown> | (() => unknown)) => {
 const effectOf = (tool: string, access: "all" | "ask-changes" | "read-only") =>
   defaultRules(access).find((rule) => rule.action === `elevenlabs_${tool}`)?.effect
 
-describe("RE-5 — a tool that renders a view is classed by what it does, not by what it returns", () => {
+describe("a tool that renders a view is classed by what it does, not by what it returns", () => {
   // At e07ebfc `creative_show_flow_results` was in READ_TOOLS, so `access: "read-only"` allowed it: a session that
   // denied every other change could still push a view into the user's workspace. The catalogue draws the line itself.
 
@@ -70,7 +70,7 @@ describe("RE-5 — a tool that renders a view is classed by what it does, not by
   })
 })
 
-describe("RE-6 — the free estimate probe is held to the same argument allowlist the paid call is", () => {
+describe("the free estimate probe is held to the same argument allowlist the paid call is", () => {
   // At e07ebfc both `quote` and `quoteSync` opened with `isEstimate(...) || !mustPrice(...)`, which returned ahead of
   // the allowlist check. An invented argument was forwarded to ElevenLabs on the probe, which the server rejects —
   // leaving a flow and a node behind for a call that answered nothing, the exact cost the check exists to avoid.
@@ -119,8 +119,8 @@ describe("RE-6 — the free estimate probe is held to the same argument allowlis
   })
 })
 
-describe("RE-7 — a remembered estimate is dropped when it expires, not kept for the life of the process", () => {
-  // At e07ebfc `prune()` aged `book.own` and `book.folded` and never touched `remembered`. `rememberedPrice` refused
+describe("a remembered estimate is dropped when it expires, not kept for the life of the process", () => {
+  // At e07ebfc `prune` aged `book.own` and `book.folded` and never touched `remembered`. `rememberedPrice` refused
   // to return a stale entry but left it in the Map, and its key is the tool name plus the stable JSON of every
   // argument — so the whole prompt stayed in memory until the process ended.
   //
@@ -170,8 +170,8 @@ describe("RE-7 — a remembered estimate is dropped when it expires, not kept fo
   })
 })
 
-describe("RE-8 — the asserts raised for one priced call are counted, so the docs' promise is held to a number", () => {
-  // At e07ebfc no test counted them: every fake supplies `assert: async () => undefined`, so a second prompt would
+describe("the asserts raised for one priced call are counted, so the docs' promise is held to a number", () => {
+  // At e07ebfc no test counted them: every fake supplies `assert: async => undefined`, so a second prompt would
   // have been invisible to the suite while four documents promised the user is "asked once". What is decidable here
   // is what *this plugin* raises. The generation's own assert is OpenCode's, raised when the tool runs, and whether a
   // host folds the two into one prompt needs a host — live pass 2 counts the prompts.

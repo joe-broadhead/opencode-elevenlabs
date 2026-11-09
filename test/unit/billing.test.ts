@@ -37,7 +37,7 @@ describe("prices from ElevenLabs' own estimate", () => {
     expect(estimatePrice("creative_generate_image", {}, { text: "no price here" })).toBeUndefined()
   })
 
-  // RE-2: the figure that sets a price is read under at least the rules the figure that may lower one is read under.
+  // the figure that sets a price is read under at least the rules the figure that may lower one is read under.
   test("the estimate's figure is read strictly: the live field first, named keys only, no prose and no deep walk", () => {
     const price = (result: Parameters<typeof estimatePrice>[2]) => estimatePrice("creative_generate_image", { prompt: "a mug", generations_count: 1 }, result)
     // The shape the live estimate returned, in the text block an MCP result carries it in.
@@ -123,7 +123,7 @@ describe("prices from ElevenLabs' own estimate", () => {
 
   test("a count no number can be read out of prices nothing, since it multiplies the whole call", () => {
     expect(estimatePrice("creative_generate_image", { generations_count: "lots" }, { output: { credits: 500 } })).toBeUndefined()
-    // A numeric string states what it spells (RR3-9).
+    // A numeric string states what it spells.
     expect(estimatePrice("creative_generate_image", { generations_count: "2" }, { output: { credits: 500 } })!.perGeneration).toBe(250)
   })
 
@@ -140,7 +140,7 @@ describe("prices from ElevenLabs' own estimate", () => {
     expect(actualCreditsOf({ output: { credits: 42 } })).toBe(42)
     expect(actualCreditsOf({ output: { usage: { estimated_credits: 7 } } })).toBe(7)
     expect(actualCreditsOf({ text: '{"cost":{"credit_cost":9}}' })).toBe(9)
-    // The host's own result carries `content`, not `text` (DR-10).
+    // The host's own result carries `content`, not `text`.
     expect(actualCreditsOf({ content: [{ type: "text", text: "Charged 480 credits for this generation." }] })).toBe(480)
     expect(actualCreditsOf({ content: "Billed 1,200 credits." })).toBe(1200)
     expect(actualCreditsOf({ content: [{ type: "text", text: "Created a flow." }] })).toBeUndefined()
@@ -193,12 +193,12 @@ describe("the ledger", () => {
     ledger.record("ses_b", 50)
     await ledger.flush()
     expect(ledger.spend("ses_a")).toEqual({ sessionCredits: 500, dailyCredits: 550 })
-    // Since RR3-4 each charge is its own key, so the store holds three of them, each naming its session.
+    // Since each charge is its own key, so the store holds three of them, each naming its session.
     const saved = [...store.stored].filter(([key]) => key.startsWith("spend/")).map(([, value]) => value as { at: number; credits: number; sessionID: string })
     expect(saved.length).toBe(3)
     expect(saved.every((entry) => typeof entry.sessionID === "string" && typeof entry.at === "number")).toBe(true)
 
-    // A reload in the same window keeps both totals, the session's included (DR-9).
+    // A reload in the same window keeps both totals, the session's included.
     const reopened = new Ledger({ storage: store, now: () => 1_000_500 })
     await reopened.hydrate()
     expect(reopened.spend("ses_a")).toEqual({ sessionCredits: 500, dailyCredits: 550 })
@@ -225,7 +225,7 @@ describe("the ledger", () => {
     ledger.record("a", 20)
     ledger.record("a", 30)
     await ledger.flush()
-    // Since RR3-4 the three charges are three keys, so one slow write cannot overtake another and drop it.
+    // Since the three charges are three keys, so one slow write cannot overtake another and drop it.
     const charges = [...written.values()] as Array<{ credits: number }>
     expect(charges.length).toBe(3)
     expect(charges.reduce((sum, entry) => sum + entry.credits, 0)).toBe(60)
@@ -274,7 +274,7 @@ describe("quoteCall", () => {
   test("prices from ElevenLabs' estimate, reserves, and refuses the second of two parallel calls", async () => {
     const ledger = new Ledger()
     const guard = { ledger, caps: () => caps(2000, 10000), estimate: estimator(1200) }
-    // DR-1: two calls that start together, 1,200 each against 2,000. Exactly one may pass.
+    // two calls that start together, 1,200 each against 2,000. Exactly one may pass.
     const results = await Promise.allSettled([
       quoteCall(guard, "creative_generate_speech", { prompt: "x".repeat(600) }, call("c1")),
       quoteCall(guard, "creative_generate_speech", { prompt: "y".repeat(600) }, call("c2")),

@@ -112,14 +112,14 @@ class SaveUnavailable extends Error {
 
 /**
  * The shapers a location's tools RPC uses, built from that location's own runtime. There is no module-level runtime: two
- * locations in one process each price, cap and save with their own ledger, caps and media folder (DR-9).
+ * locations in one process each price, cap and save with their own ledger, caps and media folder.
  */
 export interface LocationShapers {
   readonly input: (method: string, input: unknown, call: ShapeCall) => unknown
   readonly result: (method: string, result: McpResult, call: ShapeCall) => McpResult
 }
 
-/** The runtime the block's default shapers use. Setup sets it per location; a second location replaces it (DR-9). */
+/** The runtime the block's default shapers use. Setup sets it per location; a second location replaces it. */
 export function setToolRuntime(runtime: ToolRuntime | undefined) {
   current = runtime === undefined ? undefined : () => runtime
 }
@@ -175,7 +175,7 @@ export function shapersFor(runtime: ToolRuntime): LocationShapers {
   /**
    * The slot a call's flight is held in. The name is folded, as the money gate and the permission gate both fold it:
    * a slot that told `Creative_Generate_Speech` from `creative_generate_speech` would let two priced calls run beside
-   * each other through the one gate meant to admit one (RR3-10).
+   * each other through the one gate meant to admit one.
    */
   const key = (call: ShapeCall, method: string) => `${call.sessionID}\u0000${method.toLowerCase()}`
 
@@ -208,7 +208,7 @@ export function shapersFor(runtime: ToolRuntime): LocationShapers {
         )
       }
       // It ran out while its call was still running. A paid one was charged at its reservation the moment the hold
-      // expired, so that call is paid for and a late answer to it changes nothing here (RR3-3): there is no ghost to
+      // expired, so that call is paid for and a late answer to it changes nothing here: there is no ghost to
       // keep this slot conservative for, because on this path a result can only ever raise a charge.
       if (flight) flights.delete(slot)
       if (isEstimate(method, args)) {
@@ -242,7 +242,7 @@ export function shapersFor(runtime: ToolRuntime): LocationShapers {
       const caps = runtime.caps()
       const reported = settlementOf(result, flight.price.credits, caps.dailyCreditCap)
       // Nothing on `ShapeCall` says which call a result answers, so on this path a result may raise a charge and may
-      // never lower one (RR3-3): whichever call the figure came from, this slot spent at least the reservation, and
+      // never lower one: whichever call the figure came from, this slot spent at least the reservation, and
       // over-counting is the safe side of a pairing this path cannot make. `SHAPECALL-ID-PROPOSAL.md` is the route to
       // pairing them exactly; until it lands, the reservation is the floor.
       const raised = reported.credits > flight.price.credits

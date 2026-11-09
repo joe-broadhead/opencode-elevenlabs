@@ -180,13 +180,13 @@ export interface RiffPcm {
   readonly statedDataBytes: number
   /**
    * Whether a second `data` chunk follows the first. Real decoders disagree about such a file — CoreAudio reads the
-   * last, Python's `wave` the first — so how long it is depends on who reads it (RR4-7).
+   * last, Python's `wave` the first — so how long it is depends on who reads it.
    */
   readonly laterData: boolean
   /**
    * Whether the file carries more than one `fmt ` chunk, before `data` or after it. The same ambiguity as a second
    * `data`: a decoder honouring the first reads one length and one honouring the last reads another, and the two
-   * differ by whatever the sample rates differ by. Nothing here knows which one ElevenLabs' server honours (RR5-1).
+   * differ by whatever the sample rates differ by. Nothing here knows which one ElevenLabs' server honours.
    */
   readonly laterFormat: boolean
 }
@@ -313,8 +313,8 @@ function chunkStartsAt(read: ChunkReader, offset: number, fileSize: number): boo
 /**
  * The chunk ids that begin at or after `offset`, which is where the first `data` chunk's stated size ends. The walk
  * stops at the first thing that is not a well-formed chunk header, because that is audio the first `data` size left
- * out, not a chunk: a file whose size understates its audio keeps the reading RR4-1 gave it. Two ids matter to a
- * price — another `data` (RR4-7) and another `fmt ` (RR5-1) — and one walk finds both.
+ * out, not a chunk: a file whose size understates its audio keeps the reading gave it. Two ids matter to a
+ * price — another `data` and another `fmt ` — and one walk finds both.
  */
 function laterIdsFrom(read: ChunkReader, offset: number, fileSize: number): Set<string> {
   const ids = new Set<string>()
@@ -343,7 +343,7 @@ export interface RiffReading {
   readonly stated: number
   /** The seconds every byte after `data` comes to. */
   readonly toTheEnd: number
-  /** True when the `data` size understates the bytes that follow and the longer reading was taken (RR4-8). */
+  /** True when the `data` size understates the bytes that follow and the longer reading was taken. */
   readonly understated: boolean
 }
 
@@ -369,9 +369,9 @@ export interface RiffReading {
  * A second `data` chunk is not metadata, and it is not measured either. CoreAudio reads the last `data` chunk and
  * Python's `wave` the first, so how long such a file is depends on which decoder opens it. A length this plugin
  * cannot know is not one it guesses at: the file is unmeasured, and the saved line simply carries no duration
- * (RR4-7).
+ *.
  *
- * A second `fmt ` chunk is the same ambiguity and gets the same answer (RR5-1). The sample rate is what turns bytes
+ * A second `fmt ` chunk is the same ambiguity and gets the same answer. The sample rate is what turns bytes
  * into seconds, so two `fmt ` chunks are two lengths for one file, and the gap between them is as wide as the gap
  * between their rates. Taking the first was not a rule but an accident of the walk.
  */

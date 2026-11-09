@@ -126,13 +126,13 @@ describe("docs", () => {
   test("the README and the configuration guide give both rules for the media folder, with an absolute path", () => {
     for (const file of ["README.md", "docs/configuration.md", "docs/scripting.md"]) {
       expect(flat(file)).toContain("external_directory")
-      // R19 and DR-8: the resource is the absolute path of mediaRoot, never a `~` the host would not expand.
+      // R19 and the resource is the absolute path of mediaRoot, never a `~` the host would not expand.
       expect(flat(file)).toContain('"resource": "/absolute/path/of/your/mediaRoot/*"')
       expect(flat(file)).not.toContain('"external_directory", "resource": "~/')
     }
   })
 
-  // DR-2 and DR-3: what the docs promise about money is what the code does. This used to assert a per-minute rate for
+  // and what the docs promise about money is what the code does. This used to assert a per-minute rate for
   // transcription (330 credits) and that `read-only` left it running. Both are gone: there is no rate table here, and
   // a transcription is classed as a change, so `read-only` denies it with the rest of the spending tools.
   test("the docs say transcription spends, and that read-only denies every spending tool", () => {
@@ -184,7 +184,7 @@ describe("docs", () => {
 
 })
 
-// The README prints the block the plugin inserts, in full, generated from defaultRules(): it is what an administrator
+// The README prints the block the plugin inserts, in full, generated from defaultRules: it is what an administrator
 // copies into an agent's own permissions, so it cannot be elided or drift.
 describe("the default rules block", () => {
   test("the README's Permissions section prints defaultRules() in full", () => {
@@ -250,7 +250,7 @@ describe("README order", () => {
   })
 })
 
-// RR4-11: the allowlist table in the architecture guide promised four count keys that a transcription refuses. A
+// the allowlist table in the architecture guide promised four count keys that a transcription refuses. A
 // documented allowlist that is not the enforced one is a second source of truth, so every name in that section is
 // derived from `PRICED_ARGUMENTS` here, in both directions: a list that gains a name without the doc fails, and so
 // does a doc that names an argument the guard would refuse.

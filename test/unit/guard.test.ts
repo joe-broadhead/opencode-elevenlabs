@@ -13,7 +13,7 @@ afterAll(() => rmSync(root, { recursive: true, force: true }))
 const caps = (session: number | null = 2000, daily: number | null = 10000) => ({ sessionCreditCap: session, dailyCreditCap: daily })
 const call = (id = "c1", sessionID = "ses_a") => ({ sessionID, agent: "build", messageID: "m1", id })
 
-describe("nothing that may spend runs unguarded (DR-3)", () => {
+describe("nothing that may spend runs unguarded", () => {
   test("every creative_* tool is priced from ElevenLabs' own estimate or refused while a cap is on", async () => {
     const creative = ALL_TOOLS.filter((tool) => tool.startsWith("creative_"))
     expect(creative.length).toBeGreaterThan(5)
@@ -47,7 +47,7 @@ describe("nothing that may spend runs unguarded (DR-3)", () => {
   })
 
   // The gate used to be the `creative_` prefix, so a spending tool under any other name ran unpriced with both caps on,
-  // and `get_more_tools` is a tool whose whole job is to ask ElevenLabs for more tools (RE-1, RE-3).
+  // and `get_more_tools` is a tool whose whole job is to ask ElevenLabs for more tools.
   test("an unknown name is refused under a cap whatever its prefix, on the model path and the script path alike", async () => {
     for (const tool of ["agents_new_spender", "foo_bar"]) {
       const ledger = new Ledger()
@@ -133,7 +133,7 @@ describe("two ledgers handed one storage object share one cap", () => {
   })
 })
 
-describe("elevenlabs_save_media asserts the path rule too (DR-8)", () => {
+describe("elevenlabs_save_media asserts the path rule too", () => {
   /** An assert that records each request and refuses the one named. */
   const asserting = (refuse: string, order: string[] = []) =>
     (async (input: { action: string; resources: readonly string[] }) => {
@@ -171,7 +171,7 @@ describe("elevenlabs_save_media asserts the path rule too (DR-8)", () => {
   })
 })
 
-describe("one estimate per call (DR-14)", () => {
+describe("one estimate per call", () => {
   test("the model path asks ElevenLabs exactly once, whatever the answer", async () => {
     for (const answer of [undefined, { credits: 400, basis: "exact" as const, parts: [] }]) {
       let asked = 0

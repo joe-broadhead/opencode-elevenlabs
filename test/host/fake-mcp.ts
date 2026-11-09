@@ -66,7 +66,7 @@ export interface FakeMcpOptions {
   readonly refreshTokens?: boolean
   /** Report credits in a generation's result, so the model path can be exact instead of "at most". */
   readonly reportsCredits?: boolean
-  /** Report the credits in the text part only, as a server that answers in prose does (DR-10). */
+  /** Report the credits in the text part only, as a server that answers in prose does. */
   readonly reportsCreditsInText?: boolean
   /** What one generation costs in the fake's estimate; the batch size multiplies it. Default IMAGE_CREDITS. */
   readonly estimateCreditsPerGeneration?: number

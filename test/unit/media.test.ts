@@ -183,7 +183,7 @@ describe("saveMedia", () => {
     })).rejects.toMatchObject({ code: "MEDIA_TOO_LARGE" })
   })
 
-  test("a 404 is a link that never existed, not an expiry (DR-13)", async () => {
+  test("a 404 is a link that never existed, not an expiry", async () => {
     await expect(saveMedia({ url: "https://files.elevenlabsusercontent.com/missing" }, {
       root: join(root, "missing"),
       maxBytes: 1024,
@@ -192,7 +192,7 @@ describe("saveMedia", () => {
     })).rejects.toMatchObject({ code: "SAVE_FAILED" })
   })
 
-  test("a malformed per cent escape in the link is handled, not thrown as a URIError (DR-13)", async () => {
+  test("a malformed per cent escape in the link is handled, not thrown as a URIError", async () => {
     const saved = await saveMedia({ url: "https://files.elevenlabsusercontent.com/bad%E0%A4", name: "clip" }, {
       root: join(root, "escape"),
       maxBytes: 1024,
@@ -202,7 +202,7 @@ describe("saveMedia", () => {
     expect(saved.path.endsWith("clip.mp3")).toBe(true)
   })
 
-  test("a type that is not media is refused, and nothing is written (DR-13)", async () => {
+  test("a type that is not media is refused, and nothing is written", async () => {
     await expect(saveMedia({ url: "https://files.elevenlabsusercontent.com/page" }, {
       root: join(root, "html"),
       maxBytes: 1024,

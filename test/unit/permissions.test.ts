@@ -39,7 +39,7 @@ describe("the default rules", () => {
   })
 
   // It carries a sentence the model wrote itself out of the workspace and asks ElevenLabs to build a tool from it, so
-  // it is a write with a rule of its own rather than a name left to `rule("*", other)` (RE-1).
+  // it is a write with a rule of its own rather than a name left to `rule("*", other)`.
   test("get_more_tools has its own rule: allowed by default, asked for under ask-changes, denied under read-only", () => {
     expect(WRITE_TOOLS).toContain("get_more_tools")
     for (const [access, effect] of [["all", "allow"], ["ask-changes", "ask"], ["read-only", "deny"]] as const) {
@@ -86,7 +86,7 @@ describe("the default rules", () => {
     }
   })
 
-  // DR-7: a conversation tool ElevenLabs adds later is denied by the patterns, under every access value.
+  // a conversation tool ElevenLabs adds later is denied by the patterns, under every access value.
   test("a conversation tool the table does not know is denied by the patterns, at every access value", () => {
     const later = ["elevenlabs_agents_get_conversation_audio", "elevenlabs_agents_get_conversation_transcript", "elevenlabs_agents_fetch_transcript", "elevenlabs_agents_list_conversations_v2"]
     for (const access of ["all", "ask-changes", "read-only"] as const) {

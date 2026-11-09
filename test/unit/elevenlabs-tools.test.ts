@@ -53,7 +53,7 @@ describe("the tool table", () => {
 
   // This test used to assert that `get_more_tools` was held unclassified on purpose, as a catalogue pager that
   // returned tool definitions. Its live schema says otherwise — one required free-text `capability` string, and a
-  // description that asks ElevenLabs to build tools with it — so it is a write, and nothing is held (RE-1).
+  // description that asks ElevenLabs to build tools with it — so it is a write, and nothing is held.
   test("classifies every live name, and get_more_tools is the write its own schema describes", () => {
     expect([...UNCLASSIFIED_TOOLS]).toEqual([])
     expect(classify("get_more_tools")).toBe("write")
@@ -70,7 +70,7 @@ describe("the tool table", () => {
   test("a name the table does not classify must be priced, so a cap refuses it whatever it starts with", () => {
     // The money gate is the table, not the `creative_` prefix: a spending tool ElevenLabs ships under any other name
     // would otherwise be allowed by `rule("*", other)` and never priced, and `get_more_tools` exists to ask for new
-    // tools (RE-1, RE-3).
+    // tools.
     for (const tool of ["agents_new_spender", "foo_bar", "creative_whatever_new", "", "SHINY_NEW_TOOL"]) {
       expect({ tool, mustPrice: mustPrice(tool) }).toEqual({ tool, mustPrice: true })
       expect({ tool, known: known(tool) }).toEqual({ tool, known: false })

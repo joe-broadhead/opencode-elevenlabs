@@ -50,12 +50,12 @@ export const GENERATION_DEFAULTS: Readonly<Record<string, number>> = {
   creative_generate_video: 1,
 }
 
-/** A count field holding something no number can be read out of. The whole call's price multiplies by it (RR4-6). */
+/** A count field holding something no number can be read out of. The whole call's price multiplies by it. */
 export const NOT_A_COUNT = Symbol("not a count")
 
 /**
  * The count a field states. A caller that wrote `"4"` asked for four, so a numeric string is read as the number it
- * spells rather than passed over, which would price the call as if the field were not there (RR3-9, for counts).
+ * spells rather than passed over, which would price the call as if the field were not there, for counts.
  * Anything a number cannot be read out of is a multiplier this plugin cannot know, and so is PRICE_UNKNOWN. A zero or
  * a negative states nothing and leaves the count to the server, which is its own schema default.
  */
@@ -68,7 +68,7 @@ export const countValue = (value: unknown): number | undefined | typeof NOT_A_CO
 
 /**
  * The key the caller used for its generation count, or `undefined` when it named none. One helper for every path, so
- * the price, the clamp and the cost line all read the same field (DR-6).
+ * the price, the clamp and the cost line all read the same field.
  */
 export const generationsKeyOf = (input: Record<string, unknown>): string | undefined => GENERATION_KEYS.find((key) => input[key] !== undefined)
 
@@ -96,8 +96,7 @@ export function clampGenerations(input: Record<string, unknown>, allowed: number
  * Every argument name each priced tool's own live schema declares, by tool. An estimate answers for the arguments it
  * is sent, so an argument the schema does not have is one whose effect on the bill nothing here knows — and sending it
  * to the estimate would not price it either, because the server would be pricing a call it does not understand. Such a
- * call is refused PRICE_UNKNOWN while a cap is on, rather than priced as if the argument were not there (Ruling A,
- * widened by RR4-3).
+ * call is refused PRICE_UNKNOWN while a cap is on, rather than priced as if the argument were not there.
  *
  * These are copies of the live schemas, taken on 2026-11-09; `test/unit/live-schema.test.ts` holds every one of them
  * against `test/fixtures/live-tools.json`, so an argument ElevenLabs adds upstream fails the suite rather than
@@ -129,7 +128,7 @@ export function unknownArgument(name: string, input: Record<string, unknown>): s
 
 /**
  * The credits a result reports, when it reports any. Undefined means the figure is not known and is never invented.
- * The host's own `Tool.Result` carries `output` and `content`, not `text`, so both are read here (DR-10).
+ * The host's own `Tool.Result` carries `output` and `content`, not `text`, so both are read here.
  */
 export function actualCreditsOf(result: { readonly output?: unknown; readonly text?: string; readonly content?: unknown }): number | undefined {
   const fromOutput = creditsIn(result.output)
@@ -184,7 +183,7 @@ export function attestedCreditsOf(result: { readonly output?: unknown }): number
 }
 
 /**
- * The figure an `estimate_only` result states, read under the rules settlement reads a charge under (RE-2): the same
+ * The figure an `estimate_only` result states, read under the rules settlement reads a charge under: the same
  * five named keys, at a named level, positive, in a fixed order — no prose, and no walk down four levels of whatever
  * the server returned.
  *
@@ -215,7 +214,7 @@ export function estimatedCreditsOf(result: { readonly output?: unknown; readonly
  *
  * `held` says what `reserved` is: a live hold, which one attested figure inside the band may settle below, or a
  * charge this call has already been recorded at, which nothing lowers. A second result for one call is a repeat, not
- * a correction — the plugin cannot tell which of the two figures the server meant — so the higher one stands (RR4-5).
+ * a correction — the plugin cannot tell which of the two figures the server meant — so the higher one stands.
  */
 export function settlementOf(
   result: { readonly output?: unknown; readonly text?: string; readonly content?: unknown },
@@ -327,7 +326,7 @@ function parseJson(text: string): unknown {
 // ---------------------------------------------------------------------------------------------------------------
 // The ledger. Amounts, times and the session they belong to, in the plugin's own storage, so a reload, a restart or a
 // scheduled script cannot reset a cap. A reservation is held from before a call is sent until its result settles, so
-// two calls that start together cannot both fit one budget (DR-1).
+// two calls that start together cannot both fit one budget.
 //
 // The store is append-only and single-writer per key. Every hold and every charge is its own key,
 // `spend/<writerId>/<entryId>`, where `writerId` names one plugin instance; only that instance rewrites the keys it
@@ -351,13 +350,13 @@ export const RESERVATION_MS = 10 * 60 * 1000
  * How often a plugin instance reads the store on its own, with no call to prompt it. This is what bounds a process
  * that is idle, or whose calls all refuse, and so writes nothing and never refreshes behind itself: without it a
  * book decides from its startup read for the process's whole life, and an OpenCode started this morning admits a
- * fresh cap this evening (RR5-3). Five seconds is one `scan` of `spend/`, the same read setup already does.
+ * fresh cap this evening. Five seconds is one `scan` of `spend/`, the same read setup already does.
  */
 export const LEDGER_REFRESH_MS = 5_000
 /** The detail keys one writer keeps. An in-window charge past that folds into an hour's total, which never shrinks. */
 const MAX_ENTRIES = 1_000
 /**
- * How finely a folded total keeps its time (RR2-9). A folded charge loses its own timestamp, so it ages with the hour
+ * How finely a folded total keeps its time. A folded charge loses its own timestamp, so it ages with the hour
  * it joined: one key per hour bounds the over-count at one hour, where one key per session bounded it at a day.
  */
 const BUCKET_MS = 60 * 60 * 1000
@@ -377,7 +376,7 @@ interface Row {
   /** When the credits were reserved or spent, in epoch milliseconds. A row ages from here. */
   at: number
   credits: number
-  /** The session that spent them, so a reload restores its total too (DR-9). */
+  /** The session that spent them, so a reload restores its total too. */
   sessionID: string
 }
 
@@ -498,9 +497,9 @@ export class Ledger {
 
   /**
    * Starts a read of the store and does not wait for it, so the next decision this ledger makes sees what the other
-   * OpenCodes had written by now. The synchronous path cannot await before it dispatches (DR-1), so it bounds its
+   * OpenCodes had written by now. The synchronous path cannot await before it dispatches, so it bounds its
    * own staleness behind itself instead of in front: a book that decides is then at most one call old, rather than
-   * as old as the process (RR5-3). A storage failure leaves the book as it is, exactly as `hydrate` does.
+   * as old as the process. A storage failure leaves the book as it is, exactly as `hydrate` does.
    */
   catchUp(): void {
     void this.refresh().catch(() => undefined)
@@ -559,7 +558,7 @@ export class Ledger {
   /**
    * Holds `credits` for a call before it is sent, and refuses when it does not fit. Nothing awaits between the check
    * and the hold, so two calls that start together in this process cannot both pass: the second sees the first's
-   * reservation, including one held by another ledger on the same storage (DR-1). The returned promise is the hold's
+   * reservation, including one held by another ledger on the same storage. The returned promise is the hold's
    * own key reaching the store; a caller that can await it does so before the call is dispatched, and a write that
    * fails takes the hold back out of memory and refuses the call rather than spend against a cap it cannot keep.
    */
@@ -593,7 +592,7 @@ export class Ledger {
 
   /**
    * What this ledger has for one call, a live hold or a recorded charge. A caller settling a result reads its floor
-   * from here rather than from its own memory of the reservation, which a second result finds already spent (RR4-5).
+   * from here rather than from its own memory of the reservation, which a second result finds already spent.
    */
   recorded(id: string): { readonly kind: "hold" | "charge"; readonly credits: number } | undefined {
     const row = this.book().own.get(id)
@@ -606,15 +605,15 @@ export class Ledger {
    * less than the bound — and every settlement after that may only raise it: a repeated or duplicated result is
    * ignored unless it is higher. The floor is this row's own figure, not the caller's idea of what was reserved,
    * because by the time a second result arrives the hold may already be a charge, settled here or converted by
-   * `prune` at minute ten, and a caller reading `reservation()` then sees nothing and would offer zero (RR4-5).
+   * `prune` at minute ten, and a caller reading `reservation` then sees nothing and would offer zero.
    */
   settle(id: string, sessionID: string, credits: number, attested = false): Spend {
     const book = this.book()
     const held = book.own.get(id)
     const floor = held?.credits ?? 0
-    // A charge keeps the session that reserved it, the same way it keeps that row's own figure as its floor (RR4-5).
+    // A charge keeps the session that reserved it, the same way it keeps that row's own figure as its floor.
     // The argument opens a row that does not exist yet and does nothing else: a result delivered under a second
-    // session would otherwise move the charge there and hand the first session its whole session cap back (RR5-5).
+    // session would otherwise move the charge there and hand the first session its whole session cap back.
     const owner = held?.sessionID ?? sessionID
     // The band is checked here as well as in `settlementOf`, because here the row's own figure is known.
     const lowerable = held?.kind === "hold" && attested && credits > 0 && credits * ATTESTED_MIN_RATIO >= floor
@@ -655,7 +654,7 @@ export class Ledger {
   /** Remembers a price the server itself gave for one tool, so a later call with the same arguments can be priced. */
   rememberPrice(tool: string, input: Record<string, unknown>, price: Price) {
     // Swept here as well as in `prune`, because a session that only ever estimates never settles or records anything,
-    // and this is the one place that grows (RE-7).
+    // and this is the one place that grows.
     this.forgetStaleEstimates()
     this.remembered.set(keyOf(tool, input), { price, at: this.now() })
   }
@@ -671,7 +670,7 @@ export class Ledger {
    * Drops the estimates that can no longer price anything. `rememberedPrice` already refuses to return one past its
    * ten minutes, so this frees memory rather than changing an answer — but the key it holds is the tool name plus the
    * stable JSON of every argument, which means the whole prompt. A cache with an expiry drops what expired, on the
-   * same sweep that ages everything else, and this plugin does not keep prompt text it can no longer use (RE-7).
+   * same sweep that ages everything else, and this plugin does not keep prompt text it can no longer use.
    */
   private forgetStaleEstimates(now = this.now()) {
     for (const [key, held] of [...this.remembered]) {
@@ -896,7 +895,7 @@ const message = (error: unknown) => (error instanceof Error ? error.message : St
 /**
  * A call's price key: the tool and its arguments, so a different prompt is a different price. `estimate_only` is left
  * out, because the estimate and the paid call it prices differ by exactly that flag, and the name's case is folded, as
- * the money gate folds it (RR2-8): an estimate sent in one case prices the paid call sent in another.
+ * the money gate folds it: an estimate sent in one case prices the paid call sent in another.
  */
 const keyOf = (tool: string, input: Record<string, unknown>) => {
   const { estimate_only: _ignored, ...rest } = input
@@ -993,7 +992,7 @@ export function appendLine(result: { content?: unknown }, line: string) {
  * the call names none. Dividing by that batch size is what gives the clamp its unit.
  *
  * The figure itself is read by `estimatedCreditsOf`, under settlement's own rules rather than the looser walk a
- * reported charge is read with: `estimate.credits` first, the same five named keys, nothing out of prose (RE-2).
+ * reported charge is read with: `estimate.credits` first, the same five named keys, nothing out of prose.
  *
  * The estimate is fractional, and credits in the ledger are whole, so the total rounds up: the over-priced side. A
  * tool whose batch size cannot be known — `creative_generate_in_flow` and `creative_run_flow_nodes` name no default,
@@ -1076,13 +1075,13 @@ export function quoteCallSync(input: Omit<GuardInput, "estimate">, tool: string,
  * one obstacle this plugin can name by itself: an argument ElevenLabs' own schema for the tool does not have, which
  * is refused before any estimate is asked for. Everything else — a flag the server would not take, a link that broke,
  * a figure the estimate did not carry — happened at ElevenLabs, and the refusal says so rather than naming an
- * argument it cannot blame (RR4-12).
+ * argument it cannot blame.
  */
 export function priceObstacle(name: string, input: Record<string, unknown>): string | undefined {
   const tool = name.toLowerCase()
   const unknown = unknownArgument(tool, input)
   if (unknown !== undefined) return unknown
-  // A count multiplies whatever one generation costs, so one that cannot be read stops the call (RR4-6).
+  // A count multiplies whatever one generation costs, so one that cannot be read stops the call.
   const badCount = GENERATION_KEYS.find((key) => countValue(input[key]) === NOT_A_COUNT)
   if (badCount !== undefined) return `"${badCount}" states a generation count no number can be read out of`
   return undefined
@@ -1093,7 +1092,7 @@ export function priceObstacle(name: string, input: Record<string, unknown>): str
  * cannot spend. Undefined means the call must be priced, and the caller goes on.
  *
  * The probe is free, but it is still a call that reaches ElevenLabs, so while a cap is on it is held to the same
- * argument allowlist the paid call is (RE-6). That check exists to keep an argument ElevenLabs' own schema does not
+ * argument allowlist the paid call is. That check exists to keep an argument ElevenLabs' own schema does not
  * have from reaching it — the server rejects the call and the workspace is left holding a flow and a node for a probe
  * that answered nothing. A check whose purpose is to stop a bad argument reaching ElevenLabs runs on every call that
  * reaches ElevenLabs, the free one included. No money turns on it: the paid call carrying that same argument is
@@ -1136,7 +1135,7 @@ async function quote(context: GuardInput, tool: string, args: Record<string, unk
   // priced. It is also one fewer flow created in the workspace for a call that is going to be refused.
   // A count that cannot be read multiplies whatever one generation costs by an unknown, so no price for these
   // arguments means anything — whoever it came from. Checked here rather than only inside `estimatePrice`, so a price
-  // this ledger already holds cannot carry a call past it either (RR4-6).
+  // this ledger already holds cannot carry a call past it either.
   const obstacle = priceObstacle(tool, args)
   if (obstacle !== undefined) throw unknownPrice(tool, priced(tool), obstacle)
   // A remembered estimate is ElevenLabs' own figure for exactly these arguments, minutes old at most. Using it first
@@ -1177,7 +1176,7 @@ function quoteSync(context: Omit<GuardInput, "estimate">, tool: string, args: Re
   // already gone out; the in-memory hold still bounds this process. See the residual in SECURITY.md.
   void context.ledger.reserve(call.id, call.sessionID, price.credits, caps).catch(() => undefined)
   // The store is read behind the call, not in front of it: the hold above is already written, and the next call on
-  // this ledger decides from a book that has seen every other OpenCode's holds since this one (RR5-3).
+  // this ledger decides from a book that has seen every other OpenCode's holds since this one.
   context.ledger.catchUp()
   return { price, tracked: true }
 }
@@ -1200,13 +1199,13 @@ function clamp(price: Price, caps: Caps, args: Record<string, unknown>, spend: S
 /**
  * The refusal for a call nothing can price. A tool that accepts `estimate_only` is told how to price itself; one that
  * does not — `creative_design_voice` renders three previews, `agents_run_tests` holds conversations — has no price
- * before it runs at all, and the one next step that always works is turning both caps off (DR-5).
+ * before it runs at all, and the one next step that always works is turning both caps off.
  */
 function unknownPrice(tool: string, estimable: boolean, obstacle?: string) {
   const because = obstacle === undefined ? "" : `: ${obstacle}`
   // A name this release has never seen. There is no schema to price it from and no way to tell whether it spends, so
   // the next step is a configuration change or a later release rather than another call: no estimate exists to
-  // suggest (RE-1, RE-3).
+  // suggest.
   if (!known(tool)) {
     return new SpendRefused(
       "PRICE_UNKNOWN",

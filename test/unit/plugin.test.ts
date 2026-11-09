@@ -81,7 +81,7 @@ describe("the elevenlabs server", () => {
     }
   })
 
-  // DR-11: the guard's predicate is about money, not ownership: a stale region entry stays guarded.
+  // the guard's predicate is about money, not ownership: a stale region entry stays guarded.
   test("guards every ElevenLabs entry, a stale region entry included, and only another vendor's server is unguarded", () => {
     expect(guardsSource({ type: "plugin", url: ENDPOINT })).toBe(true)
     expect(guardsSource({ type: "adopted", url: ENDPOINT })).toBe(true)

@@ -92,7 +92,7 @@ export interface Status {
   /** Credits this plugin has spent, and the caps that bound it. The balance is only here with an API key. */
   readonly spend: SpendFacts
   /**
-   * Other `mcp.servers` entries at ElevenLabs' own address (RR2-8). Each is its own server to OpenCode, with its own
+   * Other `mcp.servers` entries at ElevenLabs' own address. Each is its own server to OpenCode, with its own
    * tool prefix, so this plugin never sees its calls and the caps do not bind them. Empty when there are none.
    */
   readonly otherServers: readonly string[]
@@ -220,7 +220,7 @@ function nextStepOf(status: Omit<Status, "nextStep">): string {
   if (problem) return problem
   if (status.shadowedSkills.length) return shadowedFix(status.shadowedSkills)
   // A second entry at ElevenLabs' address is only worth a next step while a cap is on: with no cap there is nothing
-  // for it to be outside of. It is the owner's entry, so removing it is offered, never done (RR2-8).
+  // for it to be outside of. It is the owner's entry, so removing it is offered, never done.
   const capped = status.spend.sessionCap !== null || status.spend.dailyCap !== null
   if (status.otherServers.length && capped) {
     const many = status.otherServers.length > 1
@@ -264,7 +264,7 @@ function toolsText({ state, tools, unknownCount, unknownTools, access }: Status)
 /** `a`, `a and b`, `a, b and c`. */
 const listed = (items: readonly string[]) => (items.length > 1 ? `${items.slice(0, -1).join(", ")} and ${items.at(-1)}` : items[0]!)
 
-/** The other ElevenLabs entries, named as config keys: what the caps do not reach (RR2-8). */
+/** The other ElevenLabs entries, named as config keys: what the caps do not reach. */
 const otherServersText = (names: readonly string[]) =>
   `${listed(names.map((name) => `mcp.servers.${name}`))} ${names.length > 1 ? "also point" : "also points"} at ${DISPLAY_NAME} and ${names.length > 1 ? "are" : "is"} outside these caps`
 
@@ -342,7 +342,7 @@ export interface SetupFacts {
   readonly mediaRoot: string
   readonly spend: () => SpendFacts | Promise<SpendFacts>
   readonly source?: ServerSource
-  /** Other `mcp.servers` entries pointing at ElevenLabs, read beside this plugin's own at registration (RR2-8). */
+  /** Other `mcp.servers` entries pointing at ElevenLabs, read beside this plugin's own at registration. */
   readonly otherServers?: readonly string[]
   readonly host: HostCheck
   readonly skills: readonly { readonly name: string; readonly path: string }[]

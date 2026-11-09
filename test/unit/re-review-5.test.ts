@@ -41,7 +41,7 @@ const speechArgs = (prompt: string) => ({ prompt, voice_id: "voice_example", mod
 /** A transcription call in the live schema's own names. It names a node to read, never a file on this machine. */
 const transcribeArgs = () => ({ flow_id: "flow_example", connect_from: "node_example", model_id: "model_example", context: "a test" })
 
-describe("RR5-1 — a WAV with more than one `fmt ` chunk is not measured", () => {
+describe("a WAV with more than one `fmt ` chunk is not measured", () => {
   // This block used to end in a price: the two-`fmt ` file was refused for want of a length, and the single-`fmt `
   // file next to it was billed at 55 credits for its ten seconds. Transcription is priced from ElevenLabs' own
   // estimate now and from nothing else, so what is left of the finding is the reading itself — the duration
@@ -59,7 +59,7 @@ describe("RR5-1 — a WAV with more than one `fmt ` chunk is not measured", () =
   test("the ordering that over-reads is left unmeasured too, and so is a `fmt ` after the audio", async () => {
     // Taking the last would be safe for `fast first` and wrong for `fast last`; taking the slowest rate cannot
     // under-read but still invents a reading. One ambiguity, one answer: neither file has a length this plugin
-    // prints, wherever the second chunk sits — including after `data`, where RR4-7 looks for a second `data`.
+    // prints, wherever the second chunk sits — including after `data`, where looks for a second `data`.
     for (const [name, bytes] of [
       ["two-fmt-reversed.wav", twoFmtChunks("fast last")],
       ["trailing-fmt.wav", trailingSecondFmt()],
@@ -94,7 +94,7 @@ describe("RR5-1 — a WAV with more than one `fmt ` chunk is not measured", () =
   })
 })
 
-describe("RR5-2 — one list decides what is priced", () => {
+describe("one list decides what is priced", () => {
   const caps = { sessionCreditCap: 10_000, dailyCreditCap: 10_000 }
   /** What the gate does with one call under a cap: a tracked price, an untracked pass, or a refusal. */
   const outcome = (tool: string, input: Record<string, unknown>) => {
@@ -138,7 +138,7 @@ describe("RR5-2 — one list decides what is priced", () => {
   })
 
   test("case is folded on the gate as it is everywhere else, so no spelling is the weaker one", () => {
-    // RR2-8, which the live names made easy to lose: the catalogue is lower-case, and a caller that shouts is still
+    //, which the live names made easy to lose: the catalogue is lower-case, and a caller that shouts is still
     // making the same paid call.
     expect(mustPrice("Creative_Generate_Speech")).toBe(true)
     expect(outcome("CREATIVE_GENERATE_SPEECH", speechArgs("hello"))).toEqual({ refused: "PRICE_UNKNOWN" })
@@ -149,7 +149,7 @@ describe("RR5-2 — one list decides what is priced", () => {
   })
 })
 
-describe("RR5-3 — a book that decides is never older than one call", () => {
+describe("a book that decides is never older than one call", () => {
   const DAILY = 10_000
   const caps = { sessionCreditCap: null, dailyCreditCap: DAILY }
   // The review's figure, from ElevenLabs' own estimate rather than from a rate: 3,000 credits a call.
@@ -229,7 +229,7 @@ describe("RR5-3 — a book that decides is never older than one call", () => {
   })
 
   test("the read behind a call is not waited for, so the call itself stays synchronous", () => {
-    // DR-1: the shaper contract gives this path no await before dispatch, and the fix may not buy its bound with one.
+    // the shaper contract gives this path no await before dispatch, and the fix may not buy its bound with one.
     // `catchUp` starts the read and returns; a store that never answers must not stall or fail a call.
     const stalled = {
       get: async () => undefined as never,
@@ -288,7 +288,7 @@ describe("RR5-3 — a book that decides is never older than one call", () => {
   })
 })
 
-describe("RR5-4 — an argument is read once, and that one reading is the one that is priced", () => {
+describe("an argument is read once, and that one reading is the one that is priced", () => {
   // This block used to be about a local audio path: the guard read `audio_path` five times and kept no copy, so an
   // argument that answered with a cheap file while it was measured and a dear one while it was dispatched put a
   // 3,300-credit call through on a 6-credit hold. Nothing on this machine is measured now, so the shape that made it
@@ -368,7 +368,7 @@ describe("RR5-4 — an argument is read once, and that one reading is the one th
   })
 })
 
-describe("RR5-5 — a charge keeps the session that reserved it", () => {
+describe("a charge keeps the session that reserved it", () => {
   const caps = { sessionCreditCap: 2_000, dailyCreditCap: 10_000 }
 
   test("a result delivered under a second session does not move the charge out of the first", async () => {
@@ -406,7 +406,7 @@ describe("RR5-5 — a charge keeps the session that reserved it", () => {
   })
 })
 
-describe("RR5-6 — a line states what it counted, in the unit it is really in", () => {
+describe("a line states what it counted, in the unit it is really in", () => {
   // This block used to be about measured audio: a six-credit file described as "0 minutes of audio, measured", and a
   // sixty-second one as "1 minutes". No duration is priced now, so the rule moved to the two places a count still
   // reaches a person — the cost line's batch, and the length `save_media` prints beside a file it saved.

@@ -59,7 +59,7 @@ export interface ToolResult {
 /**
  * Runs the tool. It writes a file, so it asserts its own permission before it fetches anything: the host's declaration
  * only hides a denied action, and a decline here must reach no network and touch no disk. It then asserts the host's
- * `external_directory` rule for the media folder, because the folder is outside the project (R19, DR-8).
+ * `external_directory` rule for the media folder, because the folder is outside the project.
  */
 export async function runSaveMedia(input: SaveToolInput, raw: unknown, call: CallSource): Promise<ToolResult> {
   const source = { type: "tool" as const, messageID: call.messageID, id: call.id }

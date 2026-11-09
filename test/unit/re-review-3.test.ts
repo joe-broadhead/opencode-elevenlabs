@@ -76,7 +76,7 @@ const refusal = (tool: string, input: Record<string, unknown>) => {
   }
 }
 
-describe("RR3-1 — the decoder's reading is the only duration, and no duration is a price", () => {
+describe("the decoder's reading is the only duration, and no duration is a price", () => {
   // This block used to assert a price per measured minute: a WAV read 60 seconds and cost 330 credits. Live,
   // `creative_transcribe_audio` takes `{connect_from, context, estimate_only, flow_id, model_id, view_state_id}` and
   // no file at all, so nothing on this machine prices anything. What the reproductions won is kept exactly where it
@@ -142,7 +142,7 @@ describe("RR3-1 — the decoder's reading is the only duration, and no duration 
   })
 })
 
-describe("RR3-2 / RR3-7 — an argument the price does not cover is PRICE_UNKNOWN", () => {
+describe("an argument the price does not cover is PRICE_UNKNOWN", () => {
   // This block used to be about a local file beside a URL: the plugin priced the second it could measure and let the
   // server fetch a two-hour recording for free. The rule it won — an argument whose effect on the bill is unknown is
   // never priced around — is now the whole of how arguments are checked, held against ElevenLabs' own live schemas.
@@ -195,7 +195,7 @@ describe("RR3-2 / RR3-7 — an argument the price does not cover is PRICE_UNKNOW
   })
 })
 
-describe("RR3-6 — a `data` chunk past the first read is still reached", () => {
+describe("a `data` chunk past the first read is still reached", () => {
   test("100 kB of metadata before the audio does not stop the file being read", async () => {
     // 96db0ed read 64 kB and gave up, so an ordinary broadcast export had no duration on its saved line at all.
     expect(statSync(paths.bigMeta).size).toBeGreaterThan(64 * 1024)
@@ -203,21 +203,21 @@ describe("RR3-6 — a `data` chunk past the first read is still reached", () => 
   })
 })
 
-describe("RR3-7 — chunks after `data` are metadata, not audio", () => {
+describe("chunks after `data` are metadata, not audio", () => {
   test("artwork after the audio is not read as audio", async () => {
     // 96db0ed measured every byte after the `data` header, so 100 kB of artwork read as twelve more seconds.
     expect(await durationOf(paths.trailing)).toBe(1)
   })
 
   test("a second `data` chunk is not added to the first, and is not measured at all", async () => {
-    // RR4-7 corrects the second half of this: a second `data` chunk is not metadata either, and which one a decoder
+    // corrects the second half of this: a second `data` chunk is not metadata either, and which one a decoder
     // reads is not settled, so the file is unmeasured rather than read as the first chunk's second.
     expect(await durationOf(paths.twoData)).toBeUndefined()
   })
 })
 
-describe("RR4-1 — a short `data` size does not shrink the reading", () => {
-  // Correcting RR3-1: "the stated size, clamped to what follows" read a truncated or still-being-written file as a
+describe("a short `data` size does not shrink the reading", () => {
+  // Correcting "the stated size, clamped to what follows" read a truncated or still-being-written file as a
   // fraction of its audio. The audio is every byte after `data`, and the stated size is believed only where a
   // well-formed chunk begins exactly at its end.
   test("junk after an understated `data` size is audio and is counted", async () => {
@@ -229,8 +229,8 @@ describe("RR4-1 — a short `data` size does not shrink the reading", () => {
   })
 
   test("a real chunk at the stated end still ends the audio", async () => {
-    // The other half of the rule, which RR3-7 asserts: a trailing chunk announces itself exactly there. A second
-    // `data` announces itself the same way and is refused instead, under RR4-7.
+    // The other half of the rule, which asserts: a trailing chunk announces itself exactly there. A second
+    // `data` announces itself the same way and is refused instead, under.
     expect(await durationOf(paths.trailing)).toBe(1)
     expect(await durationOf(paths.twoData)).toBeUndefined()
   })
@@ -241,7 +241,7 @@ describe("RR4-1 — a short `data` size does not shrink the reading", () => {
   })
 })
 
-describe("RR3-9 — a number a call states is read as the number it spells", () => {
+describe("a number a call states is read as the number it spells", () => {
   // This block used to be about `music_length_ms`, a field the live catalogue has no tool for: a numeric string was
   // dropped and a smaller number won, so a call priced 1 credit instead of 450. The field that multiplies a bill now
   // is the generation count, and it is read the same way — because an estimate answers for the batch the arguments
@@ -287,7 +287,7 @@ describe("RR3-9 — a number a call states is read as the number it spells", () 
   })
 })
 
-describe("RR3-3 — on the script path a result raises a charge and never lowers one", () => {
+describe("on the script path a result raises a charge and never lowers one", () => {
   const shape = (action = "elevenlabs_creative_generate_speech") => ({ sessionID: "ses_a", agent: "build", action })
 
   test("a late result from an abandoned call cannot settle the call in flight now", () => {
@@ -342,7 +342,7 @@ describe("RR3-3 — on the script path a result raises a charge and never lowers
   })
 })
 
-describe("RR3-8 — a reported figure lowers a charge only from close under the reservation", () => {
+describe("a reported figure lowers a charge only from close under the reservation", () => {
   const reserved = 3_000
   const settle = (credits: unknown) => settlementOf({ output: { credits } }, reserved)
 
@@ -370,10 +370,10 @@ describe("RR3-8 — a reported figure lowers a charge only from close under the 
   })
 })
 
-describe("RR4-2 — a higher figure always raises the charge, clamped at the day's cap", () => {
+describe("a higher figure always raises the charge, clamped at the day's cap", () => {
   const reserved = 3_000
 
-  // Correcting RR3-8's upper bound: keeping the reservation when a figure is more than ten times it ignores a real
+  // Correcting 's upper bound: keeping the reservation when a figure is more than ten times it ignores a real
   // charge the plugin under-reserved, and the cap under-counts by the whole difference. A raise is now always the
   // charge; the day's cap bounds what one absurd figure can do to a single window.
   test("a figure far above the reservation is charged, and the cost line says it was", () => {
@@ -418,7 +418,7 @@ describe("RR4-2 — a higher figure always raises the charge, clamped at the day
   })
 })
 
-describe("RR4-3 — every priced tool has an argument allowlist, taken from its own live schema", () => {
+describe("every priced tool has an argument allowlist, taken from its own live schema", () => {
   // This block used to carry a second half about a composition plan's length: `creative_compose_music` is not in the
   // live catalogue at all, and no live tool prices by a duration, so that half is gone. The first half is now checked
   // against ElevenLabs' own schemas rather than against this plugin's idea of each tool's arguments.
@@ -488,7 +488,7 @@ describe("RR4-3 — every priced tool has an argument allowlist, taken from its 
   })
 })
 
-describe("RR4-4 — a saved M4A says how long it is, and that figure is never a price", () => {
+describe("a saved M4A says how long it is, and that figure is never a price", () => {
   // Ruling A took the `mvhd` read out of the pricing, and with it the duration the save tool printed for every
   // container but a WAV: an M4A, which is what ElevenLabs returns, saved with no length at all. The figure is the
   // file's own word, so it comes back for the saved line only, through a walk bounded by the file's bytes.
@@ -528,7 +528,7 @@ describe("RR4-4 — a saved M4A says how long it is, and that figure is never a 
   })
 })
 
-describe("RR3-10 — two spellings of one method are one flight, and one price", () => {
+describe("two spellings of one method are one flight, and one price", () => {
   test("a mixed-case name does not open a second priced call beside the first", () => {
     // 96db0ed admitted all three at once — 1,500 / 3,000 / 4,500 — where one is the rule.
     const ledger = new Ledger()
@@ -557,7 +557,7 @@ describe("RR3-10 — two spellings of one method are one flight, and one price",
   })
 })
 
-describe("RR3-1 — a hostile file neither hangs nor reads past its own end", () => {
+describe("a hostile file neither hangs nor reads past its own end", () => {
   test("a chunk size claiming four gigabytes is refused, and quickly", async () => {
     const hostile = file("hostile.wav", hostileChunkSize())
     const started = performance.now()
@@ -573,7 +573,7 @@ describe("RR3-1 — a hostile file neither hangs nor reads past its own end", ()
   })
 })
 
-describe("RR3-4 — one key per record, one writer per key, so no settled charge is lost", () => {
+describe("one key per record, one writer per key, so no settled charge is lost", () => {
   const limits = { sessionCreditCap: 100_000, dailyCreditCap: 100_000 }
 
   /** A store whose writes wait until the test lets each one through, so two writers' order can be chosen. */
@@ -675,7 +675,7 @@ describe("RR3-4 — one key per record, one writer per key, so no settled charge
   }, 30_000)
 })
 
-describe("RR3-5 — two writers' folded hours are summed, never taken one over the other", () => {
+describe("two writers' folded hours are summed, never taken one over the other", () => {
   test("two busy locations on one data directory keep every folded credit", async () => {
     // 96db0ed merged a bucket both books held with Math.max, so half the folded credits vanished: the store held
     // 1,000 of the 2,000 folded, and the two locations read 11,000 and 21,000 against a truth of 22,000.
@@ -737,11 +737,11 @@ describe("RR3-5 — two writers' folded hours are summed, never taken one over t
   })
 })
 
-describe("RR3-4/RR3-5 — the documented residual is what the ledger now does", () => {
+describe("the documented residual is what the ledger now does", () => {
   // The review struck the old claims: they said a merge kept every row, which it did not. These clauses are what the
   // append-only ledger actually guarantees, and the three documents the user reads must carry them word for word, so a
-  // later change cannot leave a stronger sentence behind. RR4-10 corrected the middle clause, which gave the
-  // two-process case as the general rule, and added the Code Mode one; RR5-3 then bounded that one — the ledger reads
+  // later change cannot leave a stronger sentence behind. corrected the middle clause, which gave the
+  // two-process case as the general rule, and added the Code Mode one; then bounded that one — the ledger reads
   // the store behind every call and on a timer — so the sentence states a staleness instead of a whole cap. The
   // crossing is proved in `re-review-4.test.ts` and the staleness in `re-review-5.test.ts`.
   const RESIDUAL =
@@ -751,9 +751,9 @@ describe("RR3-4/RR3-5 — the documented residual is what the ledger now does", 
     test(`${file} states the residual exactly`, () => {
       const prose = readFileSync(join(ROOT, file), "utf8").replace(/\*\*/g, "").replace(/\s+/g, " ")
       expect(prose).toContain(RESIDUAL)
-      // The claim RR4-10 found: the two-process case, printed as the bound every reader sizes a cap from.
+      // The claim found: the two-process case, printed as the bound every reader sizes a cap from.
       expect(prose).not.toContain("exceed a cap by at most one call's reservation;")
-      // And the one RR5-3 removed: a process whose book never moved again, which is no longer what happens.
+      // And the one removed: a process whose book never moved again, which is no longer what happens.
       expect(prose).not.toContain("admits a whole cap of its own")
     })
 

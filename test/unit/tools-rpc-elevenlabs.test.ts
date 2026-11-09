@@ -56,7 +56,7 @@ describe("ElevenLabs' tools RPC", () => {
     const spend = runtime()
     setToolRuntime(spend)
     const call = { ...CALL, action: "elevenlabs_creative_generate_image" }
-    // DR-6: the clamp lands in the one key the live schema has, and adds no second count beside it.
+    // the clamp lands in the one key the live schema has, and adds no second count beside it.
     const args: Record<string, unknown> = { prompt: "a mug", generations_count: 4, model_id: "model_example", context: "price it" }
     shapeInput("creative_generate_image", { ...args, estimate_only: true }, call)
     const estimated = shapeResult("creative_generate_image", { output: { estimate: { credits: 4000 } }, text: "" }, call)
@@ -77,7 +77,7 @@ describe("ElevenLabs' tools RPC", () => {
     setToolRuntime(undefined)
   })
 
-  test("two script calls that reserve together cannot both fit (DR-1)", () => {
+  test("two script calls that reserve together cannot both fit", () => {
     const spend = runtime(2000, 10000)
     const shapers = shapersFor(spend)
     const call = { ...CALL, action: "elevenlabs_creative_generate_speech" }

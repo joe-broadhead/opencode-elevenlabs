@@ -224,11 +224,11 @@ export const WRITE_TOOLS: readonly string[] = [
 /**
  * Calls that spend the workspace's credits. Every one of them is priced from ElevenLabs' own estimate, by calling the
  * same tool with `estimate_only: true` and the same arguments; a tool without that flag is refused `PRICE_UNKNOWN`
- * under a cap. A name missing from this list would spend unguarded, while the model was told it would not (DR-3).
+ * under a cap. A name missing from this list would spend unguarded, while the model was told it would not.
  *
  * `creative_design_voice` spends (it renders three previews) and has no `estimate_only`.
  *
- * One rule decides every tool the catalogue is silent about (RE-4): a tool whose description says it does server-side
+ * One rule decides every tool the catalogue is silent about: a tool whose description says it does server-side
  * work ElevenLabs plausibly bills, and does not say it spends nothing, is counted as spending. The tools that really
  * do not spend say so unprompted — `creative_upload_flow_reference` ends "This starts no generation and spends no
  * credits", `creative_update_node` ends "This never starts a generation" — so silence beside billable work is the
@@ -257,7 +257,7 @@ export const SPEND_TOOLS: readonly string[] = [
 /**
  * Reads that spend. Empty against this catalogue: `creative_transcribe_audio` was the one candidate, and live it adds
  * a node to a flow, so it is a write that spends and sits in `SPEND_TOOLS`. Kept because `access` is about changing
- * the workspace and money is a separate axis (DR-2); the caps always apply either way.
+ * the workspace and money is a separate axis; the caps always apply either way.
  */
 export const SPEND_READS: readonly string[] = []
 
@@ -276,14 +276,14 @@ export const known = (raw: string) => {
  * export, a delete — runs as it always did, and so does the plugin's own `save_media`, which is not ElevenLabs' to
  * bill.
  *
- * The unknown half is the money residual made real (RE-3). The gate used to be the `creative_` prefix, so a spending
+ * The unknown half is the money residual made real. The gate used to be the `creative_` prefix, so a spending
  * tool ElevenLabs shipped tomorrow under any other name was allowed by `rule("*", other)` and never priced; and
  * `get_more_tools` exists to ask ElevenLabs for new tools, so that chain starts inside the catalogue rather than
  * outside it. Nothing here can price a tool it has never seen: there is no schema to check its arguments against and
  * no `estimate_only` flag to call. So while either cap is on it is refused `PRICE_UNKNOWN`, and the owner either
  * turns both caps off or waits for a release that classifies it.
  *
- * Case is folded, as the permission rules fold it (RR2-8): ElevenLabs' live names are lowercase, but the money gate
+ * Case is folded, as the permission rules fold it: ElevenLabs' live names are lowercase, but the money gate
  * must not be the weaker of the two, and `Creative_Generate_Speech` spends exactly what its lowercase form spends.
  */
 export const mustPrice = (raw: string) => {
@@ -337,7 +337,7 @@ export const DESTRUCTIVE_TOOLS: readonly string[] = [
  *
  * `get_more_tools` was held here, as a catalogue pager that returned tool definitions and changed nothing. Its live
  * schema says otherwise — one required free-text `capability` string, and a description that asks ElevenLabs to build
- * tools with it — so it is a write (RE-1). Nothing is held on a guess about what a tool does: a name stays here only
+ * tools with it — so it is a write. Nothing is held on a guess about what a tool does: a name stays here only
  * while its own schema and description genuinely fit no class, and `npm run drift` reports whatever is here as known
  * rather than as drift.
  */
@@ -370,7 +370,7 @@ export function classify(name: string): ToolClass {
 export const spends = (name: string) => SPEND_ANY.includes(name.toLowerCase())
 
 /**
- * True for a tool the guard may price with `estimate_only: true`. Case is folded, as `mustPrice` folds it (RR2-8):
+ * True for a tool the guard may price with `estimate_only: true`. Case is folded, as `mustPrice` folds it:
  * a name in another case must be offered its own estimate, not refused as a tool that cannot be priced at all.
  */
 export const priced = (name: string) => ESTIMATE_TOOLS.includes(name.toLowerCase())

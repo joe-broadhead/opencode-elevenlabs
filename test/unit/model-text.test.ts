@@ -42,7 +42,7 @@ describe("the model-facing text at access all", () => {
     for (const [claim, pattern] of STALE) expect({ claim, hit: pattern.exec(atAll(text))?.[0] ?? null }).toEqual({ claim, hit: null })
   })
 
-  // DR-2 and DR-3: the money the model is told about is the money the code charges.
+  // and the money the model is told about is the money the code charges.
   test("the namespace text names every billed tool the table has, so the model is not misled", () => {
     // The namespace text is prose: it must not promise a cost line for a product the table does not price, and must say
     // that a billed read exists.

@@ -1,6 +1,6 @@
 // Reproductions from the second re-review. Each one failed at d107a11 and must pass after the fix. Since live
 // reconcile 1 the plugin computes no price of its own — ElevenLabs' own `estimate_only` call is the only price — so
-// the three pricing reproductions (RR2-1 to RR2-3) are re-expressed against what stands in the formula's place. Each
+// the three pricing reproductions (to) are re-expressed against what stands in the formula's place. Each
 // says what it used to assert, and what now holds instead.
 import { describe, expect, test } from "bun:test"
 import {
@@ -59,7 +59,7 @@ const estimator = (credits: number) => {
   return { estimate, asked }
 }
 
-describe("RR2-1 — a file on disk sets no price, because no file is part of the call", () => {
+describe("a file on disk sets no price, because no file is part of the call", () => {
   // This block used to measure WAV files: a minute of audio was 330 credits, and the reproduction was about reading
   // the audio behind a header rather than the header's own number. Live, `creative_transcribe_audio` takes no file at
   // all — `{connect_from, context, estimate_only, flow_id, model_id, view_state_id}` — so the audio is a node in the
@@ -97,7 +97,7 @@ describe("RR2-1 — a file on disk sets no price, because no file is part of the
   })
 })
 
-describe("RR2-2 — every argument is held against ElevenLabs' own schema, not against a list of file names", () => {
+describe("every argument is held against ElevenLabs' own schema, not against a list of file names", () => {
   // The original: the plugin measured the first file name in a fixed list of its own, so a call carrying a minute of
   // audio under a name further down the list was priced at a second's worth. There is no list of its own now: the
   // allowlist is the live schema, and the first argument outside it stops the call, whichever name it has.
@@ -129,7 +129,7 @@ describe("RR2-2 — every argument is held against ElevenLabs' own schema, not a
 
   test("the script path refuses the same arguments, even holding a price for the rest of them", () => {
     // A remembered estimate covers the arguments it was fetched for. One more argument is one more thing the bill may
-    // turn on, so the price this ledger holds cannot carry the call past the check (RR4-6).
+    // turn on, so the price this ledger holds cannot carry the call past the check.
     const ledger = new Ledger()
     const args = transcribeArgs()
     ledger.rememberPrice("creative_transcribe_audio", args, { credits: 330, basis: "exact", parts: [] })
@@ -138,7 +138,7 @@ describe("RR2-2 — every argument is held against ElevenLabs' own schema, not a
   })
 })
 
-describe("RR2-3 — a length the caller types prices nothing at all", () => {
+describe("a length the caller types prices nothing at all", () => {
   // The original: `music_length_ms` and `duration_seconds` fed a per-minute formula, 30 ms beat 300 s, and a request
   // under three seconds had to be floored at the shortest run the server accepts. The live catalogue has no music
   // tool, and no number in the arguments sets a price any more: a `creative_` name this table does not classify is
@@ -166,7 +166,7 @@ describe("RR2-3 — a length the caller types prices nothing at all", () => {
     const failure = await refusal(quoteCall({ ledger: new Ledger(), caps: () => caps() }, "creative_design_voice", { voice_description: "a warm alto" }, call("m")))
     expect(failure.message).toContain(`does not accept "estimate_only"`)
     expect(failure.nextStep).toContain(`Set both "sessionCreditCap" and "dailyCreditCap" to null`)
-    // A name the table does not classify at all gets the other shape: nothing here knows whether it spends (RE-1).
+    // A name the table does not classify at all gets the other shape: nothing here knows whether it spends.
     const unknown = await refusal(quoteCall({ ledger: new Ledger(), caps: () => caps() }, "creative_generate_music", { music_length_ms: 300_000 }, call("m")))
     expect(unknown.message).toContain("is not in this plugin's tool table")
     expect(unknown.nextStep).toContain("wait for a release that classifies it")
@@ -178,7 +178,7 @@ describe("RR2-3 — a length the caller types prices nothing at all", () => {
   })
 })
 
-describe("RR2-4 — a late result cannot settle the call that replaced it", () => {
+describe("a late result cannot settle the call that replaced it", () => {
   const shape = (sessionID = "ses_a", action = "elevenlabs_creative_generate_speech") => ({ sessionID, agent: "build", action })
 
   /** A reserves `a` credits and never returns; ten minutes on, it is charged and B reserves `b`. */
@@ -231,7 +231,7 @@ describe("RR2-4 — a late result cannot settle the call that replaced it", () =
     const { ledger, shapers, call, advance } = abandonedThenNext(1_500, 3_000)
     shapers.result("creative_generate_speech", { output: { credits: 3_000 }, text: "" }, call)
     advance(RESERVATION_MS + 1)
-    // Nothing is held against the slot, so the next call is an ordinary one, settled by its own result. Since RR3-3 a
+    // Nothing is held against the slot, so the next call is an ordinary one, settled by its own result. Since a
     // result may only raise a charge, so the 500 it attests leaves the 2,000 it reserved standing.
     shapers.input("creative_generate_speech", priceKnown(ledger, 2_000), call)
     shapers.result("creative_generate_speech", { output: { credits: 500 }, text: "" }, call)
@@ -251,7 +251,7 @@ describe("RR2-4 — a late result cannot settle the call that replaced it", () =
   })
 })
 
-describe("RR2-5 — two locations on one data directory", () => {
+describe("two locations on one data directory", () => {
   const small = () => ({ sessionCreditCap: 2_000, dailyCreditCap: 2_000 })
   const guardCall = (id: string) => ({ sessionID: "ses_a", agent: "build", messageID: "m1", id })
   const SPEECH = speechArgs("x".repeat(600))
@@ -299,7 +299,7 @@ describe("RR2-5 — two locations on one data directory", () => {
   })
 
   test("the synchronous path still writes its hold, one tick behind the dispatch", async () => {
-    // The residual RR2-5 leaves open: the shared shaper contract is synchronous, so the script path cannot await the
+    // The residual leaves open: the shared shaper contract is synchronous, so the script path cannot await the
     // store before the call goes out. SECURITY.md and the README say so.
     const store = sharedStore()
     const ledger = knowing(new Ledger({ storage: store.handle() }))
@@ -312,7 +312,7 @@ describe("RR2-5 — two locations on one data directory", () => {
   })
 })
 
-describe("RR2-6 — an estimate with no money behind it cannot block a method for ever", () => {
+describe("an estimate with no money behind it cannot block a method for ever", () => {
   const shape = (sessionID = "ses_a", action = "elevenlabs_creative_generate_speech") => ({ sessionID, agent: "build", action })
 
   /** An estimate_only shapeInput whose result never arrives: an upstream error, a timeout, a cancelled script. */
@@ -369,7 +369,7 @@ describe("RR2-6 — an estimate with no money behind it cannot block a method fo
   })
 })
 
-describe("RR2-7 — an attested figure may lower a reservation only when it reads as this call's charge", () => {
+describe("an attested figure may lower a reservation only when it reads as this call's charge", () => {
   const result = (output: Record<string, unknown>) => ({ output, text: "" })
 
   test("a fraction of a credit is a real figure, and settles at the credit above it", () => {
@@ -390,10 +390,10 @@ describe("RR2-7 — an attested figure may lower a reservation only when it read
       expect({ credits, settled: settled.credits, attested: settled.attested }).toEqual({ credits, settled: 3_000, attested: false })
       expect(settled.note).toContain("too far below")
     }
-    // Since RR3-8 a tenth of the hold is the lowest figure that can settle a 3,000-credit reservation.
+    // Since a tenth of the hold is the lowest figure that can settle a 3,000-credit reservation.
     expect(settlementOf(result({ credits: 300 }), 3_000)).toEqual({ credits: 300, attested: true })
     expect(settlementOf(result({ total_credits: 1_500 }), 3_000)).toEqual({ credits: 1_500, attested: true })
-    // Raising is not bounded the same way: since RR4-2 a higher figure is always the charge, flagged past tenfold.
+    // Raising is not bounded the same way: since a higher figure is always the charge, flagged past tenfold.
     expect(settlementOf(result({ credits: 30_000 }), 3_000)).toEqual({ credits: 30_000, attested: true })
     const far = settlementOf(result({ credits: 48_000 }), 3_000)
     expect(far).toMatchObject({ credits: 48_000, attested: true })
@@ -422,7 +422,7 @@ describe("RR2-7 — an attested figure may lower a reservation only when it read
   })
 })
 
-describe("RR2-8 — the money gate folds case, as the permission gate does", () => {
+describe("the money gate folds case, as the permission gate does", () => {
   test("a creative_ name in another case is priced or refused, never sent unpriced", () => {
     // d107a11 answered false for every one of these, so the guard returned before pricing and the call was sent.
     for (const name of ["Creative_Upscale", "Creative_Generate_Speech", "CREATIVE_GENERATE_SPEECH", "creative_Edit_Image"]) {
@@ -430,7 +430,7 @@ describe("RR2-8 — the money gate folds case, as the permission gate does", () 
     }
     // The exemption folds with it too: a name this table classifies as something that cannot spend runs unpriced in
     // any case. `Creative_Upscale` above is in neither half — it is not a live name at all — so it is priced as an
-    // unknown rather than exempted by its prefix (RE-1).
+    // unknown rather than exempted by its prefix.
     for (const name of ["CREATIVE_GET_FLOW", "Creative_Create_Flow", "AGENTS_LIST", "Get_More_Tools"]) {
       expect({ name, priced: mustPrice(name) }).toEqual({ name, priced: false })
     }
@@ -500,7 +500,7 @@ describe("RR2-8 — the money gate folds case, as the permission gate does", () 
   })
 })
 
-describe("RR2-9 — folded credits age from when they were spent", () => {
+describe("folded credits age from when they were spent", () => {
   const HOUR = 60 * 60 * 1_000
 
   /** A ledger whose detail log has just overflowed: 1,000 charges at t0, then 1,001 an hour-aligned 23 hours later. */
@@ -524,7 +524,7 @@ describe("RR2-9 — folded credits age from when they were spent", () => {
     expect(ledger.spend("ses_a").sessionCredits).toBe(1_001)
     advance(49 * HOUR)
     expect(ledger.daily()).toBe(0)
-    // `overflowed()` builds 2,001 charges to make the detail log spill into folded totals. That is real work, and on
+    // `overflowed` builds 2,001 charges to make the detail log spill into folded totals. That is real work, and on
     // a loaded machine it runs past bun's five-second default; what this asserts is a credit figure, not a duration.
   }, 30_000)
 

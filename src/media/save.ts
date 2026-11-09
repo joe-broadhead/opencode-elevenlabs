@@ -71,7 +71,7 @@ export function checkUrl(raw: string, hosts: readonly string[]): URL {
 const invalid = (message: string) =>
   elevenlabsError("MEDIA_URL_INVALID", message, "Pass the link a generation returned, such as one on elevenlabsusercontent.com.")
 
-/** The types a generated file can be. Anything else is not a file a generation produces, and is refused (DR-13). */
+/** The types a generated file can be. Anything else is not a file a generation produces, and is refused. */
 const MEDIA_TYPE = /^(?:image|audio|video)\/|^application\/octet-stream$/
 
 const expired = (status: number) =>
@@ -99,7 +99,7 @@ async function follow(start: URL, deps: SaveDeps): Promise<Response> {
       url = checkUrl(new URL(location, url).toString(), deps.hosts)
       continue
     }
-    // A refused or expired signature is an expired link; a 404 is a link that never existed, and says so (DR-13).
+    // A refused or expired signature is an expired link; a 404 is a link that never existed, and says so.
     if (response.status === 401 || response.status === 403 || response.status === 410) throw expired(response.status)
     if (response.status === 404) {
       await response.body?.cancel().catch(() => undefined)
@@ -119,7 +119,7 @@ function nameFor(response: Response, url: URL, asked: string | undefined): strin
   const mime = (response.headers.get("content-type") ?? "").split(";")[0]!.trim().toLowerCase()
   const extension = EXTENSIONS[mime]
   const last = url.pathname.split("/").filter(Boolean).at(-1) ?? ""
-  // A malformed per cent escape in the link is not a reason to fail with a raw URIError (DR-13).
+  // A malformed per cent escape in the link is not a reason to fail with a raw URIError.
   let fromUrl = last
   try {
     fromUrl = decodeURIComponent(last)

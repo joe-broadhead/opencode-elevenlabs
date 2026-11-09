@@ -1,4 +1,4 @@
-// Reproductions from the fourth re-review. Each one failed at 6c21964 and must pass after the fix. RR4-1 to RR4-4
+// Reproductions from the fourth re-review. Each one failed at 6c21964 and must pass after the fix. to 
 // were answered in the round before this one and keep their tests in `re-review-3.test.ts`. Since live reconcile 1
 // the plugin computes no price of its own — ElevenLabs' own `estimate_only` call is the only price, and no file on
 // this machine is part of any call — so the blocks built on the published rates and on measured audio are
@@ -80,7 +80,7 @@ async function hooks(caps: { sessionCreditCap: number | null; dailyCreditCap: nu
 
 const SPEECH = speechArgs("x".repeat(750)) // ElevenLabs' estimate for these arguments: 1,500 credits reserved.
 
-describe("RR4-5 — a recorded charge never goes down after its first settlement", () => {
+describe("a recorded charge never goes down after its first settlement", () => {
   test("a result delivered again for a call already charged is ignored unless it is higher", async () => {
     const { before, complete, event, cleanup } = await hooks({ sessionCreditCap: 1_000_000, dailyCreditCap: 1_000_000 })
     await before(event("c1", SPEECH) as never)
@@ -163,7 +163,7 @@ describe("RR4-5 — a recorded charge never goes down after its first settlement
   })
 })
 
-describe("RR4-6 — a count multiplies the price, for every priced tool", () => {
+describe("a count multiplies the price, for every priced tool", () => {
   // This block used to multiply a published rate by a count: 600 characters was 1,200 credits and ten generations
   // 12,000. There is no published rate now, and the count works from the other end — ElevenLabs' estimate answers for
   // the batch the arguments ask for, so the count is what the figure has to be divided by to get a unit, and a count
@@ -192,7 +192,7 @@ describe("RR4-6 — a count multiplies the price, for every priced tool", () => 
     expect(priced?.parts.join(", ")).toContain("4 generations")
     // The four other spellings that block once read as counts — `generations`, `variations`, `num_generations`,
     // `num_outputs` — are in no live schema. None of them is read as a count now, and a call that sends one is
-    // refused as an argument the tool does not have rather than priced around (RR4-12).
+    // refused as an argument the tool does not have rather than priced around.
     expect(GENERATION_KEYS).toEqual(["generations_count"])
     for (const key of ["generations", "variations", "num_generations", "num_outputs"]) {
       expect({ key, counted: generationsOf({ [key]: 7 }) }).toEqual({ key, counted: undefined })
@@ -237,7 +237,7 @@ describe("RR4-6 — a count multiplies the price, for every priced tool", () => 
     expect(countValue(undefined)).toBeUndefined()
     expect(countValue("a few")).toBe(NOT_A_COUNT)
     expect(countValue({})).toBe(NOT_A_COUNT)
-    // A string count divides the batch, as a numeric field is read as the number it spells (RR3-9).
+    // A string count divides the batch, as a numeric field is read as the number it spells.
     expect(estimatePrice("creative_generate_speech", speech({ generations_count: "4" }), { output: { credits: 4_800 } })?.perGeneration).toBe(1_200)
     // Prose in a count field is a multiplier this plugin does not know: PRICE_UNKNOWN, not a price that assumes one.
     expect(estimatePrice("creative_generate_speech", speech({ generations_count: "a few" }), { output: { credits: 1_000 } })).toBeUndefined()
@@ -257,7 +257,7 @@ describe("RR4-6 — a count multiplies the price, for every priced tool", () => 
   })
 })
 
-describe("RR4-7 — a WAV with more than one `data` chunk is not measured", () => {
+describe("a WAV with more than one `data` chunk is not measured", () => {
   // This block used to end in a refused price. Nothing prices a file now, so what is left is the reading itself: the
   // duration the save tool prints is absent where decoders disagree, rather than being one decoder's answer.
   const root = mkdtempSync(join(tmpdir(), "elevenlabs-rr4-wav-"))
@@ -282,14 +282,14 @@ describe("RR4-7 — a WAV with more than one `data` chunk is not measured", () =
 
   test("one `data` chunk still measures, whatever follows it or how short its size field is", async () => {
     // The rule reaches a second `data` chunk and nothing else: a trailing `LIST` is still metadata, and a stated size
-    // that understates the audio still reads every byte that follows it (RR3-7, RR4-1).
+    // that understates the audio still reads every byte that follows it.
     expect(await durationOf(file("trailing.wav", WAV_FIXTURES.trailing()))).toBe(1)
     expect(await durationOf(file("understated-then-junk.wav", understatedThenJunk()))).toBe(60)
     expect(await durationOf(file("canonical.wav", WAV_FIXTURES.canonical()))).toBe(60)
   })
 })
 
-describe("RR4-9 — a price holds only while it is still this call's price", () => {
+describe("a price holds only while it is still this call's price", () => {
   // This block used to swap a file under the guard between the measurement and the hold: a one-second WAV priced at
   // 6 credits, replaced by sixty seconds before the reservation landed. The live `creative_transcribe_audio` takes
   // `{connect_from, context, estimate_only, flow_id, model_id, view_state_id}` and no file at all, so there is no
@@ -333,7 +333,7 @@ describe("RR4-9 — a price holds only while it is still this call's price", () 
   })
 })
 
-describe("RR4-10 — the cap's real cross-process bound, and the sentence three files print", () => {
+describe("the cap's real cross-process bound, and the sentence three files print", () => {
   const DAILY = 10_000
   const caps = { sessionCreditCap: null, dailyCreditCap: DAILY }
   // ElevenLabs' estimate for these arguments: 3,000 credits a call, which is the review's figure.
@@ -408,7 +408,7 @@ describe("RR4-10 — the cap's real cross-process bound, and the sentence three 
     await Promise.all(ledgers.map((ledger) => ledger.hydrate()))
     // The shaper path is synchronous by the shared contract: it decides from what this OpenCode last read, and these
     // three read at startup. Each refuses its own fourth call and, inside its burst, knows nothing of the other two's
-    // nine. That burst is as far as it goes: RR5-3 reads the store behind each call and on a timer, so the book is
+    // nine. That burst is as far as it goes: reads the store behind each call and on a timer, so the book is
     // one call old rather than as old as the process, and `re-review-5.test.ts` holds that bound.
     for (const [index, ledger] of ledgers.entries()) {
       for (const id of ["a", "b", "c"]) quoteCallSync({ ledger, caps: () => caps }, "creative_generate_speech", args(), call(`${index}${id}`))
@@ -422,7 +422,7 @@ describe("RR4-10 — the cap's real cross-process bound, and the sentence three 
   })
 })
 
-describe("RR4-12 — a refusal names what it can and claims nothing it cannot", () => {
+describe("a refusal names what it can and claims nothing it cannot", () => {
   // The review's finding was a refusal that named the wrong cause and then offered a route the tool did not have:
   // music was told it had "no published credit price" and sent to `estimate_only`, which music never accepted. The
   // published rates are gone, so the first half of that is gone with them; the rule that remains is the one that
@@ -456,7 +456,7 @@ describe("RR4-12 — a refusal names what it can and claims nothing it cannot", 
 
   test("a call with no obstacle at all is refused for want of a figure, and names none", () => {
     // Nothing is wrong with these arguments; ElevenLabs has simply not been asked yet. A refusal that blamed an
-    // argument here would send the caller after a fault that is not there (RR4-12's real finding).
+    // argument here would send the caller after a fault that is not there ('s real finding).
     const error = refused("creative_generate_speech", speechArgs("hello"))
     expect(error?.code).toBe("PRICE_UNKNOWN")
     expect(error?.message).toContain("creative_generate_speech could not be priced from ElevenLabs' own estimate, so the cap cannot be checked before it runs.")
@@ -491,7 +491,7 @@ describe("RR4-12 — a refusal names what it can and claims nothing it cannot", 
   })
 })
 
-describe("RR4-8 — the reading a duration was taken at is named, not assumed", () => {
+describe("the reading a duration was taken at is named, not assumed", () => {
   // This block used to be about a price: the cost line had to name which of a WAV's two readings it billed, because
   // a 55x bill turned on it. No file prices anything now, so the naming is what it always should have been — a line
   // of text about a file the save tool has just written, which an owner's own player may read differently.

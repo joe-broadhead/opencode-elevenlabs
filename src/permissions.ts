@@ -24,7 +24,7 @@ const rule = (tool: string, effect: Rule["effect"]): Rule => ({ action: actionOf
 
 /**
  * The tools `conversations` denies, by exact live name, then the patterns that catch a conversation tool ElevenLabs adds
- * later (DR-7). `summary` keeps the metadata reads and stops the words; `off` stops every read of a call's history. The
+ * later. `summary` keeps the metadata reads and stops the words; `off` stops every read of a call's history. The
  * denies come last, so they win over the block's own allows and over the `elevenlabs_*` namespace rule.
  */
 export const conversationDenies = (conversations: Conversations): readonly string[] =>
