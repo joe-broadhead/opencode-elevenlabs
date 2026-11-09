@@ -1,11 +1,12 @@
 // Reproductions from the fourth re-review. Each one failed at 6c21964 and must pass after the fix. RR4-1 to RR4-4
 // were answered in the round before this one and keep their tests in `re-review-3.test.ts`.
 import { afterAll, describe, expect, test } from "bun:test"
-import { mkdtempSync, rmSync } from "node:fs"
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { ENDPOINT } from "../../src/constants.js"
-import { countValue, estimatePrice, Ledger, NOT_A_COUNT, priceOf, quoteCall, quoteCallSync, RESERVATION_MS, settlementOf } from "../../src/billing.js"
+import { countValue, estimatePrice, Ledger, measureAudio, NOT_A_COUNT, priceOf, quoteCall, quoteCallSync, RESERVATION_MS, settlementOf, transcriptionPrice } from "../../src/billing.js"
+import { understatedThenJunk, WAV_FIXTURES } from "../fixtures/wav.js"
 import { createElevenlabsPlugin } from "../../src/plugin.js"
 import { mcpEditor, pluginContext } from "./fake.js"
 
@@ -199,5 +200,55 @@ describe("RR4-6 — a count multiplies the price, for every priced tool", () => 
     const second = new Ledger()
     second.rememberPrice("creative_generate_speech", speech({ generations_count: 10 }), { credits: 500, basis: "exact", parts: [] })
     expect(quoteCallSync({ ledger: second, caps: () => caps }, "creative_generate_speech", speech({ generations_count: 10 }), call("c2")).price.credits).toBe(12_000)
+  })
+})
+
+describe("RR4-7 — a WAV with more than one `data` chunk is not measured", () => {
+  const root = mkdtempSync(join(tmpdir(), "elevenlabs-rr4-wav-"))
+  afterAll(() => rmSync(root, { recursive: true, force: true }))
+  const file = (name: string, bytes: Buffer) => {
+    const path = join(root, name)
+    writeFileSync(path, bytes)
+    return path
+  }
+  const caps = { sessionCreditCap: 100_000, dailyCreditCap: 100_000 }
+  const refusal = (path: string) => {
+    try {
+      quoteCallSync({ ledger: new Ledger(), caps: () => caps }, "creative_transcribe_audio", { path }, { sessionID: "ses_a", agent: "build", messageID: "m1", id: "c1" })
+      return undefined
+    } catch (error) {
+      return error as { code?: string }
+    }
+  }
+
+  test("the review's two-data.wav is refused rather than priced as its first second", () => {
+    // At 6c21964 the second `data` chunk was read as metadata: 1 second, 6 credits, against the 60 seconds and 330
+    // credits CoreAudio reads out of the same file. Python's `wave` agrees with the 1; nothing settles which the
+    // server does, so the file has no length this plugin knows.
+    const path = file("two-data.wav", WAV_FIXTURES.twoData())
+    expect(measureAudio({ path })).toBeUndefined()
+    expect(transcriptionPrice({ path })).toBeUndefined()
+    expect(refusal(path)).toMatchObject({ code: "PRICE_UNKNOWN" })
+  })
+
+  test("the reversed file, and one with metadata between the two chunks, are refused the same way", () => {
+    for (const name of ["twoDataReversed", "twoDataAfterMeta"] as const) {
+      const path = file(`${name}.wav`, WAV_FIXTURES[name]())
+      expect(measureAudio({ path })).toBeUndefined()
+      expect(refusal(path)).toMatchObject({ code: "PRICE_UNKNOWN" })
+    }
+  })
+
+  test("one `data` chunk still measures, whatever follows it or how short its size field is", () => {
+    // The rule reaches a second `data` chunk and nothing else: a trailing `LIST` is still metadata, and a stated size
+    // that understates the audio still prices every byte that follows it (RR3-7, RR4-1).
+    const trailing = file("trailing.wav", WAV_FIXTURES.trailing())
+    expect(measureAudio({ path: trailing })?.durationSeconds).toBe(1)
+    expect(transcriptionPrice({ path: trailing })?.credits).toBe(6)
+    const short = file("understated-then-junk.wav", understatedThenJunk())
+    expect(measureAudio({ path: short })?.durationSeconds).toBe(60)
+    expect(transcriptionPrice({ path: short })?.credits).toBe(330)
+    const canonical = file("canonical.wav", WAV_FIXTURES.canonical())
+    expect(measureAudio({ path: canonical })?.durationSeconds).toBe(60)
   })
 })

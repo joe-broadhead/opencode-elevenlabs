@@ -108,8 +108,12 @@ export const WAV_FIXTURES = {
   bigMeta: () => buildWav({ seconds: 60, before: [{ id: "LIST", bytes: 100_000, fill: "numbers" }] }),
   /** One second of audio with 100 kB of artwork after it: trailing chunks are metadata and are not billed. */
   trailing: () => buildWav({ seconds: 1, after: [{ id: "LIST", bytes: 100_000, fill: "numbers" }] }),
-  /** One second of audio followed by a second `data` chunk of sixty: only the first `data` chunk is the audio. */
+  /** One second of audio followed by a second `data` chunk of sixty: real decoders disagree, so it is not measured. */
   twoData: () => buildWav({ seconds: 1, after: [{ id: "data", bytes: 480_000, fill: "numbers" }] }),
+  /** The same file the other way round, sixty seconds then one: the disagreement does not depend on which is longer. */
+  twoDataReversed: () => buildWav({ seconds: 60, after: [{ id: "data", bytes: 8_000, fill: "numbers" }] }),
+  /** One second of audio, artwork, and then a second `data`: a later chunk does not hide the one after it. */
+  twoDataAfterMeta: () => buildWav({ seconds: 1, after: [{ id: "LIST", bytes: 4_096, fill: "numbers" }, { id: "data", bytes: 480_000, fill: "numbers" }] }),
 } as const
 
 /**

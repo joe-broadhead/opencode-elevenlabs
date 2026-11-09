@@ -58,6 +58,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and thi
 - A recorded charge only ever rises. One attested figure inside that tenth-band may settle a live hold below itself;
   every settlement after that, for the same call, may only raise the charge. A result delivered twice, and a figure
   arriving for a call whose hold expired into a charge, are ignored unless they are higher.
+- A WAV holding more than one `data` chunk is not measured. CoreAudio reads the last such chunk and Python's `wave`
+  the first, so the file's length depends on which decoder opens it: a call that needs it is refused with
+  `PRICE_UNKNOWN`, and a saved file shows no duration. One `data` chunk is measured as before, whatever follows it.
 - A generation count multiplies the price of every priced tool, not sound effects alone: speech, music and ElevenLabs'
   own estimate are all priced per generation. `num_outputs` joins the count keys; a call naming two counts is priced
   from the larger and clamped in both; a count written as a string is read as the number it spells, and one nothing can

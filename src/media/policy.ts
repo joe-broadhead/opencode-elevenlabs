@@ -178,6 +178,11 @@ export interface RiffPcm {
   readonly dataOffset: number
   /** The size the `data` chunk's own header states, which the file need not honour. */
   readonly statedDataBytes: number
+  /**
+   * Whether a second `data` chunk follows the first. Real decoders disagree about such a file — CoreAudio reads the
+   * last, Python's `wave` the first — so how long it is depends on who reads it (RR4-7).
+   */
+  readonly laterData: boolean
 }
 
 const seconds = (value: number) => Math.round(value * 1000) / 1000
@@ -249,7 +254,10 @@ export function riffPcmWith(read: ChunkReader, fileSize: number): RiffPcm | unde
     if (!CHUNK_ID.test(id)) return undefined
     const size = header.readUInt32LE(4)
     const body = offset + 8
-    if (id === "data") return format === undefined ? undefined : { format, dataOffset: body, statedDataBytes: size }
+    if (id === "data") {
+      if (format === undefined) return undefined
+      return { format, dataOffset: body, statedDataBytes: size, laterData: laterDataFrom(read, body + size + (size % 2), fileSize) }
+    }
     if (id === "fmt " && size >= 16) {
       const fields = read(body, Math.min(size, 40))
       format ??= fields === undefined ? undefined : pcmFormatIn(fields)
@@ -285,17 +293,41 @@ function chunkStartsAt(read: ChunkReader, offset: number, fileSize: number): boo
 }
 
 /**
+ * Whether another `data` chunk begins at or after `offset`, which is where the first one's stated size ends. The walk
+ * stops at the first thing that is not a well-formed chunk header, because that is audio the first `data` size left
+ * out, not a chunk: a file whose size understates its audio keeps the reading RR4-1 gave it.
+ */
+function laterDataFrom(read: ChunkReader, offset: number, fileSize: number): boolean {
+  let at = offset
+  for (let walked = 0; walked < MAX_CHUNKS && chunkStartsAt(read, at, fileSize); walked++) {
+    const header = read(at, 8)
+    if (header === undefined) return false
+    if (header.toString("latin1", 0, 4) === "data") return true
+    const size = header.readUInt32LE(4)
+    const next = at + 8 + size + (size % 2)
+    if (!Number.isSafeInteger(next) || next <= at || next > fileSize) return false
+    at = next
+  }
+  return false
+}
+
+/**
  * The seconds of audio a decoder reads out of a RIFF/WAVE file: the `data` chunk's bytes at the rate its `fmt `
  * fields imply. The audio is every byte that follows `data`, because a `data` size that understates the audio is
  * ordinary — a truncated file, one still being written, a bad mux — and the server reads to the end of what it is
  * sent. The stated size is believed only when a well-formed chunk begins exactly where it ends, pad byte included,
- * which is what a real trailing `LIST`, cue block or second `data` looks like; then the rest is metadata, not audio.
+ * which is what a real trailing `LIST` or cue block looks like; then the rest is metadata, not audio.
  * A size that overstates the audio is always clamped to the bytes that really follow. Both directions leave the
  * error on the over-priced side, which is the safe one: a cap must never admit a call it could not afford.
+ *
+ * A second `data` chunk is not metadata, and it is not measured either. CoreAudio reads the last `data` chunk and
+ * Python's `wave` the first, so how long such a file is depends on which decoder opens it, and nothing here says
+ * which one ElevenLabs' server uses. A length this plugin cannot know is not one it guesses at: the file is
+ * unmeasured, and a call that needs its length is refused with `PRICE_UNKNOWN` while a cap is on (RR4-7).
  */
 export function riffSecondsWith(read: ChunkReader, fileSize: number): number | undefined {
   const riff = riffPcmWith(read, fileSize)
-  if (riff === undefined) return undefined
+  if (riff === undefined || riff.laterData) return undefined
   const following = Math.max(0, fileSize - riff.dataOffset)
   const stated = riff.statedDataBytes
   const trailing = stated < following && chunkStartsAt(read, riff.dataOffset + stated + (stated % 2), fileSize)

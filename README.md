@@ -321,7 +321,8 @@ in your config shadows the plugin's. **Rename or move** that file, then restart 
   figure; the cost line therefore says "at most" whenever a count multiplies it, and the reconcile measures both against
   a real workspace before this line is removed.
 - **Durations are read from the container.** WAV and MP4/M4A state one; MP3, Ogg and WebM do not, and the field is left
-  out rather than estimated.
+  out rather than estimated. A WAV holding more than one `data` chunk states two, and real decoders disagree about
+  which counts, so it is treated as stating none.
 
 ## Uninstall
 

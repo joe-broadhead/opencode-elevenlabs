@@ -145,7 +145,9 @@ different things on purpose.
 
 The guard measures a local PCM WAV the way a decoder does — the `fmt ` fields and the `data` bytes — and refuses every
 other container (`PRICE_UNKNOWN`). It calls `riffSecondsWith` itself. Nothing it reads is a figure the file states
-about itself, because a file that sets its own duration would set its own price.
+about itself, because a file that sets its own duration would set its own price. A WAV holding more than one `data`
+chunk is refused as well: CoreAudio reads the last such chunk and Python's `wave` the first, so its length depends on
+which decoder opens it, and a rule that picked one would be picking the cheaper reading of a file.
 
 The saved line uses `durationOf`, which measures a WAV the same way and otherwise reads the duration an MP4 or M4A
 states in the `mvhd` box inside its `moov` — the format ElevenLabs returns, which carries no length anywhere a

@@ -155,8 +155,10 @@ describe("RR3-7 — chunks after `data` are metadata, not audio", () => {
     expect(transcriptionPrice({ path: paths.trailing })?.credits).toBe(6)
   })
 
-  test("a second `data` chunk is not added to the first", () => {
-    expect(measureAudio({ path: paths.twoData })?.durationSeconds).toBe(1)
+  test("a second `data` chunk is not added to the first, and is not measured at all", () => {
+    // RR4-7 corrects the second half of this: a second `data` chunk is not metadata either, and which one a decoder
+    // reads is not settled, so the file is unmeasured rather than read as the first chunk's second.
+    expect(measureAudio({ path: paths.twoData })).toBeUndefined()
   })
 })
 
@@ -177,9 +179,10 @@ describe("RR4-1 — a short `data` size does not shrink the price", () => {
   })
 
   test("a real chunk at the stated end still ends the audio", () => {
-    // The other half of the rule, which RR3-7 asserts: `trailing` and `twoData` both announce themselves there.
+    // The other half of the rule, which RR3-7 asserts: a trailing chunk announces itself exactly there. A second
+    // `data` announces itself the same way and is refused instead, under RR4-7.
     expect(measureAudio({ path: paths.trailing })?.durationSeconds).toBe(1)
-    expect(measureAudio({ path: paths.twoData })?.durationSeconds).toBe(1)
+    expect(measureAudio({ path: paths.twoData })).toBeUndefined()
   })
 
   test("a `data` size that overstates the audio is still clamped to what follows", () => {
