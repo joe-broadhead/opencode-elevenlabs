@@ -43,15 +43,19 @@ describe("RR2-1 — the file sets the price, not one header field", () => {
   test("a 60-second file prices at 330 whatever its chunk layout", () => {
     // Every one of these is an ordinary file: a JUNK pad before `fmt `, a `fmt ` of 18 or 40 bytes, and a `data`
     // size field that understates or overstates the audio behind it.
-    for (const name of ["canonical", "junkNumbers", "junkZeros", "fmt18", "fmt40", "understated", "overstated"] as const) {
+    for (const name of ["canonical", "junkNumbers", "junkZeros", "fmt18", "fmt40", "overstated"] as const) {
       const price = transcriptionPrice({ path: paths[name] })
       expect({ name, credits: price?.credits }).toEqual({ name, credits: 330 })
     }
   })
 
-  test("a stated data size cannot lower the price below the audio that is really there", () => {
-    // d107a11 read the size field at offset 40 and priced 1 credit for a full minute of audio.
-    expect(measureAudio({ path: paths.understated })?.durationSeconds).toBe(60)
+  test("the audio is the `data` chunk's own bytes, clamped to the bytes that really follow", () => {
+    // Since RR3-1 the price is what a decoder reads: the `data` chunk states how many bytes of audio it holds, and
+    // bytes past that are a chunk the walk never reached, not audio. `understated` therefore prices the eighth of a
+    // second its header declares, where this test used to assert the full minute written behind it.
+    expect(measureAudio({ path: paths.understated })?.durationSeconds).toBe(0.125)
+    expect(transcriptionPrice({ path: paths.understated })?.credits).toBe(1)
+    // A pad before `fmt ` is still just a pad: the audio behind a truthful header is measured in full.
     expect(measureAudio({ path: paths.junkNumbers })?.durationSeconds).toBe(60)
   })
 
@@ -104,9 +108,10 @@ describe("RR2-2 — every argument that names a local file is measured", () => {
     expect(measureAudio({ path: long, audio_file: wav("broken-second", brokenRiff()) })).toBeUndefined()
   })
 
-  test("a URL is not a local file, so it is passed over rather than refused", () => {
-    expect(transcriptionPrice({ path: long, audio_file: "https://example.test/clip.wav" })?.credits).toBe(330)
-    // A URL on its own still leaves nothing measured, so there is still no price.
+  test("a URL is audio this plugin cannot measure, so it refuses the call", () => {
+    // Since RR3-2 a URL is not passed over: the server fetches it and the bill covers it, so a price that counts only
+    // the local file is no price at all. This test used to assert the 330 credits of the local file alone.
+    expect(transcriptionPrice({ path: long, audio_file: "https://example.test/clip.wav" })).toBeUndefined()
     expect(transcriptionPrice({ audio_file: "https://example.test/clip.wav" })).toBeUndefined()
   })
 })
@@ -145,9 +150,11 @@ describe("RR2-3 — music is priced at the longest length it states, and never b
 
   test("a length stated as zero, or not stated at all, is still PRICE_UNKNOWN", () => {
     // Zero leaves the length to the server's own default, which this plugin cannot know and must not price.
-    for (const input of [{}, { duration_seconds: 0 }, { music_length_ms: 0 }, { prompt: "a waltz" }, { music_length_ms: "30000" }]) {
+    for (const input of [{}, { duration_seconds: 0 }, { music_length_ms: 0 }, { prompt: "a waltz" }]) {
       expect(priceOf("creative_generate_music", input)).toBeUndefined()
     }
+    // A numeric string is not "no length": since RR3-9 it is read as the number it spells, which is 450 credits here.
+    expect(priceOf("creative_generate_music", { music_length_ms: "30000" })?.credits).toBe(450)
     // But a zero beside a real length does not drag the price down to nothing.
     expect(priceOf("creative_compose_music", { music_length_ms: 0, duration_seconds: 300 })?.credits).toBe(4_500)
   })

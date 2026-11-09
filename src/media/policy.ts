@@ -4,7 +4,7 @@
 // the target first. Node has no dirfd-relative openat, so this detects a changed directory; it is not a sandbox against
 // someone who owns the root.
 import { createHash } from "node:crypto"
-import { constants, promises as fs } from "node:fs"
+import { constants, promises as fs, readSync } from "node:fs"
 import { homedir } from "node:os"
 import path from "node:path"
 import { elevenlabsError } from "../constants.js"
@@ -160,10 +160,20 @@ export async function writeMedia(options: WriteOptions): Promise<Written> {
   }
 }
 
+/**
+ * The PCM stream a WAV file's `fmt ` chunk describes, in the fields a decoder reads to turn bytes into seconds. The
+ * `byteRate` field is deliberately not among them: it is redundant with these three, nothing checks it, and a file
+ * that lies in it is a file that sets its own price.
+ */
+export interface PcmFormat {
+  readonly sampleRate: number
+  readonly channels: number
+  readonly bitsPerSample: number
+}
+
 /** What a RIFF/WAVE file's own chunks say about its audio. Found by walking, never by a fixed offset. */
-export interface RiffAudio {
-  /** Bytes of audio per second, from the `fmt ` chunk. */
-  readonly byteRate: number
+export interface RiffPcm {
+  readonly format: PcmFormat
   /** Where the `data` chunk's bytes begin in the file. */
   readonly dataOffset: number
   /** The size the `data` chunk's own header states, which the file need not honour. */
@@ -173,71 +183,143 @@ export interface RiffAudio {
 const seconds = (value: number) => Math.round(value * 1000) / 1000
 const CHUNK_ID = /^[\x20-\x7e]{4}$/
 
+/** The ranges a real PCM stream sits in. Outside them the fields are not a measurement, so the file is not measured. */
+const SAMPLE_RATE_MIN = 8_000
+const SAMPLE_RATE_MAX = 192_000
+const CHANNELS_MAX = 8
+const BIT_DEPTHS = new Set([8, 16, 24, 32])
+const WAVE_FORMAT_PCM = 1
+const WAVE_FORMAT_EXTENSIBLE = 0xfffe
+/** How many chunk headers one walk reads. A file is bounded by its own size; this bounds the work as well. */
+const MAX_CHUNKS = 10_000
+
 /**
- * Walks a RIFF/WAVE file's chunks for `fmt ` and `data`, wherever they sit. A `JUNK` pad, a `LIST`, a `bext` and a
- * `fmt ` of 16, 18 or 40 bytes are all ordinary, so none of them may be read from a fixed offset: the canonical
- * 44-byte header is one layout of many. Undefined when the chunks do not walk, when `fmt ` or `data` is not among
- * them, or when either is past the buffer read: such a file is not measured and so is not priced.
+ * Reads `length` bytes at `offset`, or undefined when the file does not hold them. A walk reads chunk headers at the
+ * offsets the chunks themselves give, so the bytes it needs are a handful of eight-byte reads wherever `data` sits.
  */
-export function riffAudioIn(chunk: Buffer): RiffAudio | undefined {
-  if (chunk.length < 12 || chunk.toString("ascii", 0, 4) !== "RIFF" || chunk.toString("ascii", 8, 12) !== "WAVE") return undefined
-  let byteRate: number | undefined
+export type ChunkReader = (offset: number, length: number) => Buffer | undefined
+
+/** A reader over bytes already in hand. Anything past them is not there, so a walk that needs them refuses. */
+export const readerOf =
+  (chunk: Buffer): ChunkReader =>
+  (offset, length) =>
+    offset >= 0 && length >= 0 && offset + length <= chunk.length ? chunk.subarray(offset, offset + length) : undefined
+
+/**
+ * The PCM stream a `fmt ` body describes, or undefined when it describes something else. Format tag 1 is PCM;
+ * `WAVE_FORMAT_EXTENSIBLE` is PCM when its sub-format GUID begins with the PCM one. Every other tag — ADPCM, A-law,
+ * IEEE float, an MP3 or an Opus stream in a WAV wrapper — states a size in compressed bytes, which is not a duration.
+ */
+export function pcmFormatIn(body: Buffer): PcmFormat | undefined {
+  if (body.length < 16) return undefined
+  const tag = body.readUInt16LE(0)
+  if (tag === WAVE_FORMAT_EXTENSIBLE) {
+    // The sub-format GUID sits at offset 24 of a 40-byte body; its first field is the format tag it stands for.
+    if (body.length < 28 || body.readUInt32LE(24) !== WAVE_FORMAT_PCM) return undefined
+  } else if (tag !== WAVE_FORMAT_PCM) return undefined
+  const channels = body.readUInt16LE(2)
+  const sampleRate = body.readUInt32LE(4)
+  const bitsPerSample = body.readUInt16LE(14)
+  if (channels < 1 || channels > CHANNELS_MAX) return undefined
+  if (sampleRate < SAMPLE_RATE_MIN || sampleRate > SAMPLE_RATE_MAX) return undefined
+  if (!BIT_DEPTHS.has(bitsPerSample)) return undefined
+  return { sampleRate, channels, bitsPerSample }
+}
+
+/** Bytes of audio one second of this stream occupies, as a decoder computes it from the fields it reads. */
+export const bytesPerSecondOf = (format: PcmFormat) => (format.sampleRate * format.channels * format.bitsPerSample) / 8
+
+/**
+ * Walks a RIFF/WAVE file's chunks for `fmt ` and `data`, wherever they sit — a `JUNK` pad, a `LIST`, a `bext` and a
+ * `fmt ` of 16, 18 or 40 bytes are all ordinary, so none of them may be read from a fixed offset. The walk reads on
+ * past whatever was read first, because 100 kB of leading metadata is an ordinary broadcast or DAW export; it is
+ * bounded by the file's own size and by a chunk count, so a hostile size neither hangs nor reads past the end.
+ * Undefined when the chunks do not walk, when `fmt ` or `data` is not among them, or when `fmt ` is not PCM.
+ */
+export function riffPcmWith(read: ChunkReader, fileSize: number): RiffPcm | undefined {
+  const head = read(0, 12)
+  if (head === undefined || head.toString("ascii", 0, 4) !== "RIFF" || head.toString("ascii", 8, 12) !== "WAVE") return undefined
+  let format: PcmFormat | undefined
   let offset = 12
-  while (offset + 8 <= chunk.length) {
-    const id = chunk.toString("ascii", offset, offset + 4)
+  for (let walked = 0; walked < MAX_CHUNKS && offset + 8 <= fileSize; walked++) {
+    const header = read(offset, 8)
+    if (header === undefined) return undefined
+    const id = header.toString("ascii", 0, 4)
     if (!CHUNK_ID.test(id)) return undefined
-    const size = chunk.readUInt32LE(offset + 4)
+    const size = header.readUInt32LE(4)
     const body = offset + 8
-    if (id === "data") {
-      return byteRate !== undefined && byteRate > 0 ? { byteRate, dataOffset: body, statedDataBytes: size } : undefined
+    if (id === "data") return format === undefined ? undefined : { format, dataOffset: body, statedDataBytes: size }
+    if (id === "fmt " && size >= 16) {
+      const fields = read(body, Math.min(size, 40))
+      format ??= fields === undefined ? undefined : pcmFormatIn(fields)
     }
-    // `fmt ` is 16 bytes of PCM fields, 18 with `cbSize`, 40 when it is WAVE_FORMAT_EXTENSIBLE. Only the first 16 are read.
-    if (id === "fmt " && size >= 16 && body + 16 <= chunk.length) byteRate ??= chunk.readUInt32LE(body + 8)
-    // An odd chunk is padded to an even boundary.
+    // An odd chunk is padded to an even boundary. A size that runs past the end of the file does not walk.
     const next = body + size + (size % 2)
-    if (!Number.isSafeInteger(next) || next <= offset) return undefined
+    if (!Number.isSafeInteger(next) || next <= offset || next > fileSize) return undefined
     offset = next
   }
   return undefined
 }
 
 /**
- * The duration of a RIFF/WAVE file, bounded by the file itself: the larger of what its `data` header states (clamped
- * to the bytes that actually follow it) and what those bytes are worth at the stated byte rate. A `data` size field
- * cannot lower the price below the audio that is really there, and it cannot raise it above it either.
+ * The seconds of audio a decoder reads out of a RIFF/WAVE file: the `data` chunk's own bytes at the rate its `fmt `
+ * fields imply. The audio is what the `data` header states, clamped to the bytes that really follow it, so a chunk
+ * appended after `data` — artwork, a cue list, a second `data` — is metadata and is not billed as audio.
  */
-export function riffSecondsIn(chunk: Buffer, fileSize: number): number | undefined {
-  const riff = riffAudioIn(chunk)
+export function riffSecondsWith(read: ChunkReader, fileSize: number): number | undefined {
+  const riff = riffPcmWith(read, fileSize)
   if (riff === undefined) return undefined
   const following = Math.max(0, fileSize - riff.dataOffset)
-  const stated = Math.min(riff.statedDataBytes, following)
-  const bytes = Math.max(stated, following)
-  return bytes > 0 ? seconds(bytes / riff.byteRate) : undefined
+  const bytes = Math.min(riff.statedDataBytes, following)
+  const perSecond = bytesPerSecondOf(riff.format)
+  return bytes > 0 && perSecond > 0 ? seconds(bytes / perSecond) : undefined
 }
 
 /**
- * The duration of a container, in seconds: a RIFF/WAVE file measured against its own bytes, or an MP4/M4A `mvhd` in
- * the buffer. Anything else is undefined: a guess from a bitrate would under-price a codec that sits under that floor.
- * `fileSize` is the whole file's size, which the RIFF path needs; with only the buffer it is the buffer's length.
+ * The duration of a container, in seconds: a PCM RIFF/WAVE file measured against its own bytes. Anything else is
+ * undefined. No other container is measured here — a duration taken from one unchecked field of an MP4, an MP3 or an
+ * Opus stream is a figure the file chose, not one this plugin read, and a guess from a bitrate under-prices every
+ * codec that sits below that floor.
+ *
+ * `fileSize` is the whole file's size; with only the buffer it is the buffer's length, and a `data` chunk past the
+ * buffer is then not reachable. `durationOf` and the spending guard pass a reader that seeks instead.
  */
 export function durationIn(chunk: Buffer, fileSize = chunk.length): number | undefined {
-  if (chunk.length >= 12 && chunk.toString("ascii", 0, 4) === "RIFF" && chunk.toString("ascii", 8, 12) === "WAVE") {
-    return riffSecondsIn(chunk, fileSize)
+  return riffSecondsWith(readerOf(chunk), Math.min(fileSize, chunk.length))
+}
+
+/**
+ * How much of a file one read pulls in. A walk needs eight bytes at each chunk header and forty at `fmt `, so a
+ * window this size answers every header of an ordinary file from one read, and a `data` chunk behind 100 kB of
+ * metadata costs a second. The walk never reads the audio itself.
+ */
+export const WINDOW_BYTES = 64 * 1024
+
+/**
+ * A reader over an open file descriptor, bounded by the file's own size, that keeps the windows it has read. A walk
+ * reads chunk headers at ascending offsets, so the windows it keeps are a few; past `MAX_WINDOWS` it stops reading
+ * and the file is not measured.
+ */
+export function fileReader(fd: number, size: number): ChunkReader {
+  const windows = new Map<number, Buffer>()
+  const MAX_WINDOWS = 16
+  return (offset, length) => {
+    if (offset < 0 || length < 0 || offset + length > size) return undefined
+    // A read never spans two windows: a header is eight bytes and a `fmt ` body forty, so one window holds it whole.
+    const index = Math.floor(offset / WINDOW_BYTES)
+    const at = index * WINDOW_BYTES
+    const span = Math.min(WINDOW_BYTES * 2, size - at)
+    let window = windows.get(index)
+    if (window === undefined) {
+      if (windows.size >= MAX_WINDOWS) return undefined
+      const buffer = Buffer.alloc(span)
+      const read = readSync(fd, buffer, 0, buffer.length, at)
+      window = buffer.subarray(0, read)
+      windows.set(index, window)
+    }
+    const start = offset - at
+    return start + length <= window.length ? window.subarray(start, start + length) : undefined
   }
-  const box = chunk.indexOf(Buffer.from("mvhd", "ascii"))
-  if (box < 0) return undefined
-  const version = chunk[box + 4]
-  if (version === 0 && box + 24 <= chunk.length) {
-    const timescale = chunk.readUInt32BE(box + 16)
-    const duration = chunk.readUInt32BE(box + 20)
-    return timescale > 0 ? Math.round((duration / timescale) * 1000) / 1000 : undefined
-  }
-  if (version === 1 && box + 36 <= chunk.length) {
-    const timescale = chunk.readUInt32BE(box + 24)
-    const duration = Number(chunk.readBigUInt64BE(box + 28))
-    return timescale > 0 ? Math.round((duration / timescale) * 1000) / 1000 : undefined
-  }
-  return undefined
 }
 
 /**
@@ -247,9 +329,8 @@ export async function durationOf(file: string): Promise<number | undefined> {
   const handle = await fs.open(file, "r")
   try {
     const size = (await handle.stat()).size
-    const chunk = Buffer.alloc(64 * 1024)
-    const read = await handle.read(chunk, 0, chunk.length, 0)
-    return durationIn(chunk.subarray(0, read.bytesRead), size)
+    if (size <= 0) return undefined
+    return riffSecondsWith(fileReader(handle.fd, size), size)
   } finally {
     await handle.close()
   }

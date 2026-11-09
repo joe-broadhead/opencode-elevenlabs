@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto"
-import { closeSync, openSync, readSync, statSync } from "node:fs"
+import { closeSync, openSync, statSync } from "node:fs"
 import type { Plugin } from "@opencode/plugin"
 import { elevenlabsError, type PluginCode } from "./constants.js"
 import { ESTIMATE_TOOLS, mustPrice, priced, spends } from "./elevenlabs-tools.js"
-import { durationIn } from "./media/policy.js"
+import { fileReader, riffSecondsWith } from "./media/policy.js"
 import type { CreditCap } from "./options.js"
 
 /**
@@ -84,6 +84,10 @@ export function priceOf(name: string, input: Record<string, unknown>): Price | u
   // Case is folded here as it is in `mustPrice` (RR2-8), so a name in another case is priced rather than refused: the
   // guard asks this table for every name it must price, and the two must agree on which names those are.
   const tool = name.toLowerCase()
+  // A transcription prices its own files and so decides for itself which of them were measured; every other priced
+  // tool measures none, so any argument naming a file or a URL is audio the server will read and the price will not
+  // cover (RR3-7).
+  if (!isTranscription(tool) && unpriceableArgument(input, NO_MEASURED_PATHS) !== undefined) return undefined
   const generations = generationsOf(input) ?? 1
   if (tool === "creative_generate_speech" || tool === "creative_speech" || tool === "text_to_speech") {
     const text = field(input, ["text", "script", "message"])
@@ -106,8 +110,9 @@ export function priceOf(name: string, input: Record<string, unknown>): Price | u
   }
   if (tool === "creative_generate_music" || tool === "creative_compose_music") {
     const stated = musicLengthsMs(input)
-    // No length at all is the server's own default, which this plugin cannot know: PRICE_UNKNOWN, not a guess.
-    if (stated.length === 0) return undefined
+    // No length at all is the server's own default, which this plugin cannot know: PRICE_UNKNOWN, not a guess. So is
+    // a length field holding something no number can be read out of.
+    if (stated === undefined || stated.length === 0) return undefined
     // A caller number may raise a price and may not lower one (RR-1). A call that states a length twice may generate
     // the longer of them, so the longer is what it is priced at, whichever key holds it and in whichever order.
     const asked = Math.max(...stated)
@@ -140,40 +145,147 @@ export const MUSIC_MIN_MS = 3_000
  * and the keys of an object have no order the caller controls, so all of them are collected rather than the first.
  * A zero or a negative states nothing: it leaves the length to the server, which is PRICE_UNKNOWN, not three seconds.
  */
-const musicLengthsMs = (input: Record<string, unknown>): number[] => {
-  const stated = [number(input["music_length_ms"])]
+const musicLengthsMs = (input: Record<string, unknown>): number[] | undefined => {
+  const milliseconds = lengthValue(input["music_length_ms"])
+  if (milliseconds === NOT_A_LENGTH) return undefined
+  const stated = [milliseconds]
   for (const name of ["duration_seconds", "duration"] as const) {
-    const seconds = number(input[name])
+    const seconds = lengthValue(input[name])
+    if (seconds === NOT_A_LENGTH) return undefined
     stated.push(seconds === undefined ? undefined : seconds * 1_000)
   }
   return stated.filter((value): value is number => value !== undefined && value > 0)
 }
 
+/** A length field that holds something no length can be read out of. One such field is the whole call's price (RR3-9). */
+const NOT_A_LENGTH = Symbol("not a length")
+
+/**
+ * The length a field states. A caller that wrote `"30000"` asked for thirty seconds, so a numeric string is read as the
+ * number it spells rather than passed over, which would have priced the call as if the field were not there. Anything
+ * a number cannot be read out of — prose, a boolean, an object — is not a length this plugin can price around.
+ */
+const lengthValue = (value: unknown): number | undefined | typeof NOT_A_LENGTH => {
+  if (value === undefined || value === null) return undefined
+  const parsed = typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value.trim()) : Number.NaN
+  if (!Number.isFinite(parsed)) return NOT_A_LENGTH
+  // A zero or a negative is numeric and states nothing: it leaves the length to the server, as it always did.
+  return parsed >= 0 ? parsed : undefined
+}
+
 /** Argument names that may hold the audio file a transcription is about to send. A URL is not one of them. */
 const AUDIO_PATHS = ["path", "file", "file_path", "audio_path", "filename", "audio_file", "input_file"] as const
 
+/** Argument names that state a duration the caller believes the audio has. One of these may only raise a price. */
+const STATED_DURATIONS = ["duration_ms", "audio_duration_ms", "duration_seconds", "duration", "audio_duration_seconds"] as const
+
 /**
- * The file a transcription is about to send, measured here. A RIFF/WAVE file is measured against its own bytes, so no
- * single header field can set the price: the chunks are walked for `fmt ` and `data`, and a `data` size that
- * understates or overstates the audio behind it is clamped to the bytes that really follow it. A format whose header
- * states no duration is not measured at all: pricing it from a byte floor would under-price Opus, which sits under
- * 32 kbit/s.
+ * Every argument name a transcription may carry while a cap is on: the ones the pricing reads, and ElevenLabs' own
+ * documented Speech to Text options that change nothing about the length of audio billed. A name outside this list is
+ * one whose effect on the bill this plugin does not know, so the call is not priced rather than priced as if the name
+ * were not there. `transcript_edit` is deliberately absent: it is documented as a 30% surcharge billed for at least
+ * ten seconds, which is a price this plugin does not compute.
  */
-export function measureAudio(input: Record<string, unknown>): { readonly durationSeconds: number } | undefined {
+const TRANSCRIPTION_ARGUMENTS = new Set<string>([
+  ...AUDIO_PATHS,
+  ...STATED_DURATIONS,
+  "context",
+  "estimate_only",
+  "estimateOnly",
+  "model_id",
+  "language_code",
+  "timestamps_granularity",
+  "diarize",
+  "use_speaker_library",
+  "detect_speaker_roles",
+  "num_speakers",
+  "diarization_threshold",
+  "keyterms",
+  "tag_audio_events",
+  "entity_detection",
+  "entity_redaction",
+  "no_verbatim",
+  "use_multi_channel",
+  "multichannel_output_style",
+  "webhook",
+  "webhook_id",
+  "webhook_metadata",
+  "temperature",
+  "seed",
+  "additional_formats",
+  "file_format",
+  "enable_logging",
+])
+
+/** A call that measured no file of its own. Every path it names is then one the price does not cover. */
+const NO_MEASURED_PATHS: ReadonlySet<string> = new Set<string>()
+
+/** A value that sends the server somewhere this plugin cannot measure. Only `http(s)` is a fetchable remote file. */
+const isHttpUrl = (value: string) => /^https?:\/\//i.test(value.trim())
+
+/**
+ * Whether a string is worth asking the filesystem about. Prose is not a path, and a priced call's `text` argument is
+ * prose, so only a value shaped like one is stat'd: nothing here walks the disk for every word a caller wrote.
+ */
+const pathShaped = (value: string) =>
+  value.length > 0 && value.length <= 4096 && !value.includes("\0") && (value.includes("/") || value.includes("\\") || /\.[A-Za-z0-9]{1,8}$/.test(value))
+
+/** Every string a call carries, however deeply an array or an object holds it. Bounded, so a cyclic shape terminates. */
+function* stringsIn(value: unknown, depth = 0): Generator<string> {
+  if (depth > 4) return
+  if (typeof value === "string") yield value
+  else if (Array.isArray(value)) for (const item of value) yield* stringsIn(item, depth + 1)
+  else if (value !== null && typeof value === "object") for (const item of Object.values(value as Record<string, unknown>)) yield* stringsIn(item, depth + 1)
+}
+
+/**
+ * Why a priced call cannot be priced from its arguments, or undefined when nothing stands in the way. A cap is a bound
+ * on what a call may spend, so every argument it carries has to be one the price covers: a remote file the plugin
+ * cannot measure (`cloud_storage_url` above all), or a local file it did not measure, is audio the server will read
+ * and the price will not include.
+ */
+export function unpriceableArgument(input: Record<string, unknown>, measured: ReadonlySet<string>): string | undefined {
+  for (const [name, value] of Object.entries(input)) {
+    for (const text of stringsIn(value)) {
+      if (isHttpUrl(text)) return `"${name}" names a file at a URL, which this plugin cannot measure`
+      if (measured.has(text) || !pathShaped(text)) continue
+      try {
+        if (statSync(text).isFile()) return `"${name}" names a local file this plugin did not measure`
+      } catch {
+        // Not a file on this machine, so it names nothing the server will read from here.
+      }
+    }
+  }
+  return undefined
+}
+
+/**
+ * The file a transcription is about to send, measured here, and the paths that were measured. A PCM RIFF/WAVE file is
+ * measured as a decoder reads it: the chunks are walked for `fmt ` and `data`, the audio is the `data` chunk's own
+ * bytes clamped to the bytes that really follow it, and the seconds come from the rate the `fmt ` fields imply. Any
+ * other container states no duration this plugin will trust, so it is not measured and so is not priced.
+ */
+export function measureAudio(input: Record<string, unknown>): { readonly durationSeconds: number; readonly paths: ReadonlySet<string> } | undefined {
   let longest: number | undefined
+  const paths = new Set<string>()
   // The fixed list is walked, not the caller's keys, so two names for two files give one price whichever order they
   // are written in. Every one of them is measured: the server may read the argument this plugin passed over.
   for (const name of AUDIO_PATHS) {
     const value = input[name]
-    if (typeof value !== "string" || value.length === 0 || value.includes("\0")) continue
+    if (value === undefined || value === null) continue
+    // A known key holding something that is not a string is a file this plugin cannot see and so cannot price.
+    if (typeof value !== "string") return undefined
+    if (value.length === 0) continue
+    if (value.includes("\0")) return undefined
     // A URL names no local file. Nothing here can measure it, and nothing here claims to.
-    if (/^[a-z][a-z0-9+.-]*:/i.test(value)) continue
+    if (/^[a-z][a-z0-9+.-]*:/i.test(value)) return undefined
     const measured = measureFile(value)
     // A named file this plugin cannot measure is one the call may still send: a price covering the rest is no price.
     if (measured === undefined) return undefined
+    paths.add(value)
     if (longest === undefined || measured > longest) longest = measured
   }
-  return longest === undefined ? undefined : { durationSeconds: longest }
+  return longest === undefined ? undefined : { durationSeconds: longest, paths }
 }
 
 /** One local file's duration, or undefined when it cannot be read or its container states nothing measurable. */
@@ -183,10 +295,9 @@ function measureFile(path: string): number | undefined {
     const stat = statSync(path)
     if (!stat.isFile() || stat.size <= 0) return undefined
     fd = openSync(path, "r")
-    const head = Buffer.alloc(Math.min(stat.size, 64 * 1024))
-    const read = readSync(fd, head, 0, head.length, 0)
-    // The whole file's size is what bounds a RIFF `data` header, so it is passed with the head that was read.
-    const durationSeconds = durationIn(head.subarray(0, read), stat.size)
+    // The walk reads chunk headers at the offsets the chunks give, so a `data` chunk behind 100 kB of broadcast
+    // metadata is reached without reading the audio, and the file's own size bounds every read.
+    const durationSeconds = riffSecondsWith(fileReader(fd, stat.size), stat.size)
     return durationSeconds !== undefined && durationSeconds > 0 ? durationSeconds : undefined
   } catch {
     return undefined
@@ -201,10 +312,16 @@ function measureFile(path: string): number | undefined {
  * be measured. A price of 0 is not a price.
  */
 export function transcriptionPrice(input: Record<string, unknown>): Price | undefined {
+  // An argument this plugin has never priced may change what the call is billed, so the call is not priced rather
+  // than priced as if the argument were not there (RR3-6).
+  if (Object.keys(input).some((name) => !TRANSCRIPTION_ARGUMENTS.has(name))) return undefined
   const measured = measureAudio(input)
   if (measured === undefined) return undefined
-  const statedMs = number(field(input, ["duration_ms", "audio_duration_ms"]))
-  const statedSeconds = number(field(input, ["duration_seconds", "duration", "audio_duration_seconds"]))
+  // A second file, at a URL or on this disk, is audio this price does not cover (RR3-7).
+  if (unpriceableArgument(input, measured.paths) !== undefined) return undefined
+  const statedMs = lengthValue(field(input, ["duration_ms", "audio_duration_ms"]))
+  const statedSeconds = lengthValue(field(input, ["duration_seconds", "duration", "audio_duration_seconds"]))
+  if (statedMs === NOT_A_LENGTH || statedSeconds === NOT_A_LENGTH) return undefined
   const stated = statedMs !== undefined ? statedMs / 1000 : statedSeconds
   // The measured duration is the floor. A stated duration may only raise it.
   const seconds = stated !== undefined && stated > measured.durationSeconds ? stated : measured.durationSeconds
@@ -951,6 +1068,20 @@ export function quoteCallSync(input: Omit<GuardInput, "estimate">, tool: string,
 
 const isTranscription = (tool: string) => tool === "creative_transcribe_audio" || tool === "speech_to_text" || tool === "creative_transcription"
 
+/**
+ * Which argument stopped a priced call from being priced, in words the caller can act on. `priceOf` returns nothing in
+ * each of these cases; this says which one it was, so a refusal names the argument rather than the tool.
+ */
+export function priceObstacle(name: string, input: Record<string, unknown>): string | undefined {
+  const tool = name.toLowerCase()
+  if (!isTranscription(tool)) return unpriceableArgument(input, NO_MEASURED_PATHS)
+  const unknown = Object.keys(input).find((argument) => !TRANSCRIPTION_ARGUMENTS.has(argument))
+  if (unknown !== undefined) return `"${unknown}" is an argument whose effect on the bill this plugin does not know`
+  const measured = measureAudio(input)
+  if (measured === undefined) return "no argument names a local PCM WAV file this plugin can measure"
+  return unpriceableArgument(input, measured.paths)
+}
+
 async function quote(context: GuardInput, tool: string, args: Record<string, unknown>, mayEstimate: boolean, call: GuardCall): Promise<Quote> {
   if (isEstimate(args) || !mustPrice(tool)) return { price: { credits: 0, basis: "exact", parts: [] }, tracked: false }
   const caps = context.caps()
@@ -963,7 +1094,7 @@ async function quote(context: GuardInput, tool: string, args: Record<string, unk
     if (price) context.ledger.rememberPrice(tool, args, price)
   }
   price ??= context.ledger.rememberedPrice(tool, args)
-  if (price === undefined || !(price.credits > 0)) throw unknownPrice(tool, priced(tool))
+  if (price === undefined || !(price.credits > 0)) throw unknownPrice(tool, priced(tool), priceObstacle(tool, args))
   // This path can await, so it decides from the store rather than from this process's memory: a charge another
   // location or another OpenCode recorded is merged in first. The check and the hold inside `reserve` stay
   // synchronous, so nothing slips between them.
@@ -981,7 +1112,7 @@ function quoteSync(context: Omit<GuardInput, "estimate">, tool: string, args: Re
     return { price: priceOf(tool, args) ?? { credits: 0, basis: "at-most", parts: ["cost not tracked: both caps are off"] }, tracked: false }
   }
   let price = priceOf(tool, args) ?? context.ledger.rememberedPrice(tool, args)
-  if (price === undefined || !(price.credits > 0)) throw unknownPrice(tool, priced(tool))
+  if (price === undefined || !(price.credits > 0)) throw unknownPrice(tool, priced(tool), priceObstacle(tool, args))
   price = clamp(price, caps, args, context.ledger.spend(call.sessionID))
   // Synchronous by the shared shaper contract: this path cannot await the store before the call is dispatched, so it
   // decides from this process's book and the write follows. See the residual in SECURITY.md.
@@ -1004,17 +1135,18 @@ function clamp(price: Price, caps: Caps, args: Record<string, unknown>, spend: S
  * The refusal for a call nothing can price. A tool the plugin may price with the server's estimate says so; one whose
  * schema is not attested is offered the one next step that always works, turning both caps off (DR-5).
  */
-function unknownPrice(tool: string, estimable: boolean) {
+function unknownPrice(tool: string, estimable: boolean, obstacle?: string) {
+  const because = obstacle === undefined ? "" : `: ${obstacle}`
   if (isTranscription(tool)) {
     return new SpendRefused(
       "PRICE_UNKNOWN",
-      `${tool} cannot be priced from the file about to be sent, so the cap cannot be checked before it runs.`,
-      `Pass the audio as a local file whose container states a duration (WAV or MP4/M4A). A duration you type cannot set the price. Or set both caps to null to run it unpriced.`,
+      `${tool} cannot be priced from the audio about to be sent, so the cap cannot be checked before it runs${because}.`,
+      `Convert the audio to a local PCM WAV file and pass that; this plugin measures no other container, and a duration you type cannot set the price. Or set both caps to null to run it unpriced.`,
     )
   }
   return new SpendRefused(
     "PRICE_UNKNOWN",
-    `${tool} has no published credit price and no remembered estimate, so the cap cannot be checked before it runs.`,
+    `${tool} has no published credit price and no remembered estimate, so the cap cannot be checked before it runs${because}.`,
     estimable
       ? `Call ${tool} once with "estimate_only": true and the same arguments to get its price, then call it again; or set both caps to null to run it unpriced.`
       : `This plugin does not know whether ${tool} accepts "estimate_only". Set both "sessionCreditCap" and "dailyCreditCap" to null to run it unpriced, or price it from another call's estimate.`,

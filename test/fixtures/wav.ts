@@ -22,12 +22,12 @@ const chunk = (id: string, body: Buffer) => {
 }
 
 /** A `fmt ` body of 16, 18 or 40 bytes. All three state the same 8 kHz mono 8-bit PCM stream. */
-const fmtBody = (size: 16 | 18 | 40) => {
+const fmtBody = (size: 16 | 18 | 40, byteRate = BYTE_RATE, tag?: number) => {
   const body = Buffer.alloc(size)
-  body.writeUInt16LE(size === 40 ? 0xfffe : 1, 0) // PCM, or WAVE_FORMAT_EXTENSIBLE
+  body.writeUInt16LE(tag ?? (size === 40 ? 0xfffe : 1), 0) // PCM, or WAVE_FORMAT_EXTENSIBLE
   body.writeUInt16LE(1, 2) // channels
   body.writeUInt32LE(BYTE_RATE, 4) // sample rate
-  body.writeUInt32LE(BYTE_RATE, 8) // byte rate
+  body.writeUInt32LE(byteRate, 8) // byte rate, which a decoder does not need and a file may lie in
   body.writeUInt16LE(1, 12) // block align
   body.writeUInt16LE(8, 14) // bits per sample
   if (size >= 18) body.writeUInt16LE(size - 18, 16) // cbSize
@@ -54,6 +54,12 @@ export interface WavOptions {
   readonly fmtSize?: 16 | 18 | 40
   /** What the `data` chunk's size field says, when it should not match the bytes written. */
   readonly statedDataBytes?: number
+  /** What the `fmt ` chunk's byte-rate field says. A decoder computes the rate itself, so this may be a lie. */
+  readonly byteRate?: number
+  /** The `fmt ` chunk's format tag, for a file that is not PCM. */
+  readonly formatTag?: number
+  /** Chunks written after the audio, as artwork, a cue list or a second `data` chunk would be. */
+  readonly after?: readonly { readonly id: string; readonly bytes: number; readonly fill: "zero" | "numbers" }[]
 }
 
 /** One WAV fixture. */
@@ -65,9 +71,10 @@ export function buildWav(options: WavOptions): Buffer {
   data.writeUInt32LE(options.statedDataBytes ?? bytes, 4)
   const parts = [
     ...(options.before ?? []).map((pad) => chunk(pad.id, padBody(pad.bytes, pad.fill))),
-    chunk("fmt ", fmtBody(options.fmtSize ?? 16)),
+    chunk("fmt ", fmtBody(options.fmtSize ?? 16, options.byteRate, options.formatTag)),
     data,
     body,
+    ...(options.after ?? []).map((trailing) => chunk(trailing.id, padBody(trailing.bytes, trailing.fill))),
   ]
   const rest = Buffer.concat(parts)
   const riff = Buffer.alloc(12)
@@ -77,7 +84,7 @@ export function buildWav(options: WavOptions): Buffer {
   return Buffer.concat([riff, rest])
 }
 
-/** The six layouts RR2-1 names, each holding sixty seconds of audio unless its name says otherwise. */
+/** The layouts the re-reviews name, each holding sixty seconds of audio unless its name says otherwise. */
 export const WAV_FIXTURES = {
   /** The 44-byte header every fixed-offset reader assumes. */
   canonical: () => buildWav({ seconds: 60 }),
@@ -95,7 +102,60 @@ export const WAV_FIXTURES = {
   overstated: () => buildWav({ seconds: 60, statedDataBytes: 4_800_000 }),
   /** Thirty seconds of audio under a header that still claims sixty: a file cut off while it was written. */
   truncated: () => buildWav({ seconds: 30, statedDataBytes: 480_000 }),
+  /** Sixty seconds of audio under a byte-rate field claiming ten times the real rate: a decoder never reads it. */
+  inflatedByteRate: () => buildWav({ seconds: 60, byteRate: BYTE_RATE * 10 }),
+  /** Sixty seconds of audio behind 100 kB of metadata, so `data` sits well past any one read of the head. */
+  bigMeta: () => buildWav({ seconds: 60, before: [{ id: "LIST", bytes: 100_000, fill: "numbers" }] }),
+  /** One second of audio with 100 kB of artwork after it: trailing chunks are metadata and are not billed. */
+  trailing: () => buildWav({ seconds: 1, after: [{ id: "LIST", bytes: 100_000, fill: "numbers" }] }),
+  /** One second of audio followed by a second `data` chunk of sixty: only the first `data` chunk is the audio. */
+  twoData: () => buildWav({ seconds: 1, after: [{ id: "data", bytes: 480_000, fill: "numbers" }] }),
 } as const
+
+/**
+ * A chunk before `fmt ` whose size field claims almost four gigabytes. The walk is bounded by the file's own size, so
+ * it refuses rather than reading past the end, allocating the size it was told, or walking forever.
+ */
+export function hostileChunkSize(): Buffer {
+  const wav = buildWav({ seconds: 1, before: [{ id: "JUNK", bytes: 16, fill: "zero" }] })
+  // The `JUNK` chunk's size field, at offset 16: the first chunk header sits at 12.
+  wav.writeUInt32LE(0xffff_fff0, 16)
+  return wav
+}
+
+/** A chunk whose size field is zero, repeated: the walk steps eight bytes at a time and must still terminate. */
+export function zeroSizeChunks(count: number): Buffer {
+  const pads = Buffer.concat(Array.from({ length: count }, () => chunk("JUNK", Buffer.alloc(0))))
+  const wav = buildWav({ seconds: 1 })
+  const head = wav.subarray(0, 12)
+  const rest = Buffer.concat([pads, wav.subarray(12)])
+  const riff = Buffer.from(head)
+  riff.writeUInt32LE(rest.length + 4, 4)
+  return Buffer.concat([riff, rest])
+}
+
+/**
+ * A minimal MP4 whose `mvhd` box states a duration, as a real M4A does. The plugin no longer reads it: an MP4 is not
+ * a PCM stream this plugin can measure, so it is refused rather than priced from a field it cannot check.
+ */
+export function buildMp4(seconds: number): Buffer {
+  const mvhd = Buffer.alloc(108)
+  mvhd.writeUInt32LE(0, 0)
+  mvhd.write("mvhd", 4, "ascii")
+  mvhd.writeUInt32BE(0, 8) // version 0 and flags
+  mvhd.writeUInt32BE(1_000, 20) // timescale
+  mvhd.writeUInt32BE(Math.round(seconds * 1_000), 24) // duration
+  mvhd.writeUInt32BE(mvhd.length, 0)
+  const moov = Buffer.alloc(8)
+  moov.writeUInt32BE(8 + mvhd.length, 0)
+  moov.write("moov", 4, "ascii")
+  const ftyp = Buffer.alloc(20)
+  ftyp.writeUInt32BE(20, 0)
+  ftyp.write("ftyp", 4, "ascii")
+  ftyp.write("isom", 8, "ascii")
+  ftyp.write("isomM4A ", 12, "ascii")
+  return Buffer.concat([ftyp, moov, mvhd])
+}
 
 /** A RIFF file whose chunk sizes do not walk: it is not measured, so it is not priced. */
 export function brokenRiff(): Buffer {
