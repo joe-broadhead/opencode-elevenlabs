@@ -57,6 +57,41 @@ const generationParts = (generations: number) => (generations > 1 ? [`${count(ge
 /** The generation-count keys a generating call may use, in the order the plugin writes one back. */
 export const GENERATION_KEYS = ["generations_count", "generations", "variations", "num_generations", "num_outputs"] as const
 
+/** The keys speech reads: the text it will bill a character at a time, and the take count. One list, read and printed. */
+const SPEECH_TEXT_KEYS = ["text", "script", "message"] as const
+const SPEECH_TAKE_KEYS = ["takes", "num_takes"] as const
+
+/** The keys music reads for its length, and what a number in each of them means once it is in milliseconds. */
+const MUSIC_LENGTH_KEYS = ["music_length_ms", "duration_seconds", "duration"] as const
+const MUSIC_LENGTH_MS: Record<(typeof MUSIC_LENGTH_KEYS)[number], number> = { music_length_ms: 1, duration_seconds: 1_000, duration: 1_000 }
+
+/** A list of argument names as a refusal prints it: `"a", "b" or "c"`. */
+const quoted = (names: readonly string[]) =>
+  names
+    .map((name) => `"${name}"`)
+    .join(", ")
+    .replace(/, ([^,]*)$/, " or $1")
+
+/**
+ * The tools `RATES` prices, and the one next step each of them really has. A refusal for one of these is never "no
+ * published credit price": the rate is right here, and what the call is missing is an argument the formula reads, so
+ * the refusal says which one and what to pass, instead of offering an estimate the tool may not take (RR4-12). Image
+ * and video are absent, because nothing here prices them: their figure is the server's own estimate.
+ */
+export const RATED_TOOLS: ReadonlyMap<string, string> = new Map(
+  (
+    [
+      [["creative_generate_speech", "creative_speech", "text_to_speech"], `Pass the text to speak as a string in ${quoted(SPEECH_TEXT_KEYS)}, and any count as a number.`],
+      [
+        ["creative_generate_music", "creative_compose_music"],
+        `Pass the length as a number — "music_length_ms" in milliseconds, or "duration_seconds" — or a composition plan whose sections state their own, and any count as a number.`,
+      ],
+      [["creative_generate_sound_effect", "creative_sound_effects"], `Pass any generation count as a number.`],
+      [["creative_transcribe_audio", "speech_to_text", "creative_transcription"], `Pass a local PCM WAV file this plugin can measure.`],
+    ] as const
+  ).flatMap(([tools, step]) => tools.map((tool): [string, string] => [tool, step])),
+)
+
 /** A count field holding something no number can be read out of. The whole call's price multiplies by it (RR4-6). */
 export const NOT_A_COUNT = Symbol("not a count")
 
@@ -138,11 +173,11 @@ export function priceOf(name: string, input: Record<string, unknown>): Price | u
   if (asked === NOT_A_COUNT) return undefined
   const generations = asked ?? 1
   if (tool === "creative_generate_speech" || tool === "creative_speech" || tool === "text_to_speech") {
-    const text = field(input, ["text", "script", "message"])
+    const text = field(input, SPEECH_TEXT_KEYS)
     if (typeof text !== "string") return undefined
     // The server is not attested to honour `takes`. Two takes is the bound until a live call proves otherwise. A
     // caller figure below two must not halve the price; a higher one may raise it.
-    const stated = countValue(field(input, ["takes", "num_takes"]))
+    const stated = countValue(field(input, SPEECH_TAKE_KEYS))
     if (stated === NOT_A_COUNT) return undefined
     const takes = Math.max(stated ?? 0, RATES.speechTakes)
     const characters = Array.from(text).length
@@ -203,15 +238,13 @@ export const MUSIC_MIN_MS = 3_000
  * A zero or a negative states nothing: it leaves the length to the server, which is PRICE_UNKNOWN, not three seconds.
  */
 const musicLengthsMs = (input: Record<string, unknown>): number[] | undefined => {
-  const milliseconds = lengthValue(input["music_length_ms"])
-  if (milliseconds === NOT_A_LENGTH) return undefined
-  const stated = [milliseconds]
-  for (const name of ["duration_seconds", "duration"] as const) {
-    const seconds = lengthValue(input[name])
-    if (seconds === NOT_A_LENGTH) return undefined
-    stated.push(seconds === undefined ? undefined : seconds * 1_000)
+  const stated: number[] = []
+  for (const name of MUSIC_LENGTH_KEYS) {
+    const value = lengthValue(input[name])
+    if (value === NOT_A_LENGTH) return undefined
+    if (value !== undefined) stated.push(value * MUSIC_LENGTH_MS[name])
   }
-  return stated.filter((value): value is number => value !== undefined && value > 0)
+  return stated.filter((value) => value > 0)
 }
 
 /** A length field that holds something no length can be read out of. One such field is the whole call's price (RR3-9). */
@@ -310,10 +343,10 @@ const TRANSCRIPTION_ARGUMENTS = new Set<string>([
 const COMMON_ARGUMENTS = ["estimate_only", "estimateOnly", "context", ...GENERATION_KEYS] as const
 
 /** Speech: ElevenLabs' own schema for it, and the names the pricing reads for the text and the take count. */
-const SPEECH_ARGUMENTS = new Set<string>([...COMMON_ARGUMENTS, "text", "script", "message", "takes", "num_takes", "voice_id", "model_id"])
+const SPEECH_ARGUMENTS = new Set<string>([...COMMON_ARGUMENTS, ...SPEECH_TEXT_KEYS, ...SPEECH_TAKE_KEYS, "voice_id", "model_id"])
 
 /** Music: ElevenLabs' own schema, the second and third length keys the pricing reads, and the composition plan. */
-const MUSIC_ARGUMENTS = new Set<string>([...COMMON_ARGUMENTS, "prompt", "music_length_ms", "duration_seconds", "duration", "composition_plan"])
+const MUSIC_ARGUMENTS = new Set<string>([...COMMON_ARGUMENTS, "prompt", ...MUSIC_LENGTH_KEYS, "composition_plan"])
 
 /** Sound effects: ElevenLabs' own schema. The rate is per generation, so a length changes nothing about the price. */
 const SOUND_EFFECT_ARGUMENTS = new Set<string>([...COMMON_ARGUMENTS, "prompt", "duration_seconds"])
@@ -1377,18 +1410,50 @@ const dearer = (first: Price | undefined, second: Price | undefined): Price | un
   return second.credits > first.credits ? second : first
 }
 
+/** The first of `names` the call carries, for a refusal that quotes the caller's own key rather than a canonical one. */
+const keyUsed = (input: Record<string, unknown>, names: readonly string[]) =>
+  names.find((name) => input[name] !== undefined && input[name] !== null) ?? names[0]
+
 /**
  * Which argument stopped a priced call from being priced, in words the caller can act on. `priceOf` returns nothing in
- * each of these cases; this says which one it was, so a refusal names the argument rather than the tool.
+ * each of these cases; this says which one it was, so a refusal names the argument rather than the tool. Every branch
+ * of `priceOf` that gives up is answered here, the length and count fields included: a call refused for a field no
+ * number can be read out of used to name nothing at all (RR4-12).
  */
 export function priceObstacle(name: string, input: Record<string, unknown>): string | undefined {
   const tool = name.toLowerCase()
   const unknown = unknownArgument(tool, input)
   if (unknown !== undefined) return unknown
-  if (!isTranscription(tool)) return unpriceableArgument(input, NO_MEASURED_PATHS)
-  const measured = measureAudio(input)
-  if (measured === undefined) return "no argument names a local PCM WAV file this plugin can measure"
-  return unpriceableArgument(input, measured.paths)
+  if (isTranscription(tool)) {
+    const measured = measureAudio(input)
+    if (measured === undefined) return "no argument names a local PCM WAV file this plugin can measure"
+    return unpriceableArgument(input, measured.paths)
+  }
+  const unpriceable = unpriceableArgument(input, NO_MEASURED_PATHS)
+  if (unpriceable !== undefined) return unpriceable
+  // A count multiplies whatever one pass costs, so one that cannot be read stops every priced tool (RR4-6).
+  const badCount = GENERATION_KEYS.find((key) => countValue(input[key]) === NOT_A_COUNT)
+  if (badCount !== undefined) return `"${badCount}" states a generation count no number can be read out of`
+  if (tool === "creative_generate_speech" || tool === "creative_speech" || tool === "text_to_speech") {
+    const text = field(input, SPEECH_TEXT_KEYS)
+    if (text === undefined) return `no argument holds the text to speak (${quoted(SPEECH_TEXT_KEYS)})`
+    if (typeof text !== "string") return `"${keyUsed(input, SPEECH_TEXT_KEYS)}" holds something that is not text`
+    if (Array.from(text).length === 0) return `"${keyUsed(input, SPEECH_TEXT_KEYS)}" is empty, so there is nothing to price`
+    if (countValue(field(input, SPEECH_TAKE_KEYS)) === NOT_A_COUNT) return `"${keyUsed(input, SPEECH_TAKE_KEYS)}" states a take count no number can be read out of`
+    return undefined
+  }
+  if (tool === "creative_generate_music" || tool === "creative_compose_music") {
+    const badLength = MUSIC_LENGTH_KEYS.find((key) => lengthValue(input[key]) === NOT_A_LENGTH)
+    if (badLength !== undefined) return `"${badLength}" states a length no number can be read out of`
+    const plan = planLengthMs(input["composition_plan"])
+    if (plan === NOT_A_LENGTH) return `"composition_plan" states no section length this plugin can read`
+    // No length at all is the server's own default, which this plugin does not know: the call states nothing to price.
+    if (plan === undefined && musicLengthsMs(input)?.length === 0) {
+      return `no argument states how much music to generate (${quoted([...MUSIC_LENGTH_KEYS, "composition_plan"])})`
+    }
+    return undefined
+  }
+  return undefined
 }
 
 async function quote(context: GuardInput, tool: string, args: Record<string, unknown>, mayEstimate: boolean, call: GuardCall): Promise<Quote> {
@@ -1482,6 +1547,14 @@ function fileMoved(tool: string, moved: string) {
  */
 function unknownPrice(tool: string, estimable: boolean, obstacle?: string) {
   const because = obstacle === undefined ? "" : `: ${obstacle}`
+  const rated = RATED_TOOLS.get(tool)
+  if (rated !== undefined && !isTranscription(tool)) {
+    return new SpendRefused(
+      "PRICE_UNKNOWN",
+      `${tool} has a published credit rate, but this call cannot be priced from the arguments it carries, so the cap cannot be checked before it runs${because}.`,
+      `${rated} Or set both "sessionCreditCap" and "dailyCreditCap" to null to run it unpriced.`,
+    )
+  }
   if (isTranscription(tool)) {
     return new SpendRefused(
       "PRICE_UNKNOWN",

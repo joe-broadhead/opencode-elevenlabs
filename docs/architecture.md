@@ -87,6 +87,12 @@ that cannot be priced is refused (`PRICE_UNKNOWN`), never guessed. While either 
 `creative_` and is not priced by the table the guard consults is refused before dispatch. There is no keyword list. A
 price that does not fit is refused before dispatch (`SPEND_CAP_REACHED`).
 
+Every such refusal names the argument that caused it: an argument outside the tool's allowlist, a file the price does
+not cover, or the length, text or count field no number could be read out of. The refusal is written for the tool it
+refuses. Speech, music, sound effects and transcription are priced from the published rates above, so theirs says the
+rate exists and names what to pass; only image and video, which this plugin does not price at all, are told they have
+no published price and offered the `estimate_only` route — which is the only route either of them has.
+
 A price is **reserved** in the ledger before the call is sent and settled into a charge when its result arrives, so a
 parallel turn cannot spend one budget twice. A call that fails, and a hold still open after ten minutes, is charged the
 reserved price: the plugin cannot tell a free failure from a billed one. A later higher figure may replace that charge.

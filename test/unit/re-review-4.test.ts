@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { ENDPOINT } from "../../src/constants.js"
-import { audioStamps, changedFile, countValue, estimatePrice, Ledger, measureAudio, NOT_A_COUNT, priceOf, quoteCall, quoteCallSync, RESERVATION_MS, settlementOf, transcriptionPrice } from "../../src/billing.js"
+import { audioStamps, changedFile, countValue, ESTIMATE_TOOLS, mustPrice, estimatePrice, Ledger, measureAudio, NOT_A_COUNT, priceObstacle, priceOf, PRICED_ARGUMENTS, quoteCall, quoteCallSync, RATED_TOOLS, RESERVATION_MS, settlementOf, transcriptionPrice } from "../../src/billing.js"
 import { buildWav, understatedThenJunk, WAV_FIXTURES } from "../fixtures/wav.js"
 import { sharedStore } from "../fixtures/store.js"
 import { createElevenlabsPlugin } from "../../src/plugin.js"
@@ -410,5 +410,74 @@ describe("RR4-10 — the cap's real cross-process bound, and the sentence three 
     const reader = new Ledger({ storage: store.handle(), writerId: "reader" })
     await reader.hydrate()
     expect(reader.daily()).toBe(27_000)
+  })
+})
+
+describe("RR4-12 — a refusal names the argument that caused it, and never denies a rate the plugin prints", () => {
+  const caps = () => ({ sessionCreditCap: 50_000, dailyCreditCap: 50_000 })
+  /** The refusal a script sees, through the real guard. */
+  const refused = (tool: string, input: Record<string, unknown>) => {
+    try {
+      quoteCallSync({ ledger: new Ledger(), caps }, tool, input, { sessionID: "ses_a", agent: "build", messageID: "m1", id: "c1" })
+      return undefined
+    } catch (error) {
+      return error as { code: string; message: string; nextStep: string }
+    }
+  }
+
+  test("the review's music call names its length field and offers the fix music really has", () => {
+    // At 6c21964: "has no published credit price and no remembered estimate", then a route to `estimate_only` that
+    // music does not take. Music is 900 credits a minute, published, and `ESTIMATE_TOOLS` has never held it.
+    const error = refused("creative_generate_music", { music_length_ms: "abc", duration_seconds: 300 })
+    expect(error?.code).toBe("PRICE_UNKNOWN")
+    expect(error?.message).toContain('"music_length_ms" states a length no number can be read out of')
+    expect(error?.message).toContain("has a published credit rate")
+    expect(error?.message).not.toContain("no published credit price")
+    expect(error?.nextStep).toContain('"music_length_ms" in milliseconds')
+    expect(error?.nextStep).not.toContain("estimate_only")
+  })
+
+  test("every branch that gives up on a price names the argument it gave up on", () => {
+    const obstacles: [string, Record<string, unknown>, string][] = [
+      ["creative_generate_music", { prompt: "jazz" }, 'no argument states how much music to generate ("music_length_ms", "duration_seconds", "duration" or "composition_plan")'],
+      ["creative_generate_music", { composition_plan: { sections: [{ name: "intro" }] } }, '"composition_plan" states no section length this plugin can read'],
+      ["creative_generate_music", { duration: "soon" }, '"duration" states a length no number can be read out of'],
+      ["creative_generate_speech", { text: 7 }, '"text" holds something that is not text'],
+      ["creative_generate_speech", {}, 'no argument holds the text to speak ("text", "script" or "message")'],
+      ["creative_generate_speech", { script: "" }, '"script" is empty, so there is nothing to price'],
+      ["creative_generate_speech", { text: "hello", takes: "many" }, '"takes" states a take count no number can be read out of'],
+      ["creative_generate_sound_effect", { prompt: "a door", variations: "lots" }, '"variations" states a generation count no number can be read out of'],
+      ["creative_generate_music", { music_length_ms: 30_000, num_outputs: "three" }, '"num_outputs" states a generation count no number can be read out of'],
+    ]
+    for (const [tool, input, obstacle] of obstacles) {
+      const error = refused(tool, input)
+      expect(`${tool}: ${error?.message}`).toContain(obstacle)
+      // `priceObstacle` is what the refusal quotes, so the two cannot drift apart.
+      expect(priceObstacle(tool, input)).toBe(obstacle)
+    }
+  })
+
+  test("a tool with a published rate is never told it has none, and one without keeps the estimate route", () => {
+    // The aliases in the price table are names the guard never sees; the gate is `mustPrice`.
+    for (const tool of [...RATED_TOOLS.keys()].filter(mustPrice)) {
+      // A count no number can be read out of stops every one of them, so each refuses for the same reason: the rate
+      // is stated and the estimate route is not offered where it does not exist.
+      const error = refused(tool, { generations: "many" })
+      expect(error?.code).toBe("PRICE_UNKNOWN")
+      expect(`${tool}: ${error?.message}`).not.toContain("no published credit price")
+      if (!ESTIMATE_TOOLS.includes(tool)) expect(`${tool}: ${error?.nextStep}`).not.toContain("estimate_only")
+    }
+    // Image is the other half of the rule: no rate here at all, so the wording and the estimate route both stand.
+    const image = refused("creative_generate_image", { prompt: "a cat" })
+    expect(image?.message).toContain("has no published credit price and no remembered estimate")
+    expect(image?.nextStep).toContain('"estimate_only": true')
+    expect(RATED_TOOLS.has("creative_generate_image")).toBe(false)
+  })
+
+  test("every priced tool is either one this plugin rates or one the server estimates for it", () => {
+    for (const tool of PRICED_ARGUMENTS.keys()) expect(RATED_TOOLS.has(tool) || ESTIMATE_TOOLS.includes(tool)).toBe(true)
+    // And a rated tool really is priced from the rate, not from an estimate that happens to be remembered.
+    expect(priceOf("creative_generate_music", { music_length_ms: 60_000 })?.credits).toBe(900)
+    expect(priceOf("creative_generate_sound_effect", { prompt: "a door" })?.credits).toBe(200)
   })
 })

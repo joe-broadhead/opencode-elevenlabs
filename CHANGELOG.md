@@ -58,6 +58,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and thi
 - A recorded charge only ever rises. One attested figure inside that tenth-band may settle a live hold below itself;
   every settlement after that, for the same call, may only raise the charge. A result delivered twice, and a figure
   arriving for a call whose hold expired into a charge, are ignored unless they are higher.
+- A refusal names the argument that caused it, and never denies a rate the plugin prints. A music call whose length
+  field holds something no number can be read out of used to be told music had "no published credit price and no
+  remembered estimate" and offered `estimate_only`, which music does not take; it now names the field and says what to
+  pass. `priceObstacle` covers every branch that gives up on a price — the length, text, take and count fields as well
+  as the files — and the "no published credit price" wording is kept for image and video, the only tools that have none.
 - The cap's bound is stated as it really is, in the three files that print it. The old sentence gave the two-process
   case as the general rule; the real bound is one call's reservation for each OpenCode past the first — eight at 3,000
   credits a call can spend 31,000 against a 10,000 cap — and a Code Mode call, which cannot read the store before it
