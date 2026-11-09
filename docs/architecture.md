@@ -164,7 +164,10 @@ The guard measures a local PCM WAV the way a decoder does — the `fmt ` fields 
 other container (`PRICE_UNKNOWN`). It calls `riffReadingWith` itself. Nothing it reads is a figure the file states
 about itself, because a file that sets its own duration would set its own price. A WAV holding more than one `data`
 chunk is refused as well: CoreAudio reads the last such chunk and Python's `wave` the first, so its length depends on
-which decoder opens it, and a rule that picked one would be picking the cheaper reading of a file.
+which decoder opens it, and a rule that picked one would be picking the cheaper reading of a file. More than one
+`fmt ` chunk is refused for the same reason. The sample rate is what turns bytes into seconds, so two `fmt ` chunks
+are two lengths for one file, as far apart as their rates are; a `fmt ` chunk counts here whether or not this plugin
+can read it, because a decoder that reads the one this plugin rejects disagrees with it about the whole file.
 
 A `data` size that understates the bytes after it — a truncated file, one still being written, a bad mux — admits two
 readings, and `riffReadingWith` returns both. The price is taken at the longer one, every byte after `data`, unless a

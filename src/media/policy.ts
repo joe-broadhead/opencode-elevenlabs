@@ -183,6 +183,12 @@ export interface RiffPcm {
    * last, Python's `wave` the first — so how long it is depends on who reads it (RR4-7).
    */
   readonly laterData: boolean
+  /**
+   * Whether the file carries more than one `fmt ` chunk, before `data` or after it. The same ambiguity as a second
+   * `data`: a decoder honouring the first reads one length and one honouring the last reads another, and the two
+   * differ by whatever the sample rates differ by. Nothing here knows which one ElevenLabs' server honours (RR5-1).
+   */
+  readonly laterFormat: boolean
 }
 
 const seconds = (value: number) => Math.round(value * 1000) / 1000
@@ -245,6 +251,8 @@ export function riffPcmWith(read: ChunkReader, fileSize: number): RiffPcm | unde
   const head = read(0, 12)
   if (head === undefined || head.toString("ascii", 0, 4) !== "RIFF" || head.toString("ascii", 8, 12) !== "WAVE") return undefined
   let format: PcmFormat | undefined
+  // Every `fmt ` the walk passes, parseable or not: two of them are two readings of one file, whichever one parses.
+  let formats = 0
   let offset = 12
   for (let walked = 0; walked < MAX_CHUNKS && offset + 8 <= fileSize; walked++) {
     const header = read(offset, 8)
@@ -256,11 +264,21 @@ export function riffPcmWith(read: ChunkReader, fileSize: number): RiffPcm | unde
     const body = offset + 8
     if (id === "data") {
       if (format === undefined) return undefined
-      return { format, dataOffset: body, statedDataBytes: size, laterData: laterDataFrom(read, body + size + (size % 2), fileSize) }
+      const later = laterIdsFrom(read, body + size + (size % 2), fileSize)
+      return {
+        format,
+        dataOffset: body,
+        statedDataBytes: size,
+        laterData: later.has("data"),
+        laterFormat: formats > 1 || later.has("fmt "),
+      }
     }
-    if (id === "fmt " && size >= 16) {
-      const fields = read(body, Math.min(size, 40))
-      format ??= fields === undefined ? undefined : pcmFormatIn(fields)
+    if (id === "fmt ") {
+      formats++
+      if (size >= 16) {
+        const fields = read(body, Math.min(size, 40))
+        format ??= fields === undefined ? undefined : pcmFormatIn(fields)
+      }
     }
     // An odd chunk is padded to an even boundary. A size that runs past the end of the file does not walk.
     const next = body + size + (size % 2)
@@ -293,22 +311,24 @@ function chunkStartsAt(read: ChunkReader, offset: number, fileSize: number): boo
 }
 
 /**
- * Whether another `data` chunk begins at or after `offset`, which is where the first one's stated size ends. The walk
+ * The chunk ids that begin at or after `offset`, which is where the first `data` chunk's stated size ends. The walk
  * stops at the first thing that is not a well-formed chunk header, because that is audio the first `data` size left
- * out, not a chunk: a file whose size understates its audio keeps the reading RR4-1 gave it.
+ * out, not a chunk: a file whose size understates its audio keeps the reading RR4-1 gave it. Two ids matter to a
+ * price — another `data` (RR4-7) and another `fmt ` (RR5-1) — and one walk finds both.
  */
-function laterDataFrom(read: ChunkReader, offset: number, fileSize: number): boolean {
+function laterIdsFrom(read: ChunkReader, offset: number, fileSize: number): Set<string> {
+  const ids = new Set<string>()
   let at = offset
   for (let walked = 0; walked < MAX_CHUNKS && chunkStartsAt(read, at, fileSize); walked++) {
     const header = read(at, 8)
-    if (header === undefined) return false
-    if (header.toString("latin1", 0, 4) === "data") return true
+    if (header === undefined) return ids
+    ids.add(header.toString("latin1", 0, 4))
     const size = header.readUInt32LE(4)
     const next = at + 8 + size + (size % 2)
-    if (!Number.isSafeInteger(next) || next <= at || next > fileSize) return false
+    if (!Number.isSafeInteger(next) || next <= at || next > fileSize) return ids
     at = next
   }
-  return false
+  return ids
 }
 
 /**
@@ -347,10 +367,15 @@ export interface RiffReading {
  * Python's `wave` the first, so how long such a file is depends on which decoder opens it, and nothing here says
  * which one ElevenLabs' server uses. A length this plugin cannot know is not one it guesses at: the file is
  * unmeasured, and a call that needs its length is refused with `PRICE_UNKNOWN` while a cap is on (RR4-7).
+ *
+ * A second `fmt ` chunk is the same ambiguity and gets the same answer (RR5-1). The sample rate is what turns bytes
+ * into seconds, so two `fmt ` chunks are two lengths for one file, and the gap between them is as wide as the gap
+ * between their rates. Taking the first was not a rule but an accident of the walk, and it is the one reading that
+ * can under-price: a file whose first `fmt ` claims nine times the real rate was priced at a ninth of its length.
  */
 export function riffReadingWith(read: ChunkReader, fileSize: number): RiffReading | undefined {
   const riff = riffPcmWith(read, fileSize)
-  if (riff === undefined || riff.laterData) return undefined
+  if (riff === undefined || riff.laterData || riff.laterFormat) return undefined
   const following = Math.max(0, fileSize - riff.dataOffset)
   const stated = riff.statedDataBytes
   const trailing = stated < following && chunkStartsAt(read, riff.dataOffset + stated + (stated % 2), fileSize)

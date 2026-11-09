@@ -22,11 +22,11 @@ const chunk = (id: string, body: Buffer) => {
 }
 
 /** A `fmt ` body of 16, 18 or 40 bytes. All three state the same 8 kHz mono 8-bit PCM stream. */
-const fmtBody = (size: 16 | 18 | 40, byteRate = BYTE_RATE, tag?: number) => {
+const fmtBody = (size: 16 | 18 | 40, byteRate = BYTE_RATE, tag?: number, sampleRate = BYTE_RATE) => {
   const body = Buffer.alloc(size)
   body.writeUInt16LE(tag ?? (size === 40 ? 0xfffe : 1), 0) // PCM, or WAVE_FORMAT_EXTENSIBLE
   body.writeUInt16LE(1, 2) // channels
-  body.writeUInt32LE(BYTE_RATE, 4) // sample rate
+  body.writeUInt32LE(sampleRate, 4) // sample rate, which is what turns bytes into seconds
   body.writeUInt32LE(byteRate, 8) // byte rate, which a decoder does not need and a file may lie in
   body.writeUInt16LE(1, 12) // block align
   body.writeUInt16LE(8, 14) // bits per sample
@@ -76,6 +76,11 @@ export function buildWav(options: WavOptions): Buffer {
     body,
     ...(options.after ?? []).map((trailing) => chunk(trailing.id, padBody(trailing.bytes, trailing.fill))),
   ]
+  return riffOf(parts)
+}
+
+/** A RIFF/WAVE file around chunks already built, with the size field its own contents ask for. */
+function riffOf(parts: readonly Buffer[]): Buffer {
   const rest = Buffer.concat(parts)
   const riff = Buffer.alloc(12)
   riff.write("RIFF", 0, "ascii")
@@ -144,6 +149,35 @@ export function hostileChunkSize(): Buffer {
   // The `JUNK` chunk's size field, at offset 16: the first chunk header sits at 12.
   wav.writeUInt32LE(0xffff_fff0, 16)
   return wav
+}
+
+/**
+ * Ten seconds of audio — 80,000 bytes at the real 8 kHz mono 8-bit — under two `fmt ` chunks. The first states ten
+ * times that rate, so a decoder honouring it reads one second where one honouring the last reads ten. One file, two
+ * lengths, ten times apart: the same ambiguity as two `data` chunks, so it is not measured (RR5-1). `order` writes
+ * the fast one first, which is the ordering that under-prices, or last, which over-prices.
+ */
+export function twoFmtChunks(order: "fast first" | "fast last" = "fast first"): Buffer {
+  const fast = chunk("fmt ", fmtBody(16, BYTE_RATE * 10, undefined, BYTE_RATE * 10))
+  const real = chunk("fmt ", fmtBody(16))
+  return riffOf([...(order === "fast first" ? [fast, real] : [real, fast]), chunk("data", audio(10 * BYTE_RATE))])
+}
+
+/** The same ten seconds under one `fmt `, which is the price the two-`fmt ` file would have had if it were measured. */
+export const oneFmtChunk = () => buildWav({ seconds: 10 })
+
+/**
+ * Ten seconds under a real `fmt ` and a second `fmt ` too short to parse. A decoder that rejects the short one reads
+ * ten seconds and a decoder that takes it as the live format reads nothing at all, so the ambiguity is the same one:
+ * a `fmt ` chunk counts here whether or not this plugin can read it (RR5-1).
+ */
+export function unreadableSecondFmt(): Buffer {
+  return riffOf([chunk("fmt ", fmtBody(16)), chunk("fmt ", Buffer.alloc(8)), chunk("data", audio(10 * BYTE_RATE))])
+}
+
+/** Ten seconds whose second `fmt ` sits after the audio, where RR4-7's walk looks for a second `data` chunk. */
+export function trailingSecondFmt(): Buffer {
+  return riffOf([chunk("fmt ", fmtBody(16)), chunk("data", audio(10 * BYTE_RATE)), chunk("fmt ", fmtBody(16, BYTE_RATE * 10, undefined, BYTE_RATE * 10))])
 }
 
 /** A chunk whose size field is zero, repeated: the walk steps eight bytes at a time and must still terminate. */
