@@ -112,15 +112,22 @@ together, which cannot double-count because a charge is folded by exactly one wr
 minute of its hour is still inside the window, so a folded charge counts for up to an hour past its own day, and never
 less than it. A key is removed only once it is past the window. Two ledgers handed one storage object share a book and
 one daily cap, as two locations in one OpenCode do. Across processes, exactly: **within one OpenCode the caps are
-exact; OpenCodes deciding at the same instant cross a cap by at most one call's reservation for each one past the
-first, so eight of them at 3,000 credits a call can spend 31,000 against a 10,000 cap; a Code Mode call cannot read the
-store before it decides, so an OpenCode that has read nothing since it started admits a whole cap of its own; a settled
-charge is never lost.** Both crossings need overlap: calls that wait for one another see one another, and those same
-eight, run one after the next, spend only the 9,000 that fits. The first bound follows from the order `quote` works in:
-each OpenCode refreshes from the store and then reserves, so the most that can be admitted beyond a cap is one
-reservation for every OpenCode that read before the first of them wrote. The second follows from the shaper contract:
-`quoteSync` cannot await, so it decides from what `hydrate` and the last `refresh` left in this process's book, and an
-OpenCode making only Code Mode calls never reads again. `reserve` keeps its check and its hold synchronous, with
+exact; across OpenCodes a cap is crossed by at most one call's reservation for each one deciding before its read of the
+others' holds lands, so eight of them at 3,000 credits a call can spend 31,000 against a 10,000 cap; every OpenCode
+reads the store behind each call it admits and every five seconds besides, so none decides on a book older than that; a
+settled charge is never lost.** The crossing needs overlap: calls that wait for one another see one another, and those
+same eight, run one after the next, spend only the 9,000 that fits.
+
+The bound follows from the order each path works in. `quote` can await, so it refreshes from the store and then
+reserves: the most it can admit beyond a cap is one reservation for every OpenCode that read before the first of them
+wrote. `quoteSync` cannot await before it dispatches, by the shaper contract, so it bounds its staleness behind itself
+instead — it starts a read it does not wait for after the hold is taken, and the next call on that ledger decides from
+a book that has seen the other OpenCodes' holds. A process that is idle, or whose calls all refuse, writes nothing and
+would never read again, so setup also starts an unref'd timer that reads the store every `LEDGER_REFRESH_MS`, five
+seconds, and stops when the plugin is disposed. Measured over one store, 100-credit calls against a 10,000 cap: two
+OpenCodes spending together reach 10,000, eight reach 10,400, and an OpenCode that started before another spent the
+whole cap admits one call before its next read, or none once the timer has run. Without those two reads the same
+measurements were 20,000, 80,000 and a whole fresh cap. `reserve` keeps its check and its hold synchronous, with
 nothing awaited between them, then
 writes the hold's own key and awaits it before dispatch; a failed write takes the hold back out of memory and refuses
 the call. Two machines share nothing. Two locations keep their own tools-RPC shapers. On the script path, one priced

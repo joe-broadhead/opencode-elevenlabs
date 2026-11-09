@@ -84,6 +84,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and thi
 - A WAV holding more than one `data` chunk is not measured. CoreAudio reads the last such chunk and Python's `wave`
   the first, so the file's length depends on which decoder opens it: a call that needs it is refused with
   `PRICE_UNKNOWN`, and a saved file shows no duration. One `data` chunk is measured as before, whatever follows it.
+- A ledger reads the store behind every call it admits, and every five seconds besides, so a cap now holds across two
+  running OpenCodes. The synchronous path cannot read the store before it decides, and nothing made it read after, so
+  an OpenCode decided from its startup snapshot for its whole life: two of them taking turns each spent a full
+  10,000-credit cap for 20,000, eight spent 80,000, and one started this morning admitted a whole fresh cap this
+  evening. Those same measurements are now 10,000, 10,400 and one call. The documented bound in the README,
+  `SECURITY.md` and `docs/architecture.md` is rewritten from them: a crossing of at most one call's reservation for
+  each OpenCode deciding before its read of the others' holds lands, instead of a whole cap for each one.
 - One list decides that a tool is priced. Every name each priced operation may arrive under lives in `PRICED_NAMES`,
   and the gate that holds a call, the published rates, the argument allowlists and the formula that prices the call
   are all built from it. `text_to_speech` and `speech_to_text` — ElevenLabs' canonical names, documented as priced in

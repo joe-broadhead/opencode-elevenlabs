@@ -673,10 +673,11 @@ describe("RR3-4/RR3-5 — the documented residual is what the ledger now does", 
   // The review struck the old claims: they said a merge kept every row, which it did not. These clauses are what the
   // append-only ledger actually guarantees, and the three documents the user reads must carry them word for word, so a
   // later change cannot leave a stronger sentence behind. RR4-10 corrected the middle clause, which gave the
-  // two-process case as the general rule, and added the Code Mode one; the bound itself is proved in
-  // `re-review-4.test.ts`.
+  // two-process case as the general rule, and added the Code Mode one; RR5-3 then bounded that one — the ledger reads
+  // the store behind every call and on a timer — so the sentence states a staleness instead of a whole cap. The
+  // crossing is proved in `re-review-4.test.ts` and the staleness in `re-review-5.test.ts`.
   const RESIDUAL =
-    "within one OpenCode the caps are exact; OpenCodes deciding at the same instant cross a cap by at most one call's reservation for each one past the first, so eight of them at 3,000 credits a call can spend 31,000 against a 10,000 cap; a Code Mode call cannot read the store before it decides, so an OpenCode that has read nothing since it started admits a whole cap of its own; a settled charge is never lost"
+    "within one OpenCode the caps are exact; across OpenCodes a cap is crossed by at most one call's reservation for each one deciding before its read of the others' holds lands, so eight of them at 3,000 credits a call can spend 31,000 against a 10,000 cap; every OpenCode reads the store behind each call it admits and every five seconds besides, so none decides on a book older than that; a settled charge is never lost"
 
   for (const file of ["README.md", "SECURITY.md", "docs/architecture.md"]) {
     test(`${file} states the residual exactly`, () => {
@@ -684,6 +685,8 @@ describe("RR3-4/RR3-5 — the documented residual is what the ledger now does", 
       expect(prose).toContain(RESIDUAL)
       // The claim RR4-10 found: the two-process case, printed as the bound every reader sizes a cap from.
       expect(prose).not.toContain("exceed a cap by at most one call's reservation;")
+      // And the one RR5-3 removed: a process whose book never moved again, which is no longer what happens.
+      expect(prose).not.toContain("admits a whole cap of its own")
     })
 
     test(`${file} no longer claims a merge keeps every row`, () => {

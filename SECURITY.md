@@ -43,11 +43,11 @@ Report privately through GitHub's private vulnerability reporting on
   agent can spend. Running an agent test (`agents_create_test`) may also bill the agent's LLM usage; that is not capped
   until the live reconcile. The plugin prices each call before sending it, reserves the price, and prints a cost line;
   the caps (`sessionCreditCap`, `dailyCreditCap`) are the only bound, and they bound this plugin, not your account.
-- **What a cap cannot decide.** Exactly: **within one OpenCode the caps are exact; OpenCodes deciding at the same
-  instant cross a cap by at most one call's reservation for each one past the first, so eight of them at 3,000 credits
-  a call can spend 31,000 against a 10,000 cap; a Code Mode call cannot read the store before it decides, so an
-  OpenCode that has read nothing since it started admits a whole cap of its own; a settled charge is never lost.** Both
-  crossings need overlap: calls that wait for one another see one another, and those same eight, run one after the
+- **What a cap cannot decide.** Exactly: **within one OpenCode the caps are exact; across OpenCodes a cap is crossed
+  by at most one call's reservation for each one deciding before its read of the others' holds lands, so eight of them
+  at 3,000 credits a call can spend 31,000 against a 10,000 cap; every OpenCode reads the store behind each call it
+  admits and every five seconds besides, so none decides on a book older than that; a settled charge is never lost.**
+  The crossing needs overlap: calls that wait for one another see one another, and those same eight, run one after the
   next, spend only the 9,000 that fits. A cap is not a
   lock: `ctx.storage` offers `get`, `set`, `remove` and `scan`, and no compare-and-set, so two OpenCodes running at once
   on one data directory each admit against what they have read. Nothing is lost to that race, because every hold and

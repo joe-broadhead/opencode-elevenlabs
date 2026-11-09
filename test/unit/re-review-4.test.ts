@@ -396,12 +396,14 @@ describe("RR4-10 — the cap's real cross-process bound, and the sentence three 
     expect(admits).toBe(3)
   })
 
-  test("a Code Mode call cannot read the store first, so each OpenCode admits a cap of its own", async () => {
+  test("a Code Mode call cannot read the store first, so a burst decides from what this OpenCode last read", async () => {
     const store = sharedStore()
     const ledgers = [...Array(3)].map((_, index) => new Ledger({ storage: store.handle(), writerId: `c${index}` }))
     await Promise.all(ledgers.map((ledger) => ledger.hydrate()))
     // The shaper path is synchronous by the shared contract: it decides from what this OpenCode last read, and these
-    // three read at startup. Each refuses its own fourth call and knows nothing of the other two's nine.
+    // three read at startup. Each refuses its own fourth call and, inside its burst, knows nothing of the other two's
+    // nine. That burst is as far as it goes: RR5-3 reads the store behind each call and on a timer, so the book is
+    // one call old rather than as old as the process, and `re-review-5.test.ts` holds that bound.
     for (const [index, ledger] of ledgers.entries()) {
       for (const id of ["a", "b", "c"]) quoteCallSync({ ledger, caps: () => caps }, "creative_generate_speech", args(), call(`${index}${id}`))
       expect(() => quoteCallSync({ ledger, caps: () => caps }, "creative_generate_speech", args(), call(`${index}d`))).toThrow("SPEND_CAP_REACHED")

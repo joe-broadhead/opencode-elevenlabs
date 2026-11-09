@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { Plugin, type Mcp } from "@opencode/plugin"
 import { readBalance, readKey, registerBalanceIntegration } from "./balance.js"
-import { appendLine, costLine, costValue, estimatePrice, isEstimate, Ledger, quoteCall, settlementOf, type Caps, type Price } from "./billing.js"
+import { appendLine, costLine, costValue, estimatePrice, isEstimate, Ledger, LEDGER_REFRESH_MS, quoteCall, settlementOf, type Caps, type Price } from "./billing.js"
 import {
   DISPLAY_NAME,
   errorText,
@@ -200,6 +200,12 @@ export function createElevenlabsPlugin(seam: ElevenlabsSeam = {}) {
       const url = seam.endpoint ?? REGIONS[options.region]
       const ledger = new Ledger({ storage: ctx.storage })
       await ledger.hydrate()
+      // The setup read above is one moment, and a process that spends nothing never takes another: its book would
+      // decide for the rest of its life from what the store held when it started. This timer is what bounds that —
+      // the book another OpenCode's spending is read into is at most one interval old (RR5-3). It is unref'd, so it
+      // never holds the process open, and it is stopped when the plugin is disposed.
+      const refreshing = setInterval(() => ledger.catchUp(), LEDGER_REFRESH_MS)
+      refreshing.unref?.()
       const caps = (): Caps => ({ sessionCreditCap: options.sessionCreditCap, dailyCreditCap: options.dailyCreditCap })
       const mediaHosts = [...MEDIA_HOSTS, ...(seam.mediaHosts ?? [])]
 
@@ -372,6 +378,7 @@ export function createElevenlabsPlugin(seam: ElevenlabsSeam = {}) {
 
       const stopWatch = watchIntegration(ctx, managed)
       return async () => {
+        clearInterval(refreshing)
         setToolRuntime(undefined)
         await stopWatch()
         await stopBefore.dispose()

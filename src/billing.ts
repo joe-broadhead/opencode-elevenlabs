@@ -743,6 +743,13 @@ export const SPEND_PREFIX = "spend/"
 const WINDOW_MS = 24 * 60 * 60 * 1000
 /** A hold still open after this is settled at the reserved price. Ten minutes is inside a long video; expiry must not free the budget. */
 export const RESERVATION_MS = 10 * 60 * 1000
+/**
+ * How often a plugin instance reads the store on its own, with no call to prompt it. This is what bounds a process
+ * that is idle, or whose calls all refuse, and so writes nothing and never refreshes behind itself: without it a
+ * book decides from its startup read for the process's whole life, and an OpenCode started this morning admits a
+ * fresh cap this evening (RR5-3). Five seconds is one `scan` of `spend/`, the same read setup already does.
+ */
+export const LEDGER_REFRESH_MS = 5_000
 /** The detail keys one writer keeps. An in-window charge past that folds into an hour's total, which never shrinks. */
 const MAX_ENTRIES = 1_000
 /**
@@ -883,6 +890,16 @@ export class Ledger {
   hydrate(): Promise<void> {
     this.hydrated ??= this.refresh()
     return this.hydrated
+  }
+
+  /**
+   * Starts a read of the store and does not wait for it, so the next decision this ledger makes sees what the other
+   * OpenCodes had written by now. The synchronous path cannot await before it dispatches (DR-1), so it bounds its
+   * own staleness behind itself instead of in front: a book that decides is then at most one call old, rather than
+   * as old as the process (RR5-3). A storage failure leaves the book as it is, exactly as `hydrate` does.
+   */
+  catchUp(): void {
+    void this.refresh().catch(() => undefined)
   }
 
   /**
@@ -1521,6 +1538,9 @@ function quoteSync(context: Omit<GuardInput, "estimate">, tool: string, args: Re
   // decides from this process's book and the write follows. A write that fails therefore cannot refuse a call that has
   // already gone out; the in-memory hold still bounds this process. See the residual in SECURITY.md.
   void context.ledger.reserve(call.id, call.sessionID, price.credits, caps).catch(() => undefined)
+  // The store is read behind the call, not in front of it: the hold above is already written, and the next call on
+  // this ledger decides from a book that has seen every other OpenCode's holds since this one (RR5-3).
+  context.ledger.catchUp()
   return { price, tracked: true }
 }
 

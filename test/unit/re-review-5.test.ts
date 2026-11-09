@@ -3,13 +3,22 @@ import { afterAll, describe, expect, test } from "bun:test"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { Ledger, measureAudio, PRICED_ARGUMENTS, quoteCallSync, RATED_TOOLS, transcriptionPrice } from "../../src/billing.js"
+import { Ledger, LEDGER_REFRESH_MS, measureAudio, PRICED_ARGUMENTS, quoteCallSync, RATED_TOOLS, transcriptionPrice } from "../../src/billing.js"
 import { ALL_TOOLS, mustPrice, PRICED_NAMES, SPEND_ANY } from "../../src/elevenlabs-tools.js"
 import { riffReadingWith } from "../../src/media/policy.js"
+import { createElevenlabsPlugin } from "../../src/plugin.js"
+import { ENDPOINT } from "../../src/constants.js"
+import { sharedStore } from "../fixtures/store.js"
+import { mcpEditor, pluginContext } from "./fake.js"
 import { buildWav, oneFmtChunk, trailingSecondFmt, twoFmtChunks, unreadableSecondFmt } from "../fixtures/wav.js"
 
 const root = mkdtempSync(join(tmpdir(), "elevenlabs-rr5-"))
-afterAll(() => rmSync(root, { recursive: true, force: true }))
+const skillsDir = mkdtempSync(join(tmpdir(), "elevenlabs-rr5-skills-"))
+afterAll(() => {
+  rmSync(root, { recursive: true, force: true })
+  rmSync(skillsDir, { recursive: true, force: true })
+})
+const seam = { endpoint: ENDPOINT, skillsDir }
 const file = (name: string, bytes: Buffer) => {
   const path = join(root, name)
   writeFileSync(path, bytes)
@@ -126,5 +135,137 @@ describe("RR5-2 — one list decides what is priced", () => {
     // unless an estimate the caller fetched prices it.
     expect(ALL_TOOLS.filter(mustPrice).filter((tool) => !PRICED_ARGUMENTS.has(tool))).toEqual(["creative_edit_image"])
     expect(outcome("creative_edit_image", { prompt: "a cat" })).toEqual({ refused: "PRICE_UNKNOWN" })
+  })
+})
+
+describe("RR5-3 — a book that decides is never older than one call", () => {
+  const DAILY = 10_000
+  const caps = { sessionCreditCap: null, dailyCreditCap: DAILY }
+  // 1,500 characters at 1 credit each, two takes: 3,000 credits a call, the review's figure.
+  const args = () => ({ text: "x".repeat(1_500) })
+  const call = (id: string) => ({ sessionID: "ses_a", agent: "build", messageID: "m1", id })
+  /** One Code Mode call through the synchronous path: true when it was admitted. */
+  const spend = (ledger: Ledger, id: string) => {
+    try {
+      quoteCallSync({ ledger, caps: () => caps }, "creative_generate_speech", args(), call(id))
+      return true
+    } catch {
+      return false
+    }
+  }
+  /** Lets every write and every read this round started finish, as the gap between two real calls does. */
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 5))
+  /** What a cold reader — the next OpenCode to start — finds in the store. */
+  const stored = async (store: ReturnType<typeof sharedStore>) => {
+    const cold = new Ledger({ storage: store.handle(), writerId: "cold" })
+    await cold.hydrate()
+    return cold.daily()
+  }
+
+  test("an OpenCode that spent nothing while another spent the cap admits no call of its own", async () => {
+    // The review's second reproduction. At aa1e26c `a` decided from its setup read for the whole life of the process:
+    // `b` spent the cap, `a`'s book still said 0, and `a` admitted 8,000 more — 18,000 against a 10,000 cap, with no
+    // instant of simultaneity anywhere. A process that only reads never writes, so nothing behind a call can help it;
+    // the timer `plugin.ts` starts is what reads for it, and `catchUp` is what that timer calls.
+    const store = sharedStore()
+    const a = new Ledger({ storage: store.handle(), writerId: "a" })
+    const b = new Ledger({ storage: store.handle(), writerId: "b" })
+    await Promise.all([a.hydrate(), b.hydrate()])
+    for (const id of ["b1", "b2", "b3"]) expect(spend(b, id)).toBe(true)
+    expect(spend(b, "b4")).toBe(false)
+    await b.flush()
+    expect(await stored(store)).toBe(9_000)
+
+    a.catchUp()
+    await settle()
+    expect(a.daily()).toBe(9_000)
+    expect(spend(a, "a1")).toBe(false)
+    expect(() => quoteCallSync({ ledger: a, caps: () => caps }, "creative_generate_speech", args(), call("a2"))).toThrow("SPEND_CAP_REACHED")
+    expect(await stored(store)).toBe(9_000)
+  })
+
+  test("two OpenCodes spending in turn cross the cap by one reservation, not by a whole cap", async () => {
+    // The ordinary two-process case, which overshot by a whole cap at aa1e26c: each admitted its own 9,000 for 18,000
+    // against a 10,000 cap. Neither waits for the other — they take turns, as two scripts on one machine do — so the
+    // read fired behind each call is what they see one another through. What is left is the documented crossing: the
+    // two of them decide together once, so the overshoot is one call's reservation, for the one OpenCode past the
+    // first, and it does not compound — the round after it, both refuse.
+    const store = sharedStore()
+    const a = new Ledger({ storage: store.handle(), writerId: "a" })
+    const b = new Ledger({ storage: store.handle(), writerId: "b" })
+    await Promise.all([a.hydrate(), b.hydrate()])
+    let admitted = 0
+    let lastRoundAdmitted = 0
+    for (let round = 0; round < 8; round++) {
+      lastRoundAdmitted = 0
+      for (const [name, ledger] of [["a", a], ["b", b]] as const) if (spend(ledger, `${name}${round}`)) lastRoundAdmitted += 3_000
+      admitted += lastRoundAdmitted
+      await settle()
+    }
+    await Promise.all([a.flush(), b.flush()])
+    // Three calls of 3,000 fit under 10,000; a fourth was admitted, and that fourth is the whole of the crossing.
+    expect(admitted).toBe(12_000)
+    expect(admitted - 9_000).toBe(3_000)
+    expect(lastRoundAdmitted).toBe(0)
+    expect(await stored(store)).toBe(12_000)
+  })
+
+  test("the read behind a call is not waited for, so the call itself stays synchronous", () => {
+    // DR-1: the shaper contract gives this path no await before dispatch, and the fix may not buy its bound with one.
+    // `catchUp` starts the read and returns; a store that never answers must not stall or fail a call.
+    const stalled = {
+      get: async () => undefined as never,
+      set: async () => {},
+      remove: async () => {},
+      scan: () => new Promise<never>(() => {}),
+    }
+    const ledger = new Ledger({ storage: stalled as never, writerId: "s" })
+    expect(ledger.catchUp()).toBeUndefined()
+    const started = Date.now()
+    expect(spend(ledger, "s1")).toBe(true)
+    expect(Date.now() - started).toBeLessThan(1_000)
+    expect(ledger.daily()).toBe(3_000)
+  })
+
+  test("the plugin reads the store on an unref'd timer and stops it when it is disposed", async () => {
+    // The timer is the half of the fix that bounds a process making no calls at all. It must not hold the process
+    // open and must not outlive the plugin, so setup unrefs it and the cleanup function clears it.
+    const timers: { ms: number | undefined; unrefs: number; cleared: boolean }[] = []
+    const realSet = globalThis.setInterval
+    const realClear = globalThis.clearInterval
+    const scans: unknown[] = []
+    const { ctx, mcp } = pluginContext({ sessionCreditCap: null, dailyCreditCap: DAILY })
+    const storage = ctx.storage as { scan: (options: unknown) => Promise<unknown> }
+    const realScan = storage.scan.bind(storage)
+    storage.scan = async (options: unknown) => {
+      scans.push(options)
+      return realScan(options)
+    }
+    let tick: (() => void) | undefined
+    globalThis.setInterval = ((handler: () => void, ms?: number) => {
+      const entry = { ms, unrefs: 0, cleared: false }
+      timers.push(entry)
+      tick = handler
+      return { unref: () => void entry.unrefs++, entry } as never
+    }) as never
+    globalThis.clearInterval = ((handle: { entry?: { cleared: boolean } }) => {
+      if (handle?.entry) handle.entry.cleared = true
+    }) as never
+    try {
+      const cleanup = await createElevenlabsPlugin(seam).setup(ctx)
+      mcp.run(mcpEditor().editor)
+      expect(timers).toEqual([{ ms: LEDGER_REFRESH_MS, unrefs: 1, cleared: false }])
+      // Five seconds, and the three documents say "every five seconds": they move together or not at all.
+      expect(LEDGER_REFRESH_MS).toBe(5_000)
+      const before = scans.length
+      tick?.()
+      await new Promise((resolve) => realSet(resolve, 5))
+      expect(scans.length).toBeGreaterThan(before)
+      await cleanup!()
+      expect(timers[0]?.cleared).toBe(true)
+    } finally {
+      globalThis.setInterval = realSet
+      globalThis.clearInterval = realClear
+    }
   })
 })
