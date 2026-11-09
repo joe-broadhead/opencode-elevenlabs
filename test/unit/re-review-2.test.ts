@@ -4,7 +4,11 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Ledger, MUSIC_MIN_MS, measureAudio, priceOf, quoteCall, quoteCallSync, RATES, RESERVATION_MS, settlementOf, SpendRefused, transcriptionPrice } from "../../src/billing.js"
+import { REGIONS } from "../../src/constants.js"
+import { mustPrice } from "../../src/elevenlabs-tools.js"
 import { shapersFor } from "../../src/host/tools-rpc.js"
+import { otherElevenlabsServers, toolOf } from "../../src/plugin.js"
+import { buildStatus, formatStatus } from "../../src/status.js"
 import { brokenRiff, buildWav, WAV_FIXTURES } from "../fixtures/wav.js"
 
 const root = mkdtempSync(join(tmpdir(), "elevenlabs-rr2-"))
@@ -379,5 +383,77 @@ describe("RR2-7 — an attested figure may lower a reservation only when it read
     const settled = shapers.result("creative_generate_speech", { output: { credits: 1 }, text: "" }, call)
     expect(ledger.spend("ses_a").sessionCredits).toBe(3_000)
     expect(settled.text).toContain("too far below")
+  })
+})
+
+describe("RR2-8 — the money gate folds case, as the permission gate does", () => {
+  test("a creative_ name in another case is priced or refused, never sent unpriced", () => {
+    // d107a11 answered false for every one of these, so the guard returned before pricing and the call was sent.
+    for (const name of ["Creative_Upscale", "Creative_Generate_Speech", "CREATIVE_GENERATE_SPEECH", "creative_Edit_Image"]) {
+      expect({ name, priced: mustPrice(name) }).toEqual({ name, priced: true })
+    }
+    // The exemptions fold with it: a classified non-spending creative name does not become a refusal in another case.
+    for (const name of ["CREATIVE_GET_FLOW", "Creative_Create_Flow", "AGENTS_LIST"]) {
+      expect({ name, priced: mustPrice(name) }).toEqual({ name, priced: false })
+    }
+  })
+
+  test("a known name in another case is priced from the table, not refused as unknown", () => {
+    const input = { text: "x".repeat(1_500) }
+    const lower = priceOf("creative_generate_speech", input)
+    expect(lower?.credits).toBe(3_000)
+    for (const name of ["Creative_Generate_Speech", "CREATIVE_GENERATE_SPEECH"]) {
+      expect({ name, price: priceOf(name, input) }).toEqual({ name, price: lower })
+    }
+  })
+
+  test("the money path reserves for a mixed-case call, as it does for the lowercase one", () => {
+    const ledger = new Ledger({ now: () => 0 })
+    const shapers = shapersFor({ ledger, caps: () => ({ sessionCreditCap: 100_000, dailyCreditCap: 100_000 }) })
+    const call = { sessionID: "ses_a", agent: "build", action: "elevenlabs_Creative_Generate_Speech" }
+    // At d107a11 this reserved nothing at all: the call went out and the session spent 0.
+    shapers.input("Creative_Generate_Speech", { text: "x".repeat(1_500) }, call)
+    expect(ledger.spend("ses_a").sessionCredits).toBe(3_000)
+  })
+
+  test("the prefix folds case, and only this plugin's own entry is stripped", () => {
+    expect(toolOf("elevenlabs_creative_generate_speech")).toBe("creative_generate_speech")
+    // d107a11 returned undefined for both of these, so both hooks returned before the guard.
+    expect(toolOf("ELEVENLABS_creative_generate_speech")).toBe("creative_generate_speech")
+    expect(toolOf("elevenlabs_Creative_Generate_Speech")).toBe("creative_generate_speech")
+    // A second entry under another name is a different server to OpenCode: the caps do not reach it, and status says so.
+    expect(toolOf("elevenlabs2_creative_generate_speech")).toBeUndefined()
+    expect(toolOf("notelevenlabs_creative_generate_speech")).toBeUndefined()
+  })
+
+  test("a second entry at ElevenLabs' address is found, and never changed", () => {
+    const remote = (url: string) => ({ type: "remote", url })
+    const entries = [
+      ["elevenlabs", remote(REGIONS.global)],
+      ["elevenlabs2", remote(REGIONS.eu)],
+      ["voice", remote(`${REGIONS.us}?token=secret`)],
+      ["other", remote("https://example.com/mcp")],
+      ["local", { type: "local" }],
+      ["bad name!", remote(REGIONS.global)],
+    ] as const
+    expect(otherElevenlabsServers(entries)).toEqual(["elevenlabs2", "voice"])
+  })
+
+  test("status names the second entry and offers to remove it, while a cap is on", () => {
+    const facts = {
+      host: { version: "2.2.6", range: ">=2.2.3 <2.3.0", tested: true },
+      server: { status: "connected" as const },
+      source: { type: "plugin" as const, url: REGIONS.global },
+      tools: ["creative_generate_speech"],
+      spend: { dailyCredits: 0, sessionCap: 2_000, dailyCap: 10_000 },
+    }
+    const named = formatStatus(buildStatus({ ...facts, otherServers: ["elevenlabs2"] }))
+    expect(named).toContain("mcp.servers.elevenlabs2 also points at ElevenLabs and is outside these caps")
+    expect(named).toContain("Next step: mcp.servers.elevenlabs2 also points at ElevenLabs, and this plugin's credit caps do not bind calls to it.")
+    expect(formatStatus(buildStatus(facts))).toContain("Next step: Nothing to do.")
+    // With no cap there is nothing to be outside of, so it is named without becoming the next step.
+    const uncapped = buildStatus({ ...facts, otherServers: ["elevenlabs2", "voice"], spend: { dailyCredits: 0, sessionCap: null, dailyCap: null } })
+    expect(formatStatus(uncapped)).toContain("mcp.servers.elevenlabs2 and mcp.servers.voice also point at ElevenLabs and are outside these caps")
+    expect(uncapped.nextStep).toBe("Nothing to do.")
   })
 })

@@ -48,6 +48,8 @@ export interface StatusFacts {
   readonly conversations?: Conversations
   readonly region?: Region
   readonly spend?: SpendFacts
+  /** Other `mcp.servers` entries that point at ElevenLabs: outside this plugin's hooks, and outside its caps. */
+  readonly otherServers?: readonly string[]
   readonly mediaRoot?: string
   readonly host: HostCheck
   /** The names of the tools the `elevenlabs` server serves, without the `elevenlabs_` prefix. */
@@ -89,6 +91,11 @@ export interface Status {
   readonly shadowedSkills: readonly ShadowedSkill[]
   /** Credits this plugin has spent, and the caps that bound it. The balance is only here with an API key. */
   readonly spend: SpendFacts
+  /**
+   * Other `mcp.servers` entries at ElevenLabs' own address (RR2-8). Each is its own server to OpenCode, with its own
+   * tool prefix, so this plugin never sees its calls and the caps do not bind them. Empty when there are none.
+   */
+  readonly otherServers: readonly string[]
   readonly mediaRoot: string
   readonly host: HostCheck
   readonly problems: readonly string[]
@@ -157,6 +164,7 @@ export function buildStatus(facts: StatusFacts): Status {
     unguardedAgents: unguardedAgents(facts.agents ?? []),
     shadowedSkills: shadowedOf(facts),
     spend: facts.spend ?? { dailyCredits: 0, sessionCap: null, dailyCap: null },
+    otherServers: facts.otherServers ?? [],
     mediaRoot: facts.mediaRoot ?? "~/Downloads/elevenlabs",
     host: facts.host,
     problems: facts.problems ?? [],
@@ -211,6 +219,14 @@ function nextStepOf(status: Omit<Status, "nextStep">): string {
   const problem = stepOf(status.problems[0])
   if (problem) return problem
   if (status.shadowedSkills.length) return shadowedFix(status.shadowedSkills)
+  // A second entry at ElevenLabs' address is only worth a next step while a cap is on: with no cap there is nothing
+  // for it to be outside of. It is the owner's entry, so removing it is offered, never done (RR2-8).
+  const capped = status.spend.sessionCap !== null || status.spend.dailyCap !== null
+  if (status.otherServers.length && capped) {
+    const many = status.otherServers.length > 1
+    const names = listed(status.otherServers.map((name) => `mcp.servers.${name}`))
+    return `${names} also ${many ? "point" : "points"} at ${DISPLAY_NAME}, and this plugin's credit caps do not bind calls to ${many ? "them" : "it"}. Remove ${many ? "them" : "it"} in /mcps to bring those calls under the caps.`
+  }
   // An untested host changes no next step: the OpenCode row says it is untested.
   return NOTHING_TO_DO
 }
@@ -245,8 +261,15 @@ function toolsText({ state, tools, unknownCount, unknownTools, access }: Status)
   return `${tools} available, ${unknownCount} unknown${names} (${posture})`
 }
 
-/** The credits spent, the caps, and the workspace balance only when an API key is stored. */
-function spendText({ spend, region }: Status) {
+/** `a`, `a and b`, `a, b and c`. */
+const listed = (items: readonly string[]) => (items.length > 1 ? `${items.slice(0, -1).join(", ")} and ${items.at(-1)}` : items[0]!)
+
+/** The other ElevenLabs entries, named as config keys: what the caps do not reach (RR2-8). */
+const otherServersText = (names: readonly string[]) =>
+  `${listed(names.map((name) => `mcp.servers.${name}`))} ${names.length > 1 ? "also point" : "also points"} at ${DISPLAY_NAME} and ${names.length > 1 ? "are" : "is"} outside these caps`
+
+/** The credits spent, the caps, the workspace balance only when an API key is stored, and what the caps do not bind. */
+function spendText({ spend, region, otherServers }: Status) {
   const count = (value: number) => value.toLocaleString("en-US")
   const cap = (value: CreditCap) => (value === null ? "no cap" : count(value))
   const parts = [
@@ -262,6 +285,7 @@ function spendText({ spend, region }: Status) {
   } else {
     parts.push(`workspace balance unknown: add a key in /connect as "${"ElevenLabs API key (optional)"}" (${REGIONS[region]} charges the workspace)`)
   }
+  if (otherServers.length) parts.push(otherServersText(otherServers))
   return parts.join("; ")
 }
 
@@ -318,6 +342,8 @@ export interface SetupFacts {
   readonly mediaRoot: string
   readonly spend: () => SpendFacts | Promise<SpendFacts>
   readonly source?: ServerSource
+  /** Other `mcp.servers` entries pointing at ElevenLabs, read beside this plugin's own at registration (RR2-8). */
+  readonly otherServers?: readonly string[]
   readonly host: HostCheck
   readonly skills: readonly { readonly name: string; readonly path: string }[]
   readonly problems: readonly string[]
@@ -340,6 +366,7 @@ export async function readStatus(ctx: StatusContext, facts: SetupFacts) {
     region: facts.region,
     mediaRoot: facts.mediaRoot,
     spend: await facts.spend(),
+    otherServers: facts.otherServers ?? [],
     ...(facts.source ? { source: facts.source } : {}),
     host: facts.host,
     problems: facts.problems,
@@ -389,6 +416,7 @@ export const StatusRpc = {
           "unguardedAgents",
           "shadowedSkills",
           "spend",
+          "otherServers",
           "mediaRoot",
           "host",
           "problems",
@@ -436,6 +464,7 @@ export const StatusRpc = {
               },
             },
           },
+          otherServers: strings,
           mediaRoot: { type: "string" },
           host: {
             type: "object",

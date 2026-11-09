@@ -80,7 +80,10 @@ export function clampGenerations(input: Record<string, unknown>, allowed: number
  * cover the tool, when the computed price is 0, or when a transcription's file cannot be measured. A number the caller
  * typed may raise a measured price. It cannot set one, and it cannot lower one.
  */
-export function priceOf(tool: string, input: Record<string, unknown>): Price | undefined {
+export function priceOf(name: string, input: Record<string, unknown>): Price | undefined {
+  // Case is folded here as it is in `mustPrice` (RR2-8), so a name in another case is priced rather than refused: the
+  // guard asks this table for every name it must price, and the two must agree on which names those are.
+  const tool = name.toLowerCase()
   const generations = generationsOf(input) ?? 1
   if (tool === "creative_generate_speech" || tool === "creative_speech" || tool === "text_to_speech") {
     const text = field(input, ["text", "script", "message"])

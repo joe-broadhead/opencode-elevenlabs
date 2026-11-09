@@ -51,7 +51,9 @@ Report privately through GitHub's private vulnerability reporting on
   is dispatched. The script path cannot: the shared shaper contract is synchronous, so its reservation is written one
   tick after the call goes out, and a crash inside that tick loses the hold for a call that ran. Set the caps with the
   bound you can afford to be crossed once per extra OpenCode, not as a hard limit on the account; the account's own
-  limits are at ElevenLabs.
+  limits are at ElevenLabs. A cap also binds one server entry: the `elevenlabs` entry this plugin manages. A second MCP
+  entry pointing at ElevenLabs under another name serves its tools under that name's prefix, which this plugin's hooks
+  never see, so its calls are priced by nothing here. `/elevenlabs-status` names such an entry when one exists.
 - **Change live agents.** `agents_update` publishes straight to the branch it targets, `main` by default. It is not
   staged as a draft, and the plugin cannot undo it. A prompt edit changes what a production agent says to real callers on
   the next call.

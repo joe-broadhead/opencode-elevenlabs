@@ -78,6 +78,24 @@ export function regionOf(url: string) {
   return (Object.keys(REGIONS) as (keyof typeof REGIONS)[]).find((region) => REGIONS[region] === shown)
 }
 
+/** A server name plain enough to print: the characters an MCP server name is made of, and never this plugin's own. */
+const SAFE_SERVER = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/
+/** At most this many other entries are named; the point is made by the first few. */
+const LISTED_OTHERS = 5
+
+/**
+ * The other `mcp.servers` entries that point at one of ElevenLabs' own addresses (RR2-8). OpenCode treats each as its
+ * own server with its own tool prefix, so this plugin's hooks never see their calls and its credit caps do not bind
+ * them. Nothing is changed: a second entry is the owner's to keep, and status only names it.
+ */
+export function otherElevenlabsServers(entries: readonly (readonly [string, { readonly type: string; readonly url?: string }])[]) {
+  return entries
+    .filter(([name, config]) => name !== SERVER_NAME && config.type === "remote" && typeof config.url === "string" && regionOf(config.url) !== undefined)
+    .map(([name]) => name)
+    .filter((name) => SAFE_SERVER.test(name))
+    .slice(0, LISTED_OTHERS)
+}
+
 /**
  * Registers `elevenlabs`, or adopts the user's own `mcp.servers.elevenlabs` unchanged when it points at exactly the
  * selected region's URL: user config is applied first, and a later `set` would replace it. Another region's URL is
@@ -87,22 +105,25 @@ export function regionOf(url: string) {
 export function registerServer(
   mcp: Pick<Plugin.Context["mcp"], "transform">,
   config: RemoteConfig,
-  record: (source: ServerSource | undefined, problem?: string) => void,
+  record: (source: ServerSource | undefined, problem?: string, others?: readonly string[]) => void,
 ) {
   return mcp.transform((editor) => {
     try {
       const existing = editor.get(SERVER_NAME)
       const expected = displayUrl(config.url)
+      // Read beside the entry this plugin owns: another entry at ElevenLabs' address is outside the caps, and status
+      // says so. Listing is all that happens; the entry is the owner's.
+      const others = otherElevenlabsServers(editor.list())
       if (!existing) {
         editor.set(SERVER_NAME, config)
-        return record({ type: "plugin", url: expected })
+        return record({ type: "plugin", url: expected }, undefined, others)
       }
-      if (existing.type === "remote" && displayUrl(existing.url) === expected) return record({ type: "adopted", url: expected })
+      if (existing.type === "remote" && displayUrl(existing.url) === expected) return record({ type: "adopted", url: expected }, undefined, others)
       const stale = existing.type === "remote" && regionOf(existing.url) !== undefined
       // A stale entry is one of ElevenLabs' own addresses, so its full URL is safe and the next step needs it; another
       // server's path can hold a secret and is reduced to its origin.
       const url = stale && existing.type === "remote" ? displayUrl(existing.url) : existing.type === "remote" ? conflictUrl(existing.url, config.url) : "a local command"
-      record({ type: stale ? "stale" : "conflict", url, expected })
+      record({ type: stale ? "stale" : "conflict", url, expected }, undefined, others)
     } catch (error) {
       record(undefined, errorText("SERVER_NOT_REGISTERED", `The ${SERVER_NAME} MCP server could not be registered (${reasonOf(error)}).`, "Restart OpenCode."))
     }
@@ -116,8 +137,16 @@ export function registerServer(
  */
 export const guardsSource = (source: ServerSource | undefined) => source !== undefined && source.type !== "conflict"
 
-/** The tool name without the server prefix, or undefined when the call is not one of this server's. */
-const toolOf = (id: string) => (id.startsWith(`${SERVER_NAME}_`) ? id.slice(SERVER_NAME.length + 1) : undefined)
+/**
+ * The tool name without the server prefix, lowercased, or undefined when the call is not one of this server's. Case is
+ * folded on both halves (RR2-8): the prefix, as the permission rules fold it, and the name, so every price lookup and
+ * every remembered estimate downstream is keyed the one way.
+ *
+ * Only this plugin's own server entry is stripped. A second MCP entry pointing at ElevenLabs under another name is a
+ * different server to OpenCode, and the caps do not reach it; status names it when one exists.
+ */
+export const toolOf = (id: string) =>
+  id.toLowerCase().startsWith(`${SERVER_NAME}_`) ? id.slice(SERVER_NAME.length + 1).toLowerCase() : undefined
 
 /** The line a generation's result carries: the link dies in about two hours, so say how to keep the file. */
 export const EXPIRY_LINE =
@@ -131,7 +160,11 @@ const hasLink = (result: { readonly content?: unknown }) => {
 
 /** The estimate the model path may await: ElevenLabs' own price for exactly these arguments, through the host's executor. */
 const estimatorFor = (ctx: Plugin.Context) => async (tool: string, input: Record<string, unknown>, call: { sessionID: string; agent: string; messageID: string }): Promise<Price | undefined> => {
-  const executor = (await ctx.tool.list()).find((entry) => entry.id === `${SERVER_NAME}_${tool}`)
+  // `toolOf` folded the name's case, so the executor is matched the same way: a server that listed the name in another
+  // case still gets its own estimate, rather than falling back to the formula.
+  const id = `${SERVER_NAME}_${tool}`
+  const listed = await ctx.tool.list()
+  const executor = listed.find((entry) => entry.id === id) ?? listed.find((entry) => entry.id.toLowerCase() === id)
   if (!executor) return undefined
   try {
     const result = await executor.execute({ ...input, estimate_only: true } as never, {
@@ -162,6 +195,7 @@ export function createElevenlabsPlugin(seam: ElevenlabsSeam = {}) {
       const problems = new Map<string, string>(skillProblems.map((problem, index) => [`skill:${index}`, problem]))
       const report = (area: string) => (problem: string | undefined) => void (problem ? problems.set(area, problem) : problems.delete(area))
       let source: ServerSource | undefined
+      let otherServers: readonly string[] = []
 
       const url = seam.endpoint ?? REGIONS[options.region]
       const ledger = new Ledger({ storage: ctx.storage })
@@ -169,8 +203,9 @@ export function createElevenlabsPlugin(seam: ElevenlabsSeam = {}) {
       const caps = (): Caps => ({ sessionCreditCap: options.sessionCreditCap, dailyCreditCap: options.dailyCreditCap })
       const mediaHosts = [...MEDIA_HOSTS, ...(seam.mediaHosts ?? [])]
 
-      await registerServer(ctx.mcp, serverConfig(url, seam), (next, problem) => {
+      await registerServer(ctx.mcp, serverConfig(url, seam), (next, problem, others) => {
         source = next
+        otherServers = others ?? []
         report("server")(problem)
       })
       // Code Mode's catalog describes the namespace with this text, unless the server is someone else's; the plugin's
@@ -223,6 +258,7 @@ export function createElevenlabsPlugin(seam: ElevenlabsSeam = {}) {
           mediaRoot: options.mediaRoot,
           spend: readSpend,
           ...(source ? { source } : {}),
+          otherServers,
           host,
           skills: own,
           problems: [...problems.values()],

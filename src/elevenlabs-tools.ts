@@ -97,8 +97,12 @@ export const SPEND_ANY: readonly string[] = [...SPEND_TOOLS, ...SPEND_READS, ...
  * True when a cap must price this call or refuse it, before dispatch. Every name that starts with `creative_` is
  * included, except one this table classifies as a read, write, export or delete that does not spend. A name the table
  * does not price is refused. There is no keyword list.
+ *
+ * Case is folded, as the permission rules fold it (RR2-8): ElevenLabs' live names are lowercase, but the money gate
+ * must not be the weaker of the two, and `Creative_Generate_Speech` spends exactly what its lowercase form spends.
  */
-export const mustPrice = (name: string) => {
+export const mustPrice = (raw: string) => {
+  const name = raw.toLowerCase()
   if (SPEND_ANY.includes(name)) return true
   if (!name.startsWith("creative_")) return false
   if (READ_TOOLS.includes(name) || WRITE_TOOLS.includes(name) || EXPORT_TOOLS.includes(name) || DESTRUCTIVE_TOOLS.includes(name)) return false

@@ -93,7 +93,9 @@ Generations are billed in **credits** against the workspace you signed in with.
   reports a higher figure may replace that charge. A missing result, a zero, or an error does not free the budget. A hold
   still open after ten minutes is settled at the reserved price rather than dropped. On the script path, one priced call
   per session and method is in flight; a second is refused until the first settles.
-- **The caps bound this plugin, not your account.** Someone generating in the ElevenLabs app spends from the same pool.
+- **The caps bound this plugin, not your account.** Someone generating in the ElevenLabs app spends from the same pool,
+  and so does a second MCP entry pointing at ElevenLabs under another name: its tools carry that name's prefix, which
+  this plugin's guard never sees. `/elevenlabs-status` names such an entry when it finds one.
 - **The balance is only visible with an API key.** Add one through `/connect` → **ElevenLabs API key (optional)** and
   status shows the workspace balance and its reset date. It is used for one read, the subscription, and never to
   generate. Without it the Spend row says the caps count this plugin's own calls only.
