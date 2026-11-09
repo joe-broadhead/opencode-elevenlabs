@@ -367,14 +367,14 @@ describe("RR2-7 — an attested figure may lower a reservation only when it read
       expect({ credits, settled: settled.credits, attested: settled.attested }).toEqual({ credits, settled: 3_000, attested: false })
       expect(settled.note).toContain("too far below")
     }
-    // Since RR3-8 the band is a tenth to ten times, so 300 is the lowest figure that can settle a 3,000-credit hold.
+    // Since RR3-8 a tenth of the hold is the lowest figure that can settle a 3,000-credit reservation.
     expect(settlementOf(result({ credits: 300 }), 3_000)).toEqual({ credits: 300, attested: true })
     expect(settlementOf(result({ total_credits: 1_500 }), 3_000)).toEqual({ credits: 1_500, attested: true })
-    // A higher figure replaces the reservation up to tenfold; past that it is as unlike this call's charge as one far below.
+    // Raising is not bounded the same way: since RR4-2 a higher figure is always the charge, flagged past tenfold.
     expect(settlementOf(result({ credits: 30_000 }), 3_000)).toEqual({ credits: 30_000, attested: true })
     const far = settlementOf(result({ credits: 48_000 }), 3_000)
-    expect(far).toMatchObject({ credits: 3_000, attested: false })
-    expect(far.note).toContain("too far above")
+    expect(far).toMatchObject({ credits: 48_000, attested: true })
+    expect(far.note).toContain("more than ten times")
   })
 
   test("credit_cost is no longer read as a charge", () => {

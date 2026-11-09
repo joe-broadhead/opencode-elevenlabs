@@ -44,6 +44,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and thi
 - A `creative_*` tool the price table does not price is refused while a cap is on. There is no keyword list.
 - A failed call, and a hold still open after ten minutes, is charged the reserved price. A later higher figure may replace
   that charge. A zero or a missing result does not free the budget.
+- A reported figure above the reserved price is always the charge, however far above, clamped at the daily cap so one
+  absurd figure blocks spending for a single window at most; the cost line flags a raise of more than ten times. A
+  figure below it is believed only when the result attests it as this call's charge, in whole credits, and at least a
+  tenth of the hold.
 - One priced call per session and method is in flight on the script path.
 - The daily cap is one total for this data directory. Two machines do not share it.
 - Conversation denies match without regard to case, and cover `get_call`, `list_calls` and `export_history`.

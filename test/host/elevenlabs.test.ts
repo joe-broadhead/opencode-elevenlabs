@@ -330,14 +330,14 @@ describe(`a text-only credit figure on OpenCode ${HOST_VERSION}`, () => {
   }
 
   test("the model path charges the figure it was told, not the pre-call bound", async () => {
-    // Twelve characters at two takes reserve 24, and the fake reports 120: a raise inside the band, so it is charged.
-    expect(await speak("hello world!")).toMatchObject({ credits: 120, basis: "exact" })
+    // Five characters at two takes reserve 10, and the fake reports 120 in its text part: the figure is the charge.
+    expect(await speak("hello")).toMatchObject({ credits: 120, basis: "exact" })
   })
 
-  test("a figure more than ten times the reservation keeps the reservation", async () => {
-    // Ruling B: a result may raise a charge up to ten times the reservation. "hello" reserves 10, and a reported 120
-    // is twelve times that, which is not a figure this call can have earned, so the reserved price stands.
-    expect(await speak("hello")).toMatchObject({ credits: 10, basis: "at-most" })
+  test("a figure more than ten times the reservation is charged, not refused", async () => {
+    // Correcting Ruling B's ceiling, which kept the 10-credit reservation here: 120 is twelve times the hold, and a
+    // charge the plugin under-reserved is the owner's money all the same. Both calls are in the day's total.
+    expect(await speak("hello")).toMatchObject({ credits: 120, basis: "exact", dailySpent: 240 })
   })
 })
 

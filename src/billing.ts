@@ -361,16 +361,18 @@ export function actualCreditsOf(result: { readonly output?: unknown; readonly te
 const ATTESTED_CREDIT_KEYS = new Set(["credits", "credits_used", "credits_charged", "billed_credits", "total_credits"])
 
 /**
- * The band a reported figure has to sit in to be read as this call's charge. A result that reports 1 credit against
- * 3,000 reserved is not this call's charge in any pricing this plugin knows — it is a count, a rate, or another call's
- * figure — and neither is one reporting 45,300 against 7,500. Outside the band the reservation stands and the cost
- * line says why, rather than a budget being freed, or spent, on a field the plugin may have read wrong.
+ * How far below the reservation a reported figure may sit and still be read as this call's charge. A result that
+ * reports 1 credit against 3,000 reserved is not this call's charge in any pricing this plugin knows — it is a count,
+ * a rate, or another call's figure — and freeing a budget on a field the plugin may have read wrong is the one
+ * mistake an owner pays for twice. Below the bound the reservation stands and the cost line says why.
  *
- * A tenth and ten times is what ElevenLabs' own published prices span around a reservation: a bound computed from two
- * takes settles at one, a minimum-length charge rounds up, and a generation count the server clamped settles below.
+ * A tenth is what ElevenLabs' own published prices span below a reservation: a bound computed from two takes settles
+ * at one, and a generation count the server clamped settles below. There is no bound above it; see `raiseTo`.
  */
 const ATTESTED_MIN_RATIO = 10
-const ATTESTED_MAX_RATIO = 10
+
+/** A raise more than this many times the reservation is still charged, and the cost line says it was. */
+const RAISE_NOTE_RATIO = 10
 
 export function attestedCreditsOf(result: { readonly output?: unknown }): number | undefined {
   const output = result.output
@@ -384,42 +386,49 @@ export function attestedCreditsOf(result: { readonly output?: unknown }): number
 }
 
 /**
- * The figure a completed call is settled at. Never below the reserved price unless one attested field says so. A prose
- * match and a zero keep the reservation. A higher figure, attested or not, may replace it.
+ * The figure a completed call is settled at. A higher figure always raises the charge, whatever its size, clamped at
+ * the day's cap. A lower one is believed only when an attested field states it and it reads as this call's charge; a
+ * prose match, a zero and a missing result all keep the reservation.
  */
 export function settlementOf(
   result: { readonly output?: unknown; readonly text?: string; readonly content?: unknown },
   reserved: number,
+  dailyCap: CreditCap = null,
 ): { readonly credits: number; readonly attested: boolean; readonly note?: string } {
   const attested = attestedCreditsOf(result)
   if (attested !== undefined) {
-    // Moving a reservation is the one thing a figure the plugin may have misread can do with the owner's money, so it
-    // has to look like a charge for this call: a whole number of credits, inside the band around what was reserved.
+    if (attested > reserved) return { ...raiseTo(attested, reserved, dailyCap), attested: true }
+    // Lowering a reservation is the one thing a figure the plugin may have misread can do with the owner's money, so
+    // it has to look like a charge for this call: a whole number of credits, not orders of magnitude below the hold.
     if (!Number.isSafeInteger(attested)) {
       return { credits: reserved, attested: false, note: `the result reported ${attested} credits, which is not a whole number, so the reserved price stands` }
     }
-    const outside = outsideBand(attested, reserved)
-    return outside === undefined ? { credits: attested, attested: true } : { credits: reserved, attested: false, note: outside }
+    if (attested * ATTESTED_MIN_RATIO < reserved) {
+      return { credits: reserved, attested: false, note: `the result reported ${count(attested)} against ${count(reserved)} reserved, too far below to be this call's charge, so the reserved price stands` }
+    }
+    return { credits: attested, attested: true }
   }
   const parsed = actualCreditsOf(result)
-  // A figure under a key nothing attests may still raise a price, but it is held to the same upper bound: otherwise
-  // the band an attested figure obeys could be stepped around by the same absurd number under another name.
-  if (parsed !== undefined && parsed > reserved) {
-    const outside = outsideBand(parsed, reserved)
-    return outside === undefined ? { credits: parsed, attested: false } : { credits: reserved, attested: false, note: outside }
-  }
+  if (parsed !== undefined && parsed > reserved) return { ...raiseTo(parsed, reserved, dailyCap), attested: false }
   return { credits: reserved, attested: false }
 }
 
-/** Why a reported figure is not this call's charge, or undefined when it sits in the band around the reservation. */
-function outsideBand(reported: number, reserved: number): string | undefined {
-  if (reported * ATTESTED_MIN_RATIO < reserved) {
-    return `the result reported ${count(reported)} against ${count(reserved)} reserved, too far below to be this call's charge, so the reserved price stands`
-  }
-  if (reported > reserved * ATTESTED_MAX_RATIO) {
-    return `the result reported ${count(reported)} against ${count(reserved)} reserved, too far above to be this call's charge, so the reserved price stands`
-  }
-  return undefined
+/**
+ * The charge a figure above the reservation settles at. A higher figure is always charged: whatever the plugin makes
+ * of it, the server says this call cost that much, and a ceiling that kept the reservation instead is a cap that
+ * under-counts real money. The clamp is the day's cap, so the worst an absurd figure can do is spend one window's
+ * budget and refuse every later call until the window rolls — rather than poison a 24-hour total with a number no
+ * real call could reach. Credits are whole, so a fraction rounds up — the over-priced side again. Any raise of more
+ * than ten times is charged all the same, and said aloud in the cost line, so the owner sees it for what it is.
+ *
+ * `reported` is finite and not negative: nothing else is read as a figure in the first place.
+ */
+function raiseTo(reported: number, reserved: number, dailyCap: CreditCap): { readonly credits: number; readonly note?: string } {
+  const ceiling = Math.ceil(reported)
+  const credits = Math.max(reserved, dailyCap === null ? ceiling : Math.min(ceiling, dailyCap))
+  if (ceiling <= reserved * RAISE_NOTE_RATIO) return { credits }
+  const capped = credits < ceiling ? `, charged at the day's cap of ${count(credits)}` : ""
+  return { credits, note: `the result reported ${count(ceiling)} against ${count(reserved)} reserved${capped}, more than ten times the reserved price` }
 }
 
 /** The text parts of a host tool result, whichever shape the content has. */

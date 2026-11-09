@@ -240,7 +240,7 @@ export function shapersFor(runtime: ToolRuntime): LocationShapers {
         return result
       }
       const caps = runtime.caps()
-      const reported = settlementOf(result, flight.price.credits)
+      const reported = settlementOf(result, flight.price.credits, caps.dailyCreditCap)
       // Nothing on `ShapeCall` says which call a result answers, so on this path a result may raise a charge and may
       // never lower one (RR3-3): whichever call the figure came from, this slot spent at least the reservation, and
       // over-counting is the safe side of a pairing this path cannot make. `SHAPECALL-ID-PROPOSAL.md` is the route to
@@ -248,7 +248,9 @@ export function shapersFor(runtime: ToolRuntime): LocationShapers {
       const raised = reported.credits > flight.price.credits
       const note = raised ? reported.note : (reported.note ?? (reported.credits < flight.price.credits ? lowerIgnored(reported.credits, flight.price.credits) : undefined))
       const parts = note === undefined ? flight.price.parts : [...flight.price.parts, note]
-      const price: Price = raised ? { credits: reported.credits, basis: "exact", parts: [] } : { ...flight.price, parts }
+      const price: Price = raised
+        ? { credits: reported.credits, basis: "exact", parts: note === undefined ? [] : [note] }
+        : { ...flight.price, parts }
       const spend = runtime.ledger.settle(flight.id, call.sessionID, price.credits, raised && reported.attested)
       const line = costLine(price, spend, caps)
       const value = costValue(price, spend, caps)

@@ -267,7 +267,7 @@ describe("RR3-3 — on the script path a result raises a charge and never lowers
   })
 })
 
-describe("RR3-8 — a reported figure is read only inside a band around the reservation", () => {
+describe("RR3-8 — a reported figure lowers a charge only from close under the reservation", () => {
   const reserved = 3_000
   const settle = (credits: unknown) => settlementOf({ output: { credits } }, reserved)
 
@@ -280,28 +280,60 @@ describe("RR3-8 — a reported figure is read only inside a band around the rese
     expect(settle(29).note).toContain("too far below")
   })
 
-  test("a figure far above the reservation is not this call's charge either", () => {
-    // 96db0ed had no upper bound at all: one absurd figure poisoned the daily total for 24 hours and refused every
-    // later call with SPEND_CAP_REACHED.
-    for (const credits of [30_001, 1_000_000_000, Number.MAX_SAFE_INTEGER]) {
-      expect({ credits, settled: settle(credits).credits }).toEqual({ credits, settled: reserved })
-    }
-    expect(settle(1_000_000_000).note).toContain("too far above")
-  })
-
-  test("inside the band the figure settles, above and below the reservation", () => {
+  test("a tenth of the reservation and up settles, above and below it", () => {
     for (const [credits, expected] of [[300, 300], [1_500, 1_500], [3_000, 3_000], [12_000, 12_000], [30_000, 30_000]] as const) {
       expect({ credits, settled: settle(credits).credits }).toEqual({ credits, settled: expected })
     }
     expect(settle(300).attested).toBe(true)
   })
+})
 
-  test("the upper bound holds for a figure under a key nothing attests", () => {
-    // Otherwise the band is stepped around by writing the same absurd number under another name.
-    expect(settlementOf({ output: { usage: { credits_cost: 1_000_000_000 } } }, reserved).credits).toBe(reserved)
-    expect(settlementOf({ text: "Charged 1000000000 credits" }, reserved).credits).toBe(reserved)
-    // A figure inside the band still raises the price, as it always did.
+describe("RR4-2 — a higher figure always raises the charge, clamped at the day's cap", () => {
+  const reserved = 3_000
+  const caps = () => ({ sessionCreditCap: 100_000, dailyCreditCap: 100_000 })
+
+  // Correcting RR3-8's upper bound: keeping the reservation when a figure is more than ten times it ignores a real
+  // charge the plugin under-reserved, and the cap under-counts by the whole difference. A raise is now always the
+  // charge; the day's cap bounds what one absurd figure can do to a single window.
+  test("a figure far above the reservation is charged, and the cost line says it was", () => {
+    for (const credits of [30_001, 1_000_000, Number.MAX_SAFE_INTEGER]) {
+      const settled = settlementOf({ output: { credits } }, reserved)
+      expect({ credits, settled: settled.credits, attested: settled.attested }).toEqual({ credits, settled: credits, attested: true })
+      expect(settled.note).toContain("more than ten times")
+    }
+    // Ten times and under is an ordinary raise and carries no note.
+    expect(settlementOf({ output: { credits: 30_000 } }, reserved)).toEqual({ credits: 30_000, attested: true })
+  })
+
+  test("the day's cap is the ceiling, so an absurd figure spends one window at most", () => {
+    const settled = settlementOf({ output: { credits: Number.MAX_SAFE_INTEGER } }, reserved, 100_000)
+    expect(settled.credits).toBe(100_000)
+    expect(settled.note).toContain("the day's cap of 100,000")
+    // Nothing that is not a finite figure is read as one, so no such value reaches the clamp.
+    expect(settlementOf({ output: { credits: Number.POSITIVE_INFINITY } }, reserved, 100_000).credits).toBe(reserved)
+    // Credits are whole, so a raise that arrives as a fraction rounds up rather than down.
+    expect(settlementOf({ output: { credits: 3_000.4 } }, reserved).credits).toBe(3_001)
+  })
+
+  test("a figure under a key nothing attests raises the charge too", () => {
+    expect(settlementOf({ output: { usage: { credits_cost: 1_000_000_000 } } }, reserved, 100_000).credits).toBe(100_000)
+    expect(settlementOf({ text: "Charged 1000000000 credits" }, reserved).credits).toBe(1_000_000_000)
     expect(settlementOf({ text: "Charged 4,000 credits" }, reserved).credits).toBe(4_000)
+  })
+
+  test("an absurd figure blocks the window and nothing more", () => {
+    let now = 0
+    const ledger = new Ledger({ now: () => now })
+    const shapers = shapersFor({ ledger, caps })
+    const call = { sessionID: "ses_a", agent: "build", action: "elevenlabs_creative_generate_speech" }
+    shapers.input("creative_generate_speech", { text: "x".repeat(1_500) }, call)
+    const settled = shapers.result("creative_generate_speech", { output: { credits: Number.MAX_SAFE_INTEGER }, text: "" }, call)
+    expect(ledger.daily()).toBe(100_000)
+    expect(settled.text).toContain("more than ten times")
+    // Every later call in the window is refused, and the window rolling frees it again.
+    expect(() => shapers.input("creative_generate_speech", { text: "x".repeat(1_500) }, call)).toThrow(/SPEND_CAP_REACHED/)
+    now += 25 * HOUR
+    expect(() => shapers.input("creative_generate_speech", { text: "x".repeat(1_500) }, call)).not.toThrow()
   })
 })
 
