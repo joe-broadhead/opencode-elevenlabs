@@ -102,13 +102,19 @@ export function priceOf(tool: string, input: Record<string, unknown>): Price | u
     return transcriptionPrice(input)
   }
   if (tool === "creative_generate_music" || tool === "creative_compose_music") {
-    const milliseconds = number(field(input, ["music_length_ms"]))
-    const seconds = number(field(input, ["duration_seconds", "duration"]))
-    const minutes = milliseconds !== undefined ? milliseconds / 60_000 : seconds === undefined ? undefined : seconds / 60
-    if (minutes === undefined || minutes <= 0) return undefined
+    const stated = musicLengthsMs(input)
+    // No length at all is the server's own default, which this plugin cannot know: PRICE_UNKNOWN, not a guess.
+    if (stated.length === 0) return undefined
+    // A caller number may raise a price and may not lower one (RR-1). A call that states a length twice may generate
+    // the longer of them, so the longer is what it is priced at, whichever key holds it and in whichever order.
+    const asked = Math.max(...stated)
+    const milliseconds = Math.max(asked, MUSIC_MIN_MS)
+    const minutes = milliseconds / 60_000
     const credits = Math.ceil(minutes * RATES.musicPerMinute)
     if (!(credits > 0)) return undefined
-    return { credits, basis: "at-most", parts: [`${Math.round(minutes * 10) / 10} minutes`] }
+    const parts = [milliseconds < 60_000 ? `${Math.round(milliseconds / 100) / 10} seconds` : `${Math.round(minutes * 10) / 10} minutes`]
+    if (milliseconds > asked) parts.push(`${MUSIC_MIN_MS / 1_000} second minimum`)
+    return { credits, basis: "at-most", parts }
   }
   if (tool === "creative_generate_sound_effect" || tool === "creative_sound_effects") {
     const credits = RATES.sfxPerGeneration * generations
@@ -116,6 +122,28 @@ export function priceOf(tool: string, input: Record<string, unknown>): Price | u
     return { credits, basis: "at-most", parts: [`${generations} ${generations === 1 ? "generation" : "generations"} at ${RATES.sfxPerGeneration} credits`] }
   }
   return undefined
+}
+
+/**
+ * ElevenLabs' shortest music generation, and so the least a music call can cost: 45 credits at 900 a minute. The
+ * published API reference for Music gives `music_length_ms` a range of 3000 to 600000 on both `compose` and
+ * `compose-detailed`, so a call asking for less than three seconds still generates three. It is a floor on the price,
+ * never a cap: a longer request is priced at its own length.
+ */
+export const MUSIC_MIN_MS = 3_000
+
+/**
+ * Every length a music call states, in milliseconds. One call may carry both `music_length_ms` and `duration_seconds`,
+ * and the keys of an object have no order the caller controls, so all of them are collected rather than the first.
+ * A zero or a negative states nothing: it leaves the length to the server, which is PRICE_UNKNOWN, not three seconds.
+ */
+const musicLengthsMs = (input: Record<string, unknown>): number[] => {
+  const stated = [number(input["music_length_ms"])]
+  for (const name of ["duration_seconds", "duration"] as const) {
+    const seconds = number(input[name])
+    stated.push(seconds === undefined ? undefined : seconds * 1_000)
+  }
+  return stated.filter((value): value is number => value !== undefined && value > 0)
 }
 
 /** Argument names that may hold the audio file a transcription is about to send. A URL is not one of them. */

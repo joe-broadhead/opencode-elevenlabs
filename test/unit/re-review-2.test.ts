@@ -3,7 +3,7 @@ import { afterAll, describe, expect, test } from "bun:test"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { measureAudio, priceOf, transcriptionPrice } from "../../src/billing.js"
+import { MUSIC_MIN_MS, measureAudio, priceOf, RATES, transcriptionPrice } from "../../src/billing.js"
 import { brokenRiff, buildWav, WAV_FIXTURES } from "../fixtures/wav.js"
 
 const root = mkdtempSync(join(tmpdir(), "elevenlabs-rr2-"))
@@ -90,5 +90,47 @@ describe("RR2-2 — every argument that names a local file is measured", () => {
     expect(transcriptionPrice({ path: long, audio_file: "https://example.test/clip.wav" })?.credits).toBe(330)
     // A URL on its own still leaves nothing measured, so there is still no price.
     expect(transcriptionPrice({ audio_file: "https://example.test/clip.wav" })).toBeUndefined()
+  })
+})
+
+describe("RR2-3 — music is priced at the longest length it states, and never below the minimum", () => {
+  test("two stated lengths price the longer, in either key order", () => {
+    // d107a11 read `music_length_ms` first and let it win unconditionally: 30 ms beat 300 s and cost 1 credit.
+    for (const input of [
+      { music_length_ms: 30, duration_seconds: 300 },
+      { duration_seconds: 300, music_length_ms: 30 },
+      { music_length_ms: 300_000, duration: 10 },
+      { duration: 10, duration_seconds: 300, music_length_ms: 30 },
+    ]) {
+      expect({ keys: Object.keys(input).join("+"), credits: priceOf("creative_generate_music", input)?.credits }).toEqual({
+        keys: Object.keys(input).join("+"),
+        credits: 4_500,
+      })
+    }
+  })
+
+  test("a request under three seconds is priced at three seconds, not at a fraction of one", () => {
+    // 3,000 ms is the least `music_length_ms` the published Music reference accepts, so it is the least a call
+    // can generate: 45 credits at 900 a minute.
+    const floor = Math.ceil((MUSIC_MIN_MS / 60_000) * RATES.musicPerMinute)
+    expect(floor).toBe(45)
+    for (const input of [{ music_length_ms: 1 }, { music_length_ms: 2_999 }, { duration_seconds: 0.4 }, { duration: 1 }]) {
+      expect({ asked: Object.values(input)[0], credits: priceOf("creative_generate_music", input)?.credits }).toEqual({
+        asked: Object.values(input)[0],
+        credits: floor,
+      })
+    }
+    expect(priceOf("creative_generate_music", { music_length_ms: 3_000 })?.credits).toBe(floor)
+    // The floor is a floor and not a cap: a longer call is still priced at its own length.
+    expect(priceOf("creative_generate_music", { music_length_ms: 60_000 })?.credits).toBe(RATES.musicPerMinute)
+  })
+
+  test("a length stated as zero, or not stated at all, is still PRICE_UNKNOWN", () => {
+    // Zero leaves the length to the server's own default, which this plugin cannot know and must not price.
+    for (const input of [{}, { duration_seconds: 0 }, { music_length_ms: 0 }, { prompt: "a waltz" }, { music_length_ms: "30000" }]) {
+      expect(priceOf("creative_generate_music", input)).toBeUndefined()
+    }
+    // But a zero beside a real length does not drag the price down to nothing.
+    expect(priceOf("creative_compose_music", { music_length_ms: 0, duration_seconds: 300 })?.credits).toBe(4_500)
   })
 })
