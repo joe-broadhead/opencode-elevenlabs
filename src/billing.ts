@@ -1205,7 +1205,8 @@ function clamp(price: Price, caps: Caps, args: Record<string, unknown>, spend: S
 function unknownPrice(tool: string, estimable: boolean, obstacle?: string) {
   const because = obstacle === undefined ? "" : `: ${obstacle}`
   // A name this release has never seen. There is no schema to price it from and no way to tell whether it spends, so
-  // the next step is the owner's decision rather than another call: no estimate exists to suggest (RE-1, RE-3).
+  // the next step is a configuration change or a later release rather than another call: no estimate exists to
+  // suggest (RE-1, RE-3).
   if (!known(tool)) {
     return new SpendRefused(
       "PRICE_UNKNOWN",

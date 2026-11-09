@@ -56,8 +56,8 @@ describe("nothing that may spend runs unguarded (DR-3)", () => {
         (error: unknown) => error as SpendRefused,
       )
       expect({ tool, code: refused?.code }).toEqual({ tool, code: "PRICE_UNKNOWN" })
-      // The next step is the owner's decision, not another call: there is no estimate to suggest for a tool with no
-      // schema here.
+      // The next step is a configuration change or a later release, not another call: there is no estimate to
+      // suggest for a tool with no schema here.
       expect(refused?.message).toContain("is not in this plugin's tool table")
       expect(refused?.nextStep).toContain('"dailyCreditCap" to null')
       expect(refused?.nextStep).toContain("wait for a release that classifies it")
