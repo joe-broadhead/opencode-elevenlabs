@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto"
 import type { Plugin } from "@opencode/plugin"
-import { elevenlabsError, type PluginCode } from "./constants.js"
+import type { PluginCode } from "./constants.js"
 import { ESTIMATE_TOOLS, known, mustPrice, priced, spends } from "./elevenlabs-tools.js"
 import type { CreditCap } from "./options.js"
 
@@ -178,7 +178,7 @@ function attestedIn(value: unknown): number | undefined {
   return undefined
 }
 
-export function attestedCreditsOf(result: { readonly output?: unknown }): number | undefined {
+function attestedCreditsOf(result: { readonly output?: unknown }): number | undefined {
   return attestedIn(result.output)
 }
 
@@ -196,7 +196,7 @@ export function attestedCreditsOf(result: { readonly output?: unknown }): number
  * this parser does not find leaves the call with no price, which a cap turns into `PRICE_UNKNOWN` — a refusal, not a
  * guess.
  */
-export function estimatedCreditsOf(result: { readonly output?: unknown; readonly text?: string; readonly content?: unknown }): number | undefined {
+function estimatedCreditsOf(result: { readonly output?: unknown; readonly text?: string; readonly content?: unknown }): number | undefined {
   for (const value of [result.output, ...textsOf(result).map((text) => parseJson(text))]) {
     if (value === null || typeof value !== "object" || Array.isArray(value)) continue
     const nested = attestedIn((value as Record<string, unknown>).estimate)
@@ -262,7 +262,7 @@ function raiseTo(reported: number, reserved: number, dailyCap: CreditCap): { rea
 }
 
 /** The text parts of a host tool result, whichever shape the content has. */
-export function textsOf(result: { readonly text?: string; readonly content?: unknown }): string[] {
+function textsOf(result: { readonly text?: string; readonly content?: unknown }): string[] {
   if (typeof result.text === "string") return [result.text]
   const content = result.content
   if (typeof content === "string") return [content]
@@ -456,7 +456,7 @@ export interface Caps {
 
 type Storage = Pick<Plugin.Context["storage"], "get" | "set" | "remove" | "scan">
 
-export interface LedgerInput {
+interface LedgerInput {
   readonly storage?: Storage
   readonly now?: () => number
   /**
@@ -925,7 +925,7 @@ export class SpendRefused extends Error {
   }
 }
 
-export interface AffordInput {
+interface AffordInput {
   readonly tool: string
   readonly price: Price
   readonly caps: Caps
@@ -1032,7 +1032,7 @@ export function estimatePrice(
 export const isEstimate = (tool: string, input: Record<string, unknown>) => ESTIMATE_TOOLS.includes(tool.toLowerCase()) && input.estimate_only === true
 
 /** The layer between a hook and the plugin: what the model path and the script path both ask. */
-export interface GuardCall {
+interface GuardCall {
   readonly sessionID: string
   readonly agent: string
   readonly messageID: string
@@ -1040,14 +1040,14 @@ export interface GuardCall {
   readonly id: string
 }
 
-export interface GuardInput {
+interface GuardInput {
   readonly ledger: Ledger
   readonly caps: () => Caps
   /** The server's own estimate, for a tool that accepts `estimate_only`. Only the model path can await it. */
   readonly estimate?: (tool: string, input: Record<string, unknown>, call: GuardCall) => Promise<Price | undefined>
 }
 
-export interface Quote {
+interface Quote {
   readonly price: Price
   /** False when both caps are off, so nothing was reserved and nothing will be charged. */
   readonly tracked: boolean
@@ -1226,9 +1226,5 @@ function unknownPrice(tool: string, estimable: boolean, obstacle?: string) {
     `Set both "sessionCreditCap" and "dailyCreditCap" to null to run it unpriced, and watch the balance in /elevenlabs-status.`,
   )
 }
-
-/** The error a refused call raises, for a caller that has no code of its own. */
-export const spendError = (code: Extract<PluginCode, "SPEND_CAP_REACHED" | "PRICE_UNKNOWN">, message: string, nextStep: string) =>
-  elevenlabsError(code, message, nextStep)
 
 export { ESTIMATE_TOOLS, mustPrice, spends }

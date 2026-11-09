@@ -6,8 +6,8 @@ import { elevenlabsError, SUBSCRIPTION_URL } from "./constants.js"
  * workspace's credit balance; and the plugin never sees the MCP token. A user who wants the real balance adds their own
  * API key through `/connect`, and it is used for exactly one read: the subscription.
  */
-export const BALANCE_INTEGRATION_ID = "elevenlabs-balance"
-export const BALANCE_NAME = "ElevenLabs API key (optional)"
+const BALANCE_INTEGRATION_ID = "elevenlabs-balance"
+const BALANCE_NAME = "ElevenLabs API key (optional)"
 
 type Context = Plugin.Context
 

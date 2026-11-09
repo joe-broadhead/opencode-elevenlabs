@@ -3,18 +3,18 @@ import { DEFAULT_REGION, elevenlabsError, REGION_VALUES, type Region } from "./c
 /** What the default rules allow. `all` is the default; the other two are how a user restricts the plugin. */
 export type Access = "all" | "ask-changes" | "read-only"
 
-export const ACCESS_VALUES: readonly Access[] = ["all", "ask-changes", "read-only"]
+const ACCESS_VALUES: readonly Access[] = ["all", "ask-changes", "read-only"]
 
 /** How much of a conversation the conversation tools may read. `summary` keeps the metadata reads and denies the words. */
 export type Conversations = "full" | "summary" | "off"
 
-export const CONVERSATION_VALUES: readonly Conversations[] = ["full", "summary", "off"]
+const CONVERSATION_VALUES: readonly Conversations[] = ["full", "summary", "off"]
 
 /** A credit cap: a positive whole number of credits, or null for no cap. */
 export type CreditCap = number | null
 
-export const DEFAULT_SESSION_CAP: CreditCap = 2_000
-export const DEFAULT_DAILY_CAP: CreditCap = 10_000
+const DEFAULT_SESSION_CAP: CreditCap = 2_000
+const DEFAULT_DAILY_CAP: CreditCap = 10_000
 export const DEFAULT_MEDIA_ROOT = "~/Downloads/elevenlabs"
 export const DEFAULT_MEDIA_BYTES = 200 * 1024 * 1024
 

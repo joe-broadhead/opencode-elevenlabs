@@ -25,7 +25,7 @@ import { loadSkills, registerSkills } from "./skills.js"
 import { readStatus, registerStatusCommand, registerStatusRpc, type ServerSource, type SpendFacts } from "./status.js"
 
 /** Internal seam: tests point the server at a loopback fake without OAuth, at their own skills and media hosts. */
-export interface ElevenlabsSeam {
+interface ElevenlabsSeam {
   readonly endpoint?: string
   readonly oauth?: false
   readonly skillsDir?: string
@@ -149,7 +149,7 @@ export const toolOf = (id: string) =>
   id.toLowerCase().startsWith(`${SERVER_NAME}_`) ? id.slice(SERVER_NAME.length + 1).toLowerCase() : undefined
 
 /** The line a generation's result carries: the link dies in about two hours, so say how to keep the file. */
-export const EXPIRY_LINE =
+const EXPIRY_LINE =
   "This link expires in about two hours. Save it with elevenlabs_save_media to keep the file; generating it again spends more credits."
 
 /** True when a result carries an http link, so the expiry line is worth saying. */

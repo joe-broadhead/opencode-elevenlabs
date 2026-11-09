@@ -1,6 +1,5 @@
 import type { Plugin, Rpc } from "@opencode/plugin"
 import type { Balance } from "./balance.js"
-import { costLine } from "./billing.js"
 import { DISPLAY_NAME, PLUGIN_ID, REGIONS, SERVER_NAME, TESTED_HOSTS, type Region } from "./constants.js"
 import { classify, OWN_TOOLS, TRANSCRIPT_TOOLS } from "./elevenlabs-tools.js"
 import { isSupportedHost, type HostCheck } from "./host-version.js"
@@ -23,7 +22,7 @@ export type ServerSource =
   | { readonly type: "stale"; readonly url: string; readonly expected: string }
 
 /** A skill file OpenCode loads in place of one of the plugin's skills, because it uses the same id. */
-export interface ShadowedSkill {
+interface ShadowedSkill {
   /** The plugin's skill. */
   readonly name: string
   /** The file that takes its place. */
@@ -326,7 +325,7 @@ export function formatStatus(status: Status) {
   ].join("\n")
 }
 
-export interface StatusContext {
+interface StatusContext {
   readonly mcp: Pick<Plugin.Context["mcp"], "list">
   readonly agent: Pick<Plugin.Context["agent"], "list">
   readonly tool: Pick<Plugin.Context["tool"], "list">
@@ -335,7 +334,7 @@ export interface StatusContext {
 }
 
 /** What setup knows: the options, the server's owner, the host check, the plugin's own skills and any setup problems. */
-export interface SetupFacts {
+interface SetupFacts {
   readonly access: Access
   readonly conversations: Conversations
   readonly region: Region
@@ -509,10 +508,3 @@ export function registerStatusCommand(
     }),
   )
 }
-
-/** The day's spend as one line, for the doctor and the dialog. */
-export const spendSummary = (spend: SpendFacts) =>
-  costLine({ credits: 0, basis: "exact", parts: [] }, { sessionCredits: 0, dailyCredits: spend.dailyCredits }, {
-    sessionCreditCap: spend.sessionCap,
-    dailyCreditCap: spend.dailyCap,
-  })

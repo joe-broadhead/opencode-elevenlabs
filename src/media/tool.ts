@@ -4,7 +4,7 @@ import { expandRoot } from "./policy.js"
 import { saveMedia, savedText, type SaveDeps } from "./save.js"
 
 /** The tool's id is `<namespace>_<name>`, the same shape as the MCP tools beside it. */
-export const SAVE_NAME = "save_media"
+const SAVE_NAME = "save_media"
 export const SAVE_ACTION = "elevenlabs_save_media"
 
 /** Everything the tool needs that setup knows: where to write, how much, and which hosts a link may name. */
@@ -44,7 +44,7 @@ export function saveDescription(root: string) {
 }
 
 /** A call's source, exactly as the host gives it to `execute`. */
-export interface CallSource {
+interface CallSource {
   readonly sessionID: string
   readonly agent: string
   readonly messageID: string

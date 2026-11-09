@@ -259,7 +259,7 @@ export const SPEND_TOOLS: readonly string[] = [
  * a node to a flow, so it is a write that spends and sits in `SPEND_TOOLS`. Kept because `access` is about changing
  * the workspace and money is a separate axis; the caps always apply either way.
  */
-export const SPEND_READS: readonly string[] = []
+const SPEND_READS: readonly string[] = []
 
 /** Every call the guard must price, whether it writes or reads. */
 export const SPEND_ANY: readonly string[] = [...SPEND_TOOLS, ...SPEND_READS]
@@ -355,7 +355,7 @@ export const ALL_TOOLS: readonly string[] = [
 export const OWN_TOOLS: readonly string[] = ["save_media"]
 
 /** What a tool can do. `spend` is a write that bills the workspace, kept apart so the guard and SECURITY can name it. */
-export type ToolClass = "read" | "write" | "spend" | "export" | "destructive" | "unknown"
+type ToolClass = "read" | "write" | "spend" | "export" | "destructive" | "unknown"
 
 export function classify(name: string): ToolClass {
   if (READ_TOOLS.includes(name)) return "read"

@@ -1,5 +1,5 @@
 import type { Plugin } from "@opencode/plugin"
-import { DISPLAY_NAME, errorText, SERVER_NAME } from "./constants.js"
+import { DISPLAY_NAME, errorText } from "./constants.js"
 import type { Access, Conversations } from "./options.js"
 import {
   CONVERSATION_TOOLS,
@@ -34,14 +34,14 @@ export const conversationDenies = (conversations: Conversations): readonly strin
  * Patterns for the words a tool that returns a call's words carries, whatever it is called exactly. Bare, because the
  * rule helper adds the `elevenlabs_` prefix.
  */
-export const TRANSCRIPT_PATTERNS: readonly string[] = ["*transcript*", "*conversation*message*", "*conversation*audio*", "*conversation*recording*"]
+const TRANSCRIPT_PATTERNS: readonly string[] = ["*transcript*", "*conversation*message*", "*conversation*audio*", "*conversation*recording*"]
 
 /**
  * Patterns that catch a read of a call's history, a new tool included, for `conversations: "off"`. Narrow on purpose:
  * `get_call`, `list_calls` and `export_history` are history reads, and none of them match a generation, a transcription
  * or another tool this table means to keep. A broader `*call*` would. The match itself ignores case.
  */
-export const CONVERSATION_PATTERNS: readonly string[] = ["*conversation*", "*transcript*", "*call*recording*", "*get_call*", "*list_calls*", "*export_history*"]
+const CONVERSATION_PATTERNS: readonly string[] = ["*conversation*", "*transcript*", "*call*recording*", "*get_call*", "*list_calls*", "*export_history*"]
 
 /**
  * Broad first, narrow last, because the last matching rule wins. Every tool the plugin registers is allowed at
@@ -129,6 +129,3 @@ export const unguardedAgents = (agents: readonly { readonly id: string; readonly
   agents
     .filter((agent) => agent.permissions.some(isBaseAllow) && !hasDefaultRules(agent.permissions) && evaluate(agent.permissions, actionOf("new_tool")) === "allow")
     .map((agent) => agent.id)
-
-/** The server name these rules belong to, for status text that has to name it. */
-export const RULES_SERVER = SERVER_NAME
