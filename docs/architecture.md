@@ -98,9 +98,17 @@ entries into that writer's own hourly key, `spend/<writerId>/h/<hour>`, and the 
 together, which cannot double-count because a charge is folded by exactly one writer. A folded hour is kept while any
 minute of its hour is still inside the window, so a folded charge counts for up to an hour past its own day, and never
 less than it. A key is removed only once it is past the window. Two ledgers handed one storage object share a book and
-one daily cap, as two locations in one OpenCode do. Across processes, exactly: **within one process the caps are exact;
-two calls started at the same instant in two processes can exceed a cap by at most one call's reservation; a settled
-charge is never lost.** `reserve` keeps its check and its hold synchronous, with nothing awaited between them, then
+one daily cap, as two locations in one OpenCode do. Across processes, exactly: **within one OpenCode the caps are
+exact; OpenCodes deciding at the same instant cross a cap by at most one call's reservation for each one past the
+first, so eight of them at 3,000 credits a call can spend 31,000 against a 10,000 cap; a Code Mode call cannot read the
+store before it decides, so an OpenCode that has read nothing since it started admits a whole cap of its own; a settled
+charge is never lost.** Both crossings need overlap: calls that wait for one another see one another, and those same
+eight, run one after the next, spend only the 9,000 that fits. The first bound follows from the order `quote` works in:
+each OpenCode refreshes from the store and then reserves, so the most that can be admitted beyond a cap is one
+reservation for every OpenCode that read before the first of them wrote. The second follows from the shaper contract:
+`quoteSync` cannot await, so it decides from what `hydrate` and the last `refresh` left in this process's book, and an
+OpenCode making only Code Mode calls never reads again. `reserve` keeps its check and its hold synchronous, with
+nothing awaited between them, then
 writes the hold's own key and awaits it before dispatch; a failed write takes the hold back out of memory and refuses
 the call. Two machines share nothing. Two locations keep their own tools-RPC shapers. On the script path, one priced
 call per session and method is in flight.

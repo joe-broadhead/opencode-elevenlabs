@@ -58,6 +58,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and thi
 - A recorded charge only ever rises. One attested figure inside that tenth-band may settle a live hold below itself;
   every settlement after that, for the same call, may only raise the charge. A result delivered twice, and a figure
   arriving for a call whose hold expired into a charge, are ignored unless they are higher.
+- The cap's bound is stated as it really is, in the three files that print it. The old sentence gave the two-process
+  case as the general rule; the real bound is one call's reservation for each OpenCode past the first — eight at 3,000
+  credits a call can spend 31,000 against a 10,000 cap — and a Code Mode call, which cannot read the store before it
+  decides, lets an OpenCode that has read nothing since it started admit a whole cap of its own. Both crossings need
+  the calls to overlap. "A settled charge is never lost" is back, now that it is true.
 - A measured price is bound to the file it measured. Every file a transcription names is stamped — device, inode, size
   and last modification — before the measurement reads a byte and again immediately before the hold; a file that moved
   in between refuses the call with `PRICE_UNKNOWN` and reserves nothing. The window after the dispatch, while

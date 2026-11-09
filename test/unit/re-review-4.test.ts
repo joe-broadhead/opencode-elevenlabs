@@ -7,6 +7,7 @@ import { join } from "node:path"
 import { ENDPOINT } from "../../src/constants.js"
 import { audioStamps, changedFile, countValue, estimatePrice, Ledger, measureAudio, NOT_A_COUNT, priceOf, quoteCall, quoteCallSync, RESERVATION_MS, settlementOf, transcriptionPrice } from "../../src/billing.js"
 import { buildWav, understatedThenJunk, WAV_FIXTURES } from "../fixtures/wav.js"
+import { sharedStore } from "../fixtures/store.js"
 import { createElevenlabsPlugin } from "../../src/plugin.js"
 import { mcpEditor, pluginContext } from "./fake.js"
 
@@ -326,5 +327,88 @@ describe("RR4-9 — a price is reserved only while the file it measured is still
     // Nothing local is named by a URL or an empty string, so neither is stamped.
     expect(audioStamps({ path: "https://example.test/a.wav" }).size).toBe(0)
     expect(audioStamps({ path: "", file: undefined }).size).toBe(0)
+  })
+})
+
+describe("RR4-10 — the cap's real cross-process bound, and the sentence three files print", () => {
+  const DAILY = 10_000
+  const caps = { sessionCreditCap: null, dailyCreditCap: DAILY }
+  // 1,500 characters at 1 credit each, two takes: 3,000 credits a call, which is the review's figure.
+  const args = () => ({ text: "x".repeat(1_500) })
+  const call = (id: string) => ({ sessionID: "ses_a", agent: "build", messageID: "m1", id })
+  const admitted = (results: PromiseSettledResult<unknown>[]) => results.filter((result) => result.status === "fulfilled").length
+
+  test("a call is 3,000 credits, so three fit under the cap and a fourth does not, in one OpenCode", async () => {
+    const ledger = new Ledger()
+    expect(priceOf("creative_generate_speech", args())?.credits).toBe(3_000)
+    for (const id of ["a", "b", "c"]) await quoteCall({ ledger, caps: () => caps }, "creative_generate_speech", args(), call(id))
+    await expect(quoteCall({ ledger, caps: () => caps }, "creative_generate_speech", args(), call("d"))).rejects.toMatchObject({ code: "SPEND_CAP_REACHED" })
+    expect(ledger.daily()).toBe(9_000)
+  })
+
+  test("eight OpenCodes deciding together cross the cap by seven reservations, not by one", async () => {
+    const store = sharedStore()
+    // The last state a cap admits from: one call's room left. Every OpenCode below reads it and every one of them fits.
+    const seed = new Ledger({ storage: store.handle(), writerId: "seed" })
+    await seed.hydrate()
+    seed.record("ses_a", DAILY - 3_000)
+    await seed.flush()
+
+    const ledgers = [...Array(8)].map((_, index) => new Ledger({ storage: store.handle(), writerId: `w${index}` }))
+    await Promise.all(ledgers.map((ledger) => ledger.hydrate()))
+    const burst = await Promise.allSettled(
+      ledgers.map((ledger, index) => quoteCall({ ledger, caps: () => caps }, "creative_generate_speech", args(), call(`burst${index}`))),
+    )
+    expect(admitted(burst)).toBe(8)
+    await Promise.all(ledgers.map((ledger) => ledger.flush()))
+
+    // 7,000 of room, eight calls of 3,000: 31,000 against a cap of 10,000. The overshoot is 21,000 — seven
+    // reservations, one for each OpenCode past the first — and the old sentence promised at most one.
+    const reader = new Ledger({ storage: store.handle(), writerId: "reader" })
+    await reader.hydrate()
+    expect(reader.daily()).toBe(DAILY - 3_000 + 8 * 3_000)
+    expect(reader.daily() - DAILY).toBe(7 * 3_000)
+
+    // It does not compound: every one of them now reads a book over the cap, so the next round admits nothing.
+    const second = await Promise.allSettled(
+      ledgers.map((ledger, index) => quoteCall({ ledger, caps: () => caps }, "creative_generate_speech", args(), call(`again${index}`))),
+    )
+    expect(admitted(second)).toBe(0)
+    expect(second.every((result) => result.status === "rejected" && (result.reason as { code?: string }).code === "SPEND_CAP_REACHED")).toBe(true)
+  })
+
+  test("the bound depends on overlap: the same eight, one after another, spend exactly what fits", async () => {
+    const store = sharedStore()
+    const ledgers = [...Array(8)].map((_, index) => new Ledger({ storage: store.handle(), writerId: `s${index}` }))
+    await Promise.all(ledgers.map((ledger) => ledger.hydrate()))
+    let admits = 0
+    for (const [index, ledger] of ledgers.entries()) {
+      await ledger.flush()
+      try {
+        await quoteCall({ ledger, caps: () => caps }, "creative_generate_speech", args(), call(`serial${index}`))
+        admits++
+        await ledger.flush()
+      } catch {
+        // Refused, which is the point: a call that waits for the one before it sees it.
+      }
+    }
+    expect(admits).toBe(3)
+  })
+
+  test("a Code Mode call cannot read the store first, so each OpenCode admits a cap of its own", async () => {
+    const store = sharedStore()
+    const ledgers = [...Array(3)].map((_, index) => new Ledger({ storage: store.handle(), writerId: `c${index}` }))
+    await Promise.all(ledgers.map((ledger) => ledger.hydrate()))
+    // The shaper path is synchronous by the shared contract: it decides from what this OpenCode last read, and these
+    // three read at startup. Each refuses its own fourth call and knows nothing of the other two's nine.
+    for (const [index, ledger] of ledgers.entries()) {
+      for (const id of ["a", "b", "c"]) quoteCallSync({ ledger, caps: () => caps }, "creative_generate_speech", args(), call(`${index}${id}`))
+      expect(() => quoteCallSync({ ledger, caps: () => caps }, "creative_generate_speech", args(), call(`${index}d`))).toThrow("SPEND_CAP_REACHED")
+      expect(ledger.daily()).toBe(9_000)
+    }
+    await Promise.all(ledgers.map((ledger) => ledger.flush()))
+    const reader = new Ledger({ storage: store.handle(), writerId: "reader" })
+    await reader.hydrate()
+    expect(reader.daily()).toBe(27_000)
   })
 })

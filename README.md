@@ -72,9 +72,13 @@ Generations are billed in **credits** against the workspace you signed in with.
   which only the OpenCode that created it ever rewrites, and a total is read by scanning those keys and adding them up.
   Nothing merges two writers' records, so no writer can drop another's charge. What a cap cannot do is decide across two
   running OpenCodes at once: `ctx.storage` has no compare-and-set and no lock, so each admits a call against what it has
-  read. Exactly: **within one process the caps are exact; two calls started at the same instant in two processes can
-  exceed a cap by at most one call's reservation; a settled charge is never lost.** The next call in each process sees
-  both charges. Two machines share nothing: the store cannot see them.
+  read. Exactly: **within one OpenCode the caps are exact; OpenCodes deciding at the same instant cross a cap by at most
+  one call's reservation for each one past the first, so eight of them at 3,000 credits a call can spend 31,000 against
+  a 10,000 cap; a Code Mode call cannot read the store before it decides, so an OpenCode that has read nothing since it
+  started admits a whole cap of its own; a settled charge is never lost.** Both crossings need overlap: calls that wait
+  for one another see one another, and those same eight, run one after the next, spend only the 9,000 that fits. Size a
+  cap as the bound you can afford to be crossed once per extra OpenCode, not as a hard limit on the account. Two
+  machines share nothing: the store cannot see them.
 - **Image and video are priced by ElevenLabs, not by this plugin.** Their cost depends on the model, the resolution and
   the duration, and ElevenLabs publishes no per-unit figure, so before an image or video generation the plugin asks
   ElevenLabs for a price with `estimate_only: true`. The cost line says "at most" until the live reconcile proves the
