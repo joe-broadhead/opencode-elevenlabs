@@ -53,8 +53,11 @@ Report privately through GitHub's private vulnerability reporting on
   while a cap is on they are refused rather than run unpriced.
 - **An estimate is a call of its own.** It costs nothing — measured against a real workspace, two of them moved the
   balance by zero — but each one creates a flow and a node in the workspace. The plugin asks for one per set of
-  arguments, keeps it for ten minutes, and sends it only where the paid call is permitted: under `ask-changes` you are
-  asked once, for the generation, and under `read-only` nothing is estimated because nothing may be generated.
+  arguments, keeps it for ten minutes, and sends it only where the paid call is permitted: the permission it asks for
+  is the generation's own, never one of its own, and under `read-only` nothing is estimated because nothing may be
+  generated. That permission is raised twice for one paid call — before the estimate and again for the generation — so
+  under `ask-changes` expect up to two prompts. Earlier releases promised one; whether a host folds them has never been
+  measured here.
 - **What a cap cannot decide.** Exactly: **within one OpenCode the caps are exact; across OpenCodes a cap is crossed
   by at most one call's reservation for each one deciding before its read of the others' holds lands, so eight of them
   at 3,000 credits a call can spend 31,000 against a 10,000 cap; every OpenCode reads the store behind each call it

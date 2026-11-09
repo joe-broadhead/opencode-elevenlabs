@@ -654,6 +654,9 @@ export class Ledger {
 
   /** Remembers a price the server itself gave for one tool, so a later call with the same arguments can be priced. */
   rememberPrice(tool: string, input: Record<string, unknown>, price: Price) {
+    // Swept here as well as in `prune`, because a session that only ever estimates never settles or records anything,
+    // and this is the one place that grows (RE-7).
+    this.forgetStaleEstimates()
     this.remembered.set(keyOf(tool, input), { price, at: this.now() })
   }
 
@@ -661,7 +664,19 @@ export class Ledger {
   rememberedPrice(tool: string, input: Record<string, unknown>): Price | undefined {
     const found = this.remembered.get(keyOf(tool, input))
     if (!found) return undefined
-    return this.now() - found.at > 10 * 60 * 1000 ? undefined : found.price
+    return this.now() - found.at > RESERVATION_MS ? undefined : found.price
+  }
+
+  /**
+   * Drops the estimates that can no longer price anything. `rememberedPrice` already refuses to return one past its
+   * ten minutes, so this frees memory rather than changing an answer — but the key it holds is the tool name plus the
+   * stable JSON of every argument, which means the whole prompt. A cache with an expiry drops what expired, on the
+   * same sweep that ages everything else, and this plugin does not keep prompt text it can no longer use (RE-7).
+   */
+  private forgetStaleEstimates(now = this.now()) {
+    for (const [key, held] of [...this.remembered]) {
+      if (now - held.at > RESERVATION_MS) this.remembered.delete(key)
+    }
   }
 
   /** Forgets everything this book holds in memory. The tests use it. */
@@ -684,6 +699,7 @@ export class Ledger {
     const book = this.book()
     const now = this.now()
     const horizon = now - WINDOW_MS
+    this.forgetStaleEstimates(now)
     for (const [id, row] of [...book.own]) {
       if (row.at < horizon) {
         book.own.delete(id)
@@ -1072,8 +1088,45 @@ export function priceObstacle(name: string, input: Record<string, unknown>): str
   return undefined
 }
 
+/**
+ * The calls that are never priced, capped or charged: the free `estimate_only` probe, and every tool this table says
+ * cannot spend. Undefined means the call must be priced, and the caller goes on.
+ *
+ * The probe is free, but it is still a call that reaches ElevenLabs, so while a cap is on it is held to the same
+ * argument allowlist the paid call is (RE-6). That check exists to keep an argument ElevenLabs' own schema does not
+ * have from reaching it — the server rejects the call and the workspace is left holding a flow and a node for a probe
+ * that answered nothing. A check whose purpose is to stop a bad argument reaching ElevenLabs runs on every call that
+ * reaches ElevenLabs, the free one included. No money turns on it: the paid call carrying that same argument is
+ * refused before any remembered price is reached, so a figure fetched under an invented argument could never pay for
+ * one. With both caps off nothing is enforced here, as everywhere else.
+ */
+function unpriced(context: { readonly caps: () => Caps }, tool: string, args: Record<string, unknown>): Quote | undefined {
+  const probe = isEstimate(tool, args)
+  if (!probe && mustPrice(tool)) return undefined
+  if (probe) {
+    const caps = context.caps()
+    const capped = caps.sessionCreditCap !== null || caps.dailyCreditCap !== null
+    const obstacle = capped ? priceObstacle(tool, args) : undefined
+    if (obstacle !== undefined) throw estimateRefused(tool, obstacle)
+  }
+  return { price: { credits: 0, basis: "exact", parts: [] }, tracked: false }
+}
+
+/**
+ * The refusal for an estimate that cannot be asked for. It is not `unknownPrice`: that one's next step is to send
+ * `estimate_only` first, which is exactly what this caller just did. The argument is the thing to change.
+ */
+function estimateRefused(tool: string, obstacle: string) {
+  return new SpendRefused(
+    "PRICE_UNKNOWN",
+    `${tool} cannot be estimated with these arguments, so this probe was not sent: ${obstacle}.`,
+    `Ask for the estimate again without that argument, or set both "sessionCreditCap" and "dailyCreditCap" to null to send it unchecked.`,
+  )
+}
+
 async function quote(context: GuardInput, tool: string, args: Record<string, unknown>, mayEstimate: boolean, call: GuardCall): Promise<Quote> {
-  if (isEstimate(tool, args) || !mustPrice(tool)) return { price: { credits: 0, basis: "exact", parts: [] }, tracked: false }
+  const free = unpriced(context, tool, args)
+  if (free !== undefined) return free
   const caps = context.caps()
   if (caps.sessionCreditCap === null && caps.dailyCreditCap === null) {
     return { price: { credits: 0, basis: "at-most", parts: ["cost not tracked: both caps are off"] }, tracked: false }
@@ -1106,7 +1159,8 @@ async function quote(context: GuardInput, tool: string, args: Record<string, unk
 }
 
 function quoteSync(context: Omit<GuardInput, "estimate">, tool: string, args: Record<string, unknown>, call: GuardCall): Quote {
-  if (isEstimate(tool, args) || !mustPrice(tool)) return { price: { credits: 0, basis: "exact", parts: [] }, tracked: false }
+  const free = unpriced(context, tool, args)
+  if (free !== undefined) return free
   const caps = context.caps()
   if (caps.sessionCreditCap === null && caps.dailyCreditCap === null) {
     return { price: { credits: 0, basis: "at-most", parts: ["cost not tracked: both caps are off"] }, tracked: false }

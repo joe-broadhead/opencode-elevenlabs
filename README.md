@@ -92,9 +92,11 @@ Generations are billed in **credits** against the workspace you signed in with.
 - **An estimate is free, but it is not nothing.** Measured against a real workspace: two estimates moved the balance by
   zero credits, and each left a flow and a node behind in the workspace. So one estimate is asked per set of arguments,
   the figure is kept for ten minutes, and the paid call reuses it instead of creating a second flow. The estimate is
-  sent only where the paid call could run: under `access: "ask-changes"` you are asked once, for the generation, and
-  nothing is estimated if you say no; under `access: "read-only"` every spending tool is denied and no estimate is sent
-  either.
+  sent only where the paid call could run: the permission it asks for is the generation's own, so nothing is estimated
+  if you say no, and under `access: "read-only"` every spending tool is denied and no estimate is sent either. The
+  plugin raises that permission twice for one paid call — before the estimate, and again for the generation — so under
+  `ask-changes` you may be prompted twice. Whether OpenCode folds the two into one prompt is OpenCode's to decide, and
+  no release has measured it yet.
 - **The figure is the whole batch.** ElevenLabs answers for every generation the call asks for, not for one — a
   four-image estimate came back as 761.5151418103446 credits, about 190 an image. Credits are charged as whole numbers,
   so a fractional figure is rounded up. A batch that does not fit is cut to the number of generations the budget
@@ -288,7 +290,6 @@ The plugin inserts this block directly after each agent's base rule that allows 
   { "action": "elevenlabs_creative_list_brand_kits", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_list_flows", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_list_voices", "resource": "*", "effect": "allow" },
-  { "action": "elevenlabs_creative_show_flow_results", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_get_link", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_get_generations", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_add_triage_ticket_comment", "resource": "*", "effect": "allow" },
@@ -365,6 +366,7 @@ The plugin inserts this block directly after each agent's base rule that allows 
   { "action": "elevenlabs_creative_finalize_asset_upload", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_save_designed_voice", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_save_view_state", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_creative_show_flow_results", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_update_brand_kit", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_update_brand_kit_item", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_update_flow_nodes", "resource": "*", "effect": "allow" },

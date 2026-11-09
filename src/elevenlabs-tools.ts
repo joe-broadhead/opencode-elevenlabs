@@ -90,7 +90,6 @@ export const READ_TOOLS: readonly string[] = [
   "creative_list_brand_kits",
   "creative_list_flows",
   "creative_list_voices",
-  "creative_show_flow_results",
 ]
 
 /**
@@ -208,6 +207,7 @@ export const WRITE_TOOLS: readonly string[] = [
   "creative_finalize_asset_upload",
   "creative_save_designed_voice",
   "creative_save_view_state",
+  "creative_show_flow_results",
   "creative_update_brand_kit",
   "creative_update_brand_kit_item",
   "creative_update_flow_nodes",

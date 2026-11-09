@@ -111,11 +111,20 @@ asks for one estimate per set of arguments, remembers the figure for ten minutes
 the paid call rather than creating a second flow. Different arguments are a different call and get their own estimate.
 
 **The estimate is asked for only where the paid call could run.** `estimatorFor` asserts the paid tool's own permission
-(`elevenlabs_<tool>`, through `ctx.permission.assert`) before it sends anything. Under `access: "ask-changes"` that is
-the one prompt for the generation: the user is asked once, and the estimate goes out only if they allow it — so an
-estimate never creates a flow for a generation the user is about to refuse. Under `access: "read-only"` every spending
-tool is denied, the assert fails, and no estimate is sent either. A declined or failed assert leaves the call with no
-price, which a cap turns into `PRICE_UNKNOWN`.
+(`elevenlabs_<tool>`, through `ctx.permission.assert`) before it sends anything — never a permission of its own, so
+nothing can be estimated that the generation itself may not do. Under `access: "ask-changes"` the estimate goes out
+only if that permission is allowed, so an estimate never creates a flow for a generation the user is about to refuse.
+Under `access: "read-only"` every spending tool is denied, the assert fails, and no estimate is sent either. A declined
+or failed assert leaves the call with no price, which a cap turns into `PRICE_UNKNOWN`.
+
+**How many prompts the user sees is the host's, and is not yet measured (RE-8).** Two asserts are raised for one priced
+call: `estimatorFor`'s, before the estimate, and the generation's own when it runs. `test/unit/re-review-6.test.ts`
+counts them, so the number cannot change unnoticed. Whether OpenCode turns two asserts into one prompt — by holding an
+"allow once" answer for the same action within the same tool call — cannot be established without a host, and no
+version of this plugin has measured it. Earlier releases of these docs said the user is "asked once"; that was a claim
+about what a host does, written as though this plugin decided it. Live pass 2 counts the prompts under `ask-changes`.
+The ordering itself is settled and is the safe one: asserting before estimating is what keeps `read-only` from creating
+a flow, and what makes `ask-changes` refuse the estimate when the generation is refused.
 
 While either cap is on, two kinds of call are priced or refused before dispatch: the ones the table classifies as
 spending, and **any name the table does not classify at all, whatever it starts with**. There is no keyword list and
@@ -204,8 +213,8 @@ nothing.
 
 ### What each tool is allowed to do
 
-`classify()` puts each of the 190 live tools in one class, from its own name, description and schema: 82 reads, 2
-exports, 80 writes, 12 that can spend and 14 destructive. Nothing is left unclassified. The class is the worst thing a
+`classify()` puts each of the 190 live tools in one class, from its own name, description and schema: 81 reads, 2
+exports, 81 writes, 12 that can spend and 14 destructive. Nothing is left unclassified. The class is the worst thing a
 tool can do; it never decides whether a call runs, only what the generated default rules give it.
 
 Some of them are judgement calls, recorded here because nothing in the catalogue settles them. **One rule decides every
@@ -232,6 +241,12 @@ either cap is on each is refused rather than run unpriced, and live pass 2 measu
 - **`creative_create_asset_upload` is a write, not an export.** It opens an upload into the workspace; nothing leaves
   it. The two exports are `agents_get_link`, which mints a link usable outside the workspace, and
   `creative_get_generations`, which returns the signed links a flow's generations can be downloaded from.
+- **`creative_show_flow_results` is a write, not a read.** It returns a run's generations, but what it *does* is
+  *"put a run's generations back in front of the user, rendering the same view a run starts with"*. The catalogue
+  draws the line itself: `creative_get_flow_run_status` returns the same data and says *"without showing anything to
+  the user — this never renders a view"*. Rendering something to the user is an effect, so the class follows what the
+  call does rather than what it returns, and `read-only` no longer lets a session push a view into the workspace.
+  It spends nothing and is not priced.
 
 - **`get_more_tools` is a write.** It is not a catalogue pager and it returns no tool definitions. Its live schema has
   one required argument, a free-text string named `capability`, and its description says what the server does with it:
