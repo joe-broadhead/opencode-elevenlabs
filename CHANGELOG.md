@@ -41,6 +41,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and thi
 - A caller-typed duration, take count or file size cannot lower a price. Transcription is priced from the file about to
   be sent; a file that cannot be measured is refused. A price of 0 is a refusal. Speech stays at two takes unless the
   caller asks for more.
+- `elevenlabs_save_media` reports how long a saved MP4 or M4A is again, from the `mvhd` the container states, through a
+  walk bounded by the file's own bytes. It is a display figure: nothing prices a call from it, and a cap still measures
+  a PCM WAV or refuses.
 - A `creative_*` tool the price table does not price is refused while a cap is on. There is no keyword list.
 - Every priced tool has an argument allowlist, not transcription alone: while a cap is on, an argument whose effect on
   the bill this plugin does not know refuses the call by name, on the table path and the server-estimate path alike.

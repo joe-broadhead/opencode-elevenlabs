@@ -19,6 +19,8 @@ import {
   transcriptionPrice,
 } from "../../src/billing.js"
 import { shapersFor } from "../../src/host/tools-rpc.js"
+import { durationOf } from "../../src/media/policy.js"
+import { saveMedia, savedText } from "../../src/media/save.js"
 import { sharedStore, storageOver } from "../fixtures/store.js"
 import { buildMp4, buildWav, hostileChunkSize, understatedThenFakeHeader, understatedThenJunk, WAV_FIXTURES, zeroSizeChunks } from "../fixtures/wav.js"
 
@@ -422,6 +424,46 @@ describe("RR4-3 — every priced tool has an argument allowlist, and a compositi
     }
     // And the live checklist carries the step that keeps them honest.
     expect(readFileSync(join(ROOT, "test/fixtures/README.md"), "utf8")).toContain("confirm each priced tool's real argument names")
+  })
+})
+
+describe("RR4-4 — a saved M4A says how long it is, and that figure is never a price", () => {
+  // Ruling A took the `mvhd` read out of the pricing, and with it the duration the save tool printed for every
+  // container but a WAV: an M4A, which is what ElevenLabs returns, saved with no length at all. The figure is the
+  // file's own word, so it comes back for the saved line only, through a walk bounded by the file's bytes.
+  const saveOf = async (name: string, bytes: Buffer) => {
+    const fetchImpl = (async () => new Response(bytes, { headers: { "content-type": "audio/mp4" } })) as unknown as typeof fetch
+    return saveMedia({ url: "https://files.elevenlabsusercontent.com/clip", name }, {
+      root: join(root, "saved"),
+      maxBytes: 8 * 1024 * 1024,
+      hosts: ["elevenlabsusercontent.com"],
+      overwrite: true,
+      fetch: fetchImpl,
+    })
+  }
+
+  test("the saved line carries the duration an M4A states", async () => {
+    const saved = await saveOf("voiceover", buildMp4(60))
+    expect(saved.durationSeconds).toBe(60)
+    expect(savedText(saved)).toContain("60 s")
+    // A WAV is still measured from its own bytes, not from anything it states.
+    expect(await durationOf(file("two.wav", buildWav({ seconds: 2 })))).toBe(2)
+  })
+
+  test("a duration the file's own bytes could not hold is not shown", async () => {
+    // The walk is bounded by the file: 3,000 seconds in a file of a few kilobytes is a figure the file chose.
+    const saved = await saveOf("liar", buildMp4(3_000, 1))
+    expect(saved.durationSeconds).toBeUndefined()
+    expect(savedText(saved)).not.toContain(" s)")
+  })
+
+  test("nothing priced reads the figure, so an M4A is still refused under a cap", async () => {
+    const m4a = file("priced.m4a", buildMp4(60))
+    expect(await durationOf(m4a)).toBe(60)
+    // The same file, through every path that prices a call.
+    expect(measureAudio({ path: m4a })).toBeUndefined()
+    expect(transcriptionPrice({ path: m4a })).toBeUndefined()
+    expect(refusal("creative_transcribe_audio", { path: m4a })?.code).toBe("PRICE_UNKNOWN")
   })
 })
 

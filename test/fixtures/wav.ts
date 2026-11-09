@@ -154,10 +154,13 @@ export function zeroSizeChunks(count: number): Buffer {
 }
 
 /**
- * A minimal MP4 whose `mvhd` box states a duration, as a real M4A does. The plugin no longer reads it: an MP4 is not
- * a PCM stream this plugin can measure, so it is refused rather than priced from a field it cannot check.
+ * An MP4 whose `mvhd` box states a duration, as a real M4A does, with an `mdat` of compressed audio in front of it at
+ * `bytesPerSecond` — the walk to `moov` therefore seeks over a real payload, as it does in a finished file.
+ *
+ * The plugin never prices one: an MP4 is not a PCM stream it can measure, so a priced call is refused rather than
+ * billed from a field it cannot check. The save tool shows the stated duration, which is display only.
  */
-export function buildMp4(seconds: number): Buffer {
+export function buildMp4(seconds: number, bytesPerSecond = 2_000): Buffer {
   const mvhd = Buffer.alloc(108)
   mvhd.writeUInt32LE(0, 0)
   mvhd.write("mvhd", 4, "ascii")
@@ -173,7 +176,11 @@ export function buildMp4(seconds: number): Buffer {
   ftyp.write("ftyp", 4, "ascii")
   ftyp.write("isom", 8, "ascii")
   ftyp.write("isomM4A ", 12, "ascii")
-  return Buffer.concat([ftyp, moov, mvhd])
+  const audio = Buffer.alloc(Math.max(0, Math.round(seconds * bytesPerSecond)))
+  const mdat = Buffer.alloc(8)
+  mdat.writeUInt32BE(8 + audio.length, 0)
+  mdat.write("mdat", 4, "ascii")
+  return Buffer.concat([ftyp, mdat, audio, moov, mvhd])
 }
 
 /** A RIFF file whose chunk sizes do not walk: it is not measured, so it is not priced. */

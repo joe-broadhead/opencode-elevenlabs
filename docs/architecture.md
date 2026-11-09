@@ -136,3 +136,18 @@ A `composition_plan` is priced at the sum of its sections' `duration_ms` (or `du
 priced at whichever is longer, that sum or a length the call states. A plan whose durations cannot be read — no
 sections, a section with no duration, a duration no number can be read out of — is `PRICE_UNKNOWN`. A length above
 ElevenLabs' published maximum is priced as stated: over-pricing a call is the safe side, and no refusal is owed.
+
+### Two durations, and why they never meet
+
+`elevenlabs_save_media` prints how long a saved file is, and the spending guard decides what a file costs. These read
+different things on purpose.
+
+The guard measures a local PCM WAV the way a decoder does — the `fmt ` fields and the `data` bytes — and refuses every
+other container (`PRICE_UNKNOWN`). It calls `riffSecondsWith` itself. Nothing it reads is a figure the file states
+about itself, because a file that sets its own duration would set its own price.
+
+The saved line uses `durationOf`, which measures a WAV the same way and otherwise reads the duration an MP4 or M4A
+states in the `mvhd` box inside its `moov` — the format ElevenLabs returns, which carries no length anywhere a
+decoder-free reader can compute. That walk is bounded: every read is inside the file's own size, the number of boxes
+it steps through is capped, and a stated duration longer than the file's bytes could hold at 8 kbps is dropped rather
+than shown. It is a display figure and nothing prices a call from it.

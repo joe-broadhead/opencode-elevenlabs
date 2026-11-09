@@ -304,6 +304,83 @@ export function riffSecondsWith(read: ChunkReader, fileSize: number): number | u
   return bytes > 0 && perSecond > 0 ? seconds(bytes / perSecond) : undefined
 }
 
+/** More boxes than any container the save tool writes down. Past it the file is not one this walk reads. */
+const MAX_BOXES = 1_000
+
+/** A four-character box type, by the same rule a chunk id follows. */
+const BOX_TYPE = CHUNK_ID
+
+/**
+ * The lowest byte rate a real compressed stream runs at: 8 kbps, below every codec ElevenLabs returns. A `mvhd`
+ * duration longer than the file's own bytes could hold at that rate is a figure the file chose rather than one it
+ * carries, so it is not shown. This is the whole of the bound: the figure is never a price, so nothing else rests on
+ * it — see `durationOf`.
+ */
+const MIN_BYTES_PER_SECOND = 1_000
+
+/**
+ * One box at `offset`: its type, where its body begins, and where the next box begins. A size of 1 puts a 64-bit
+ * size after the type; a size of 0 runs to the end of the enclosing box, which only the last one does. A size that
+ * runs past the end, or a type that is not four printable characters, is not a box, and the walk stops.
+ */
+function boxAt(read: ChunkReader, offset: number, end: number): { readonly type: string; readonly body: number; readonly next: number } | undefined {
+  if (!Number.isSafeInteger(offset) || offset < 0 || offset + 8 > end) return undefined
+  const header = read(offset, 8)
+  if (header === undefined) return undefined
+  // latin1, not ascii: Node's ascii strips the high bit, so a byte over 0x7f would read as a printable character.
+  const type = header.toString("latin1", 4, 8)
+  if (!BOX_TYPE.test(type)) return undefined
+  const stated = header.readUInt32BE(0)
+  if (stated === 1) {
+    const large = read(offset + 8, 8)
+    if (large === undefined) return undefined
+    const size = Number(large.readBigUInt64BE(0))
+    return Number.isSafeInteger(size) && size >= 16 && offset + size <= end ? { type, body: offset + 16, next: offset + size } : undefined
+  }
+  if (stated === 0) return { type, body: offset + 8, next: end }
+  return stated >= 8 && offset + stated <= end ? { type, body: offset + 8, next: offset + stated } : undefined
+}
+
+/** The first box of this type between `start` and `end`, searched at one level only. Bounded by both. */
+function findBox(read: ChunkReader, type: string, start: number, end: number): { readonly body: number; readonly end: number } | undefined {
+  let offset = start
+  for (let walked = 0; walked < MAX_BOXES && offset + 8 <= end; walked++) {
+    const box = boxAt(read, offset, end)
+    if (box === undefined || box.next <= offset) return undefined
+    if (box.type === type) return { body: box.body, end: box.next }
+    offset = box.next
+  }
+  return undefined
+}
+
+/**
+ * The seconds an ISO base media container (MP4, M4A, MOV) states in the `mvhd` inside its `moov`: the movie header's
+ * duration over its timescale. Every read is bounded by the file's own size, the walk is bounded by a box count, and
+ * a duration the file's bytes could not hold is dropped.
+ *
+ * This is the file's word, not a figure read out of the audio, which is why nothing priced may call it. The codec
+ * under an M4A is one this plugin cannot read, so a cap measures a PCM WAV or refuses — see `riffSecondsWith`.
+ */
+export function isoSecondsWith(read: ChunkReader, fileSize: number): number | undefined {
+  const head = read(0, 8)
+  // `ftyp` is the first box of every file this reads. A container without one is a fragment, or not this format.
+  if (head === undefined || head.toString("latin1", 4, 8) !== "ftyp") return undefined
+  const moov = findBox(read, "moov", 0, fileSize)
+  if (moov === undefined) return undefined
+  const mvhd = findBox(read, "mvhd", moov.body, moov.end)
+  if (mvhd === undefined) return undefined
+  const version = read(mvhd.body, 1)?.[0]
+  // Version 0 holds 32-bit times, version 1 64-bit ones; both put the timescale in front of the duration.
+  const fields = version === 0 ? read(mvhd.body + 4, 16) : version === 1 ? read(mvhd.body + 4, 28) : undefined
+  if (fields === undefined) return undefined
+  const timescale = version === 0 ? fields.readUInt32BE(8) : fields.readUInt32BE(16)
+  const duration = version === 0 ? fields.readUInt32BE(12) : Number(fields.readBigUInt64BE(20))
+  if (timescale <= 0 || !Number.isSafeInteger(duration) || duration <= 0) return undefined
+  const value = duration / timescale
+  // An all-ones duration is this format's "unknown", and anything longer than the bytes could hold is not a duration.
+  return value > 0 && value <= fileSize / MIN_BYTES_PER_SECOND ? seconds(value) : undefined
+}
+
 /**
  * The duration of a container, in seconds: a PCM RIFF/WAVE file measured against its own bytes. Anything else is
  * undefined. No other container is measured here — a duration taken from one unchecked field of an MP4, an MP3 or an
@@ -352,14 +429,20 @@ export function fileReader(fd: number, size: number): ChunkReader {
 }
 
 /**
- * The duration of a finished file, when its container states one. Anything else returns undefined rather than an estimate.
+ * The duration of a finished file, for the line the save tool prints. Anything else returns undefined rather than an
+ * estimate. A WAV is measured from its own bytes; an MP4 or M4A is the duration its `mvhd` states.
+ *
+ * **This figure is never a price.** A `mvhd` is the file's word for its own length, and the spending guard calls
+ * `riffSecondsWith` itself — it does not call this — so a file cannot set what it costs by stating a duration. Keep
+ * it that way: anything that prices a call measures the audio, and a container this cannot measure is PRICE_UNKNOWN.
  */
 export async function durationOf(file: string): Promise<number | undefined> {
   const handle = await fs.open(file, "r")
   try {
     const size = (await handle.stat()).size
     if (size <= 0) return undefined
-    return riffSecondsWith(fileReader(handle.fd, size), size)
+    const read = fileReader(handle.fd, size)
+    return riffSecondsWith(read, size) ?? isoSecondsWith(read, size)
   } finally {
     await handle.close()
   }
