@@ -244,7 +244,8 @@ export function riffPcmWith(read: ChunkReader, fileSize: number): RiffPcm | unde
   for (let walked = 0; walked < MAX_CHUNKS && offset + 8 <= fileSize; walked++) {
     const header = read(offset, 8)
     if (header === undefined) return undefined
-    const id = header.toString("ascii", 0, 4)
+    // latin1, not ascii: Node's ascii strips the high bit, so a byte over 0x7f would read as a printable character.
+    const id = header.toString("latin1", 0, 4)
     if (!CHUNK_ID.test(id)) return undefined
     const size = header.readUInt32LE(4)
     const body = offset + 8
@@ -262,15 +263,43 @@ export function riffPcmWith(read: ChunkReader, fileSize: number): RiffPcm | unde
 }
 
 /**
- * The seconds of audio a decoder reads out of a RIFF/WAVE file: the `data` chunk's own bytes at the rate its `fmt `
- * fields imply. The audio is what the `data` header states, clamped to the bytes that really follow it, so a chunk
- * appended after `data` — artwork, a cue list, a second `data` — is metadata and is not billed as audio.
+ * Chunk ids a real encoder writes after `data`. The test below also takes any printable id whose size fits the file,
+ * because the list cannot be complete; these are here so the ordinary ones are recognised whatever else is true.
+ */
+const KNOWN_CHUNK_IDS = new Set(["LIST", "JUNK", "PAD ", "bext", "fact", "cue ", "smpl", "inst", "plst", "labl", "ltxt", "note", "iXML", "id3 ", "ID3 ", "afsp", "DISP", "acid", "_PMX", "data", "fmt "])
+
+/**
+ * Whether a well-formed chunk header begins at `offset`: a known or printable four-character id, and a size that
+ * fits inside the file. Raw audio read as a header almost never passes both — a sample run gives a size in the
+ * billions — so this is what tells a real trailing chunk from the audio a short `data` size field left out.
+ */
+function chunkStartsAt(read: ChunkReader, offset: number, fileSize: number): boolean {
+  if (!Number.isSafeInteger(offset) || offset < 0 || offset + 8 > fileSize) return false
+  const header = read(offset, 8)
+  if (header === undefined) return false
+  // latin1, not ascii: Node's ascii strips the high bit, which turns a sample byte into a printable character.
+  const id = header.toString("latin1", 0, 4)
+  if (!KNOWN_CHUNK_IDS.has(id) && !CHUNK_ID.test(id)) return false
+  const size = header.readUInt32LE(4)
+  return offset + 8 + size <= fileSize
+}
+
+/**
+ * The seconds of audio a decoder reads out of a RIFF/WAVE file: the `data` chunk's bytes at the rate its `fmt `
+ * fields imply. The audio is every byte that follows `data`, because a `data` size that understates the audio is
+ * ordinary — a truncated file, one still being written, a bad mux — and the server reads to the end of what it is
+ * sent. The stated size is believed only when a well-formed chunk begins exactly where it ends, pad byte included,
+ * which is what a real trailing `LIST`, cue block or second `data` looks like; then the rest is metadata, not audio.
+ * A size that overstates the audio is always clamped to the bytes that really follow. Both directions leave the
+ * error on the over-priced side, which is the safe one: a cap must never admit a call it could not afford.
  */
 export function riffSecondsWith(read: ChunkReader, fileSize: number): number | undefined {
   const riff = riffPcmWith(read, fileSize)
   if (riff === undefined) return undefined
   const following = Math.max(0, fileSize - riff.dataOffset)
-  const bytes = Math.min(riff.statedDataBytes, following)
+  const stated = riff.statedDataBytes
+  const trailing = stated < following && chunkStartsAt(read, riff.dataOffset + stated + (stated % 2), fileSize)
+  const bytes = trailing ? stated : following
   const perSecond = bytesPerSecondOf(riff.format)
   return bytes > 0 && perSecond > 0 ? seconds(bytes / perSecond) : undefined
 }

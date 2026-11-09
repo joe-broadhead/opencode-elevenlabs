@@ -113,6 +113,25 @@ export const WAV_FIXTURES = {
 } as const
 
 /**
+ * Sixty seconds of audio under a `data` size field claiming one second, with nothing that reads as a chunk header
+ * where that size ends. A decoder reads on to the end of the file, so all sixty seconds are the audio and are billed.
+ */
+export const understatedThenJunk = () => buildWav({ seconds: 60, statedDataBytes: 8_000 })
+
+/**
+ * The same file, with a printable four-character id written where the stated size ends and a size field claiming
+ * almost four gigabytes. The id alone does not make a chunk: the size has to fit inside the file, and this one
+ * cannot, so the bytes are audio and are billed.
+ */
+export function understatedThenFakeHeader(): Buffer {
+  const wav = understatedThenJunk()
+  // A canonical header is 44 bytes, so the stated 8,000 bytes of `data` end at 8,044.
+  wav.write("LIST", 8_044, "ascii")
+  wav.writeUInt32LE(0xffff_fff0, 8_048)
+  return wav
+}
+
+/**
  * A chunk before `fmt ` whose size field claims almost four gigabytes. The walk is bounded by the file's own size, so
  * it refuses rather than reading past the end, allocating the size it was told, or walking forever.
  */

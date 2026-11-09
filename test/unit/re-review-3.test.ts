@@ -19,7 +19,7 @@ import {
 } from "../../src/billing.js"
 import { shapersFor } from "../../src/host/tools-rpc.js"
 import { sharedStore, storageOver } from "../fixtures/store.js"
-import { buildMp4, buildWav, hostileChunkSize, WAV_FIXTURES, zeroSizeChunks } from "../fixtures/wav.js"
+import { buildMp4, buildWav, hostileChunkSize, understatedThenFakeHeader, understatedThenJunk, WAV_FIXTURES, zeroSizeChunks } from "../fixtures/wav.js"
 
 const HOUR = 60 * 60 * 1_000
 const ROOT = fileURLToPath(new URL("../..", import.meta.url))
@@ -154,6 +154,34 @@ describe("RR3-7 — chunks after `data` are metadata, not audio", () => {
 
   test("a second `data` chunk is not added to the first", () => {
     expect(measureAudio({ path: paths.twoData })?.durationSeconds).toBe(1)
+  })
+})
+
+describe("RR4-1 — a short `data` size does not shrink the price", () => {
+  // Correcting RR3-1: "the stated size, clamped to what follows" read a truncated or still-being-written file as a
+  // fraction of its audio, which under-counts the cap. The audio is every byte after `data`, and the stated size is
+  // believed only where a well-formed chunk begins exactly at its end.
+  test("junk after an understated `data` size is audio and is billed", () => {
+    const path = file("understated-then-junk.wav", understatedThenJunk())
+    expect(measureAudio({ path })?.durationSeconds).toBe(60)
+    expect(transcriptionPrice({ path })?.credits).toBe(330)
+  })
+
+  test("a printable id with a size that cannot fit the file is not a chunk", () => {
+    const path = file("understated-then-fake.wav", understatedThenFakeHeader())
+    expect(measureAudio({ path })?.durationSeconds).toBe(60)
+    expect(transcriptionPrice({ path })?.credits).toBe(330)
+  })
+
+  test("a real chunk at the stated end still ends the audio", () => {
+    // The other half of the rule, which RR3-7 asserts: `trailing` and `twoData` both announce themselves there.
+    expect(measureAudio({ path: paths.trailing })?.durationSeconds).toBe(1)
+    expect(measureAudio({ path: paths.twoData })?.durationSeconds).toBe(1)
+  })
+
+  test("a `data` size that overstates the audio is still clamped to what follows", () => {
+    expect(measureAudio({ path: paths.overstated })?.durationSeconds).toBe(60)
+    expect(measureAudio({ path: paths.truncated })?.durationSeconds).toBe(30)
   })
 })
 

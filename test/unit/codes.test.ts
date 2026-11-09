@@ -47,8 +47,9 @@ describe("codes", () => {
     const plain = new Set([
       "GET", "HEAD", "PUT", "PATCH", "DELETE", "POST", "UTC", "JSON", "MCP", "UUID",
       "ENOENT", "EACCES", "EEXIST", "ENOTDIR", "EISDIR", "EPERM", "ENOSPC", "EMFILE",
-      // RIFF/WAVE: the container signatures the duration reader compares, not codes.
-      "RIFF", "WAVE", "FAIL",
+      // RIFF/WAVE: the container signatures the duration reader compares, and the chunk ids it recognises after
+      // `data`, not codes.
+      "RIFF", "WAVE", "FAIL", "LIST", "JUNK", "DISP",
     ])
     expect([...raised].filter((code) => !known.has(code) && !plain.has(code))).toEqual([])
   })

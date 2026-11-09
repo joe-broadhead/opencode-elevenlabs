@@ -50,12 +50,11 @@ describe("RR2-1 — the file sets the price, not one header field", () => {
     }
   })
 
-  test("the audio is the `data` chunk's own bytes, clamped to the bytes that really follow", () => {
-    // Since RR3-1 the price is what a decoder reads: the `data` chunk states how many bytes of audio it holds, and
-    // bytes past that are a chunk the walk never reached, not audio. `understated` therefore prices the eighth of a
-    // second its header declares, where this test used to assert the full minute written behind it.
-    expect(measureAudio({ path: paths.understated })?.durationSeconds).toBe(0.125)
-    expect(transcriptionPrice({ path: paths.understated })?.credits).toBe(1)
+  test("the audio is every byte after `data` unless a real chunk ends it", () => {
+    // A `data` size that understates the audio is ordinary — a truncated file, one still being written — and the
+    // server reads what it is sent, so the full minute written behind that eighth-of-a-second header is the price.
+    expect(measureAudio({ path: paths.understated })?.durationSeconds).toBe(60)
+    expect(transcriptionPrice({ path: paths.understated })?.credits).toBe(330)
     // A pad before `fmt ` is still just a pad: the audio behind a truthful header is measured in full.
     expect(measureAudio({ path: paths.junkNumbers })?.durationSeconds).toBe(60)
   })
