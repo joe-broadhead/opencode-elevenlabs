@@ -20,6 +20,7 @@ import {
 import { REGIONS } from "../../src/constants.js"
 import { mustPrice } from "../../src/elevenlabs-tools.js"
 import { shapersFor } from "../../src/host/tools-rpc.js"
+import { sharedStore, storageOver } from "../fixtures/store.js"
 import { otherElevenlabsServers, toolOf } from "../../src/plugin.js"
 import { buildStatus, formatStatus } from "../../src/status.js"
 import { brokenRiff, buildWav, WAV_FIXTURES } from "../fixtures/wav.js"
@@ -240,21 +241,6 @@ describe("RR2-5 — two locations on one data directory", () => {
   const caps = () => ({ sessionCreditCap: 2_000, dailyCreditCap: 2_000 })
   const guardCall = (id: string) => ({ sessionID: "ses_a", agent: "build", messageID: "m1", id })
   const speech = { text: "x".repeat(600) }
-
-  /** One backing store, handed out as a fresh storage object each time: another location, or another OpenCode. */
-  const sharedStore = () => {
-    const stored = new Map<string, unknown>()
-    return {
-      stored,
-      handle: () => ({
-        get: async (key: string) => stored.get(key) as never,
-        set: async (key: string, value: unknown) => {
-          await Promise.resolve()
-          stored.set(key, value)
-        },
-      }),
-    }
-  }
 
   test("a charge that settled is never dropped by the other writer's merge", async () => {
     // d107a11: both writers read an empty record, both set their own, and the store kept 1,200 of the 2,400 that
@@ -544,7 +530,7 @@ describe("RR2-9 — folded credits age from when they were spent", () => {
 
   test("a folded total keeps its own hour through the store", async () => {
     const store = new Map<string, unknown>()
-    const storage = { get: async (key: string) => store.get(key) as never, set: async (key: string, value: unknown) => void store.set(key, value) }
+    const storage = storageOver(store)
     store.set(LEDGER_KEY, {
       entries: [],
       holds: [],
@@ -566,7 +552,7 @@ describe("RR2-9 — folded credits age from when they were spent", () => {
     // only ever lengthens the window a stored total had, which is the side a cap must err on.
     expect(ledger.daily()).toBe(207)
     // A separate storage object is a separate book: this ledger starts empty and learns the buckets from the store.
-    const second = new Ledger({ storage: { get: storage.get, set: storage.set }, now: () => now })
+    const second = new Ledger({ storage: storageOver(store), now: () => now })
     await second.hydrate()
     expect(second.daily()).toBe(207)
     expect(second.spend("ses_b").sessionCredits).toBe(200)

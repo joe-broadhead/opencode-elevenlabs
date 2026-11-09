@@ -90,14 +90,17 @@ price that does not fit is refused before dispatch (`SPEND_CAP_REACHED`).
 A price is **reserved** in the ledger before the call is sent and settled into a charge when its result arrives, so a
 parallel turn cannot spend one budget twice. A call that fails, and a hold still open after ten minutes, is charged the
 reserved price: the plugin cannot tell a free failure from a billed one. A later higher figure may replace that charge.
-A zero or a missing result does not free the budget. Recorded spend is `{ at, credits, sessionID, id }`, with the open
-holds, in `ctx.storage`. Pruning the detail log folds an in-window charge into a total for its session and the hour it
-was spent in, which nothing afterwards can shrink; that total is kept while any minute of its hour is still inside the
-window, so a folded charge counts for up to an hour past its own day, and never less than it. Every write
-re-reads, merges and then reads itself back, rewriting when another writer's set dropped a row, so a charge that
-settled is never lost. Two ledgers handed one storage object share a book and one daily cap, as two locations in one
-OpenCode do. Two OpenCodes on one data directory do not decide together: `ctx.storage` has no compare-and-set, so each
-admits against what it has read, and they only converge on the charge after it is written. The model path re-reads the
-store before it reserves and awaits the hold's write before dispatch; the script path's shaper is synchronous by the
-shared contract and can do neither. Two machines share nothing. Two locations keep their own tools-RPC shapers. On the
-script path, one priced call per session and method is in flight.
+A zero or a missing result does not free the budget. The ledger is append-only: every hold and every charge is one
+`ctx.storage` key, `spend/<writerId>/<entryId>`, where `writerId` is unique to this plugin instance and only the
+instance that created a key ever rewrites it. A total is a scan over `spend/` and a sum — there is no merge, no
+`Math.max` and no read-modify-write of a shared record, so no writer can drop another's row. Pruning folds older
+entries into that writer's own hourly key, `spend/<writerId>/h/<hour>`, and the hours of every writer are added
+together, which cannot double-count because a charge is folded by exactly one writer. A folded hour is kept while any
+minute of its hour is still inside the window, so a folded charge counts for up to an hour past its own day, and never
+less than it. A key is removed only once it is past the window. Two ledgers handed one storage object share a book and
+one daily cap, as two locations in one OpenCode do. Across processes, exactly: **within one process the caps are exact;
+two calls started at the same instant in two processes can exceed a cap by at most one call's reservation; a settled
+charge is never lost.** `reserve` keeps its check and its hold synchronous, with nothing awaited between them, then
+writes the hold's own key and awaits it before dispatch; a failed write takes the hold back out of memory and refuses
+the call. Two machines share nothing. Two locations keep their own tools-RPC shapers. On the script path, one priced
+call per session and method is in flight.

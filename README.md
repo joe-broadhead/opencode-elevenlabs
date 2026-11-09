@@ -68,12 +68,13 @@ Generations are billed in **credits** against the workspace you signed in with.
 - **Caps are on by default.** `sessionCreditCap` is 2,000 credits and `dailyCreditCap` is 10,000, counted over a rolling
   24 hours across sessions, scripts and restarts. A generation that does not fit is refused **before it is sent**, and a
   request for more variations than the budget affords is cut to what fits. Set either to `null` for no cap.
-- **How far a cap reaches.** Every charge is written to this data directory's store, and every charge survives: a reserve
-  and a settle re-read, merge and read their write back, so one writer cannot drop another's. What the cap cannot do is
-  decide across two running OpenCodes at once. `ctx.storage` has no compare-and-set and no lock, so one OpenCode admits a
-  call against what it has read. Two OpenCodes on one data directory, started together, can each admit a call that the
-  other's spending would have refused; the next call in each sees both charges. Inside one OpenCode the cap is exact,
-  parallel turns and locations included. Two machines share nothing: the store cannot see them.
+- **How far a cap reaches.** Every hold and every charge is written to this data directory's store under its own key,
+  which only the OpenCode that created it ever rewrites, and a total is read by scanning those keys and adding them up.
+  Nothing merges two writers' records, so no writer can drop another's charge. What a cap cannot do is decide across two
+  running OpenCodes at once: `ctx.storage` has no compare-and-set and no lock, so each admits a call against what it has
+  read. Exactly: **within one process the caps are exact; two calls started at the same instant in two processes can
+  exceed a cap by at most one call's reservation; a settled charge is never lost.** The next call in each process sees
+  both charges. Two machines share nothing: the store cannot see them.
 - **Image and video are priced by ElevenLabs, not by this plugin.** Their cost depends on the model, the resolution and
   the duration, and ElevenLabs publishes no per-unit figure, so before an image or video generation the plugin asks
   ElevenLabs for a price with `estimate_only: true`. The cost line says "at most" until the live reconcile proves the

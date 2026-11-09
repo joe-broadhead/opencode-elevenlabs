@@ -487,85 +487,115 @@ function parseJson(text: string): unknown {
 // ---------------------------------------------------------------------------------------------------------------
 // The ledger. Amounts, times and the session they belong to, in the plugin's own storage, so a reload, a restart or a
 // scheduled script cannot reset a cap. A reservation is held from before a call is sent until its result settles, so
-// two calls that start together cannot both fit one budget (DR-1). Reservations live in that record, and every writer
-// re-reads and merges before it sets, so two ledgers on one storage share one cap. Two machines do not: the store
-// cannot see them.
+// two calls that start together cannot both fit one budget (DR-1).
+//
+// The store is append-only and single-writer per key. Every hold and every charge is its own key,
+// `spend/<writerId>/<entryId>`, where `writerId` names one plugin instance; only that instance rewrites the keys it
+// created. Totals are a scan of `spend/` and a sum. Nothing merges two writers' views of one record, nothing takes the
+// larger of two figures, and no writer reads a shared record, changes it and writes it back, so no write can drop
+// another writer's charge. Detail keys older than the newest thousand fold into that writer's own hourly totals,
+// `spend/<writerId>/h/<hour>`, which are summed across writers because no two writers share an hour's key.
+//
+// Within one process the caps are exact; two calls started at the same instant in two processes can exceed a cap by at
+// most one call's reservation; a settled charge is never lost.
 // ---------------------------------------------------------------------------------------------------------------
 
+/** The single record this plugin wrote before the ledger became append-only. Read and counted, never written again. */
 export const LEDGER_KEY = "spend.ledger"
+/** Every ledger key sits under this prefix, so one scan reads the whole book. `spend.ledger` sorts before it. */
+export const SPEND_PREFIX = "spend/"
 const WINDOW_MS = 24 * 60 * 60 * 1000
 /** A hold still open after this is settled at the reserved price. Ten minutes is inside a long video; expiry must not free the budget. */
 export const RESERVATION_MS = 10 * 60 * 1000
-/** The detail log is bounded. An in-window charge that no longer fits is folded into a total prune cannot shrink. */
+/** The detail keys one writer keeps. An in-window charge past that folds into an hour's total, which never shrinks. */
 const MAX_ENTRIES = 1_000
 /**
- * How finely a folded total keeps its time (RR2-9). A folded charge loses its own timestamp, so it ages with the bucket
- * it joined: one bucket per hour bounds the over-count at one hour, where one bucket per session bounded it at a day.
+ * How finely a folded total keeps its time (RR2-9). A folded charge loses its own timestamp, so it ages with the hour
+ * it joined: one key per hour bounds the over-count at one hour, where one key per session bounded it at a day.
  */
 const BUCKET_MS = 60 * 60 * 1000
 /** The hour a charge belongs to, as the start of that hour. Folded credits age from here. */
 const bucketOf = (at: number) => Math.floor(at / BUCKET_MS) * BUCKET_MS
-/** How many times a write is read back and rewritten when another writer's set dropped rows of this book's. */
-const PERSIST_ATTEMPTS = 3
+/** Keys per scan page. The store clamps this to 1,000, and one writer's day is far fewer keys than one page. */
+const SCAN_LIMIT = 1_000
+/** A bound on the scan loop, so a store that keeps offering another page cannot hang a call that is about to run. */
+const MAX_SCAN_PAGES = 64
 
-interface Entry {
-  /** When the credits were spent, in epoch milliseconds. */
+/**
+ * One call's key: a hold while it is in flight, the charge it settled at afterwards. Both count the same against a
+ * cap, so a hold that expires, or one belonging to a writer that went away, is never a budget this plugin frees.
+ */
+interface Row {
+  kind: "hold" | "charge"
+  /** When the credits were reserved or spent, in epoch milliseconds. A row ages from here. */
   at: number
   credits: number
   /** The session that spent them, so a reload restores its total too (DR-9). */
   sessionID: string
-  /** Stable across a rewrite, so a merge does not record the same charge twice. */
-  id: string
 }
 
-interface Hold {
-  sessionID: string
-  credits: number
+/** One writer's folded hour: what its detail rows for that hour came to, per session. It ages from `at`. */
+interface Folded {
   at: number
+  bySession: Map<string, number>
 }
 
-/**
- * Credits still inside the window that were folded out of the detail log, one total per session and hour. `at` is the
- * start of that hour, never a charge's own time: a bucket is kept while any minute of it is still inside the window.
- */
-interface Rolled {
-  at: number
-  credits: number
-  sessionID: string
+/** What the pre-append-only record still contributes. Counted while it is in the window; never written. */
+interface Legacy {
+  rows: Array<{ at: number; credits: number; sessionID: string; hourly: boolean }>
 }
-
-/** Whether a folded bucket can still hold credits inside the window: its last minute has not aged out. */
-const bucketLive = (item: Rolled, now: number) => item.at + BUCKET_MS >= now - WINDOW_MS
-
-/** The bucket for a session and hour, matched the one way everywhere a folded total is merged or compared. */
-const sameBucket = (a: { sessionID: string; at: number }, b: { sessionID: string; at: number }) => a.sessionID === b.sessionID && a.at === b.at
 
 interface Book {
-  entries: Entry[]
-  holds: Map<string, Hold>
-  rolled: Rolled[]
-  /** Ids moved into `rolled`, so a re-read of an older record cannot put them back. */
-  folded: Set<string>
+  /** This book's name in the store. Every key it writes starts with it, and no other book writes those keys. */
+  writerId: string
+  /** The rows this book owns, by entry id. Only it rewrites them, and only it folds them. */
+  own: Map<string, Row>
+  /** The hours this book has folded, by the hour they belong to. */
+  folded: Map<number, Map<string, number>>
+  /** What the last scan read under every other writer's row keys, by full key. Counted, never rewritten. */
+  others: Map<string, Row>
+  /** The other writers' folded hours, by full key. Summed with this book's: no two writers share an hour's key. */
+  otherFolded: Map<string, Folded>
+  legacy: Legacy
   chain: Promise<void>
-}
-
-interface StoredLedger {
-  entries: Entry[]
-  holds: Array<Hold & { id: string }>
-  rolled: Rolled[]
 }
 
 /** One book per storage object, so two Ledger instances in this process see each other's holds without waiting. */
 const books = new WeakMap<object, Book>()
 
-const emptyBook = (): Book => ({ entries: [], holds: new Map(), rolled: [], folded: new Set(), chain: Promise.resolve() })
+const emptyBook = (writerId: string): Book => ({
+  writerId,
+  own: new Map(),
+  folded: new Map(),
+  others: new Map(),
+  otherFolded: new Map(),
+  legacy: { rows: [] },
+  chain: Promise.resolve(),
+})
 
-const bookFor = (storage: object): Book => {
+const bookFor = (storage: object, writerId: string): Book => {
   const found = books.get(storage)
   if (found) return found
-  const book = emptyBook()
+  const book = emptyBook(writerId)
   books.set(storage, book)
   return book
+}
+
+/** A row key and an hour key for this writer. An entry id never contains a slash, so the two shapes cannot collide. */
+const rowKey = (writerId: string, entryId: string) => `${SPEND_PREFIX}${writerId}/${entryId}`
+const hourKey = (writerId: string, hour: number) => `${SPEND_PREFIX}${writerId}/h/${hour}`
+
+/** Reads a scanned key back: which writer wrote it, and which hour it totals when it is an hour key. */
+function keyParts(key: string): { writerId: string; hour?: number } | undefined {
+  if (!key.startsWith(SPEND_PREFIX)) return undefined
+  const rest = key.slice(SPEND_PREFIX.length)
+  const slash = rest.indexOf("/")
+  if (slash <= 0 || slash === rest.length - 1) return undefined
+  const writerId = rest.slice(0, slash)
+  const tail = rest.slice(slash + 1)
+  if (!tail.startsWith("h/")) return { writerId }
+  const hour = Number(tail.slice(2))
+  return Number.isSafeInteger(hour) ? { writerId, hour } : undefined
 }
 
 export interface Spend {
@@ -578,16 +608,22 @@ export interface Caps {
   readonly dailyCreditCap: CreditCap
 }
 
-type Storage = Pick<Plugin.Context["storage"], "get" | "set">
+type Storage = Pick<Plugin.Context["storage"], "get" | "set" | "remove" | "scan">
 
 export interface LedgerInput {
   readonly storage?: Storage
   readonly now?: () => number
+  /**
+   * The name this book writes its keys under. One is generated per storage object, so two locations and two OpenCode
+   * processes never share one; a test sets it to stage two writers it can name.
+   */
+  readonly writerId?: string
 }
 
 /** The ledger both paths share: the model's hooks and a script's shapers reserve, settle and record the same totals. */
 export class Ledger {
-  private readonly local = emptyBook()
+  private readonly local: Book
+  private readonly writerId: string
   private readonly remembered = new Map<string, { price: Price; at: number }>()
   /** This ledger's clock, public so a caller that ages its own bookkeeping ages it on the same clock the holds use. */
   readonly now: () => number
@@ -598,39 +634,65 @@ export class Ledger {
   constructor(input: LedgerInput = {}) {
     this.storage = input.storage
     this.now = input.now ?? (() => Date.now())
+    this.writerId = input.writerId ?? randomUUID()
+    this.local = emptyBook(this.writerId)
   }
 
-  /** The book this ledger writes. Two instances on one storage object share it. */
+  /** The book this ledger writes. Two instances on one storage object share it, and share its writer name. */
   private book(): Book {
-    return this.storage ? bookFor(this.storage) : this.local
+    return this.storage ? bookFor(this.storage, this.writerId) : this.local
   }
 
-  /** Reads the stored ledger once, merging into the shared book. A storage failure leaves the totals as they are. */
+  /** Reads the store once. A storage failure leaves the totals as they are. */
   hydrate(): Promise<void> {
     this.hydrated ??= this.refresh()
     return this.hydrated
   }
 
   /**
-   * Re-reads the stored ledger and merges it in, so a decision about to be made sees what another writer has already
-   * recorded. `hydrate` does this once; a path that can await does it again before it reserves.
+   * Scans `spend/` and rebuilds what the other writers hold, so a decision about to be made sees every charge and hold
+   * already in the store. This book's own rows are never read back: it is their only writer, and its memory is ahead
+   * of the store by at most the write in flight.
    */
   refresh(): Promise<void> {
-    return this.enqueue(async (book) => {
-      if (!this.storage) return
-      unionInto(book, parseStored(await this.storage.get(LEDGER_KEY)), this.now())
+    const book = this.book()
+    return this.enqueue(async () => {
+      const storage = this.storage
+      if (!storage) return
+      const others = new Map<string, Row>()
+      const otherFolded = new Map<string, Folded>()
+      let after: string | undefined
+      for (let page = 0; page < MAX_SCAN_PAGES; page++) {
+        const result = await storage.scan({ prefix: SPEND_PREFIX, after, limit: SCAN_LIMIT })
+        for (const entry of result.entries) {
+          const parts = keyParts(entry.key)
+          if (!parts || parts.writerId === book.writerId) continue
+          if (parts.hour === undefined) {
+            const row = parseRow(entry.value)
+            if (row) others.set(entry.key, row)
+            continue
+          }
+          const bySession = parseHour(entry.value)
+          if (bySession) otherFolded.set(entry.key, { at: parts.hour, bySession })
+        }
+        if (result.next === undefined || result.entries.length === 0) break
+        after = result.next
+      }
+      book.others = others
+      book.otherFolded = otherFolded
+      book.legacy = parseLegacy(await storage.get(LEDGER_KEY))
     })
   }
 
   /** The credits spent in the last 24 hours, reservations and folded totals included. */
   daily(): number {
     this.prune()
-    return total(this.book(), undefined)
+    return total(this.book(), undefined, this.now())
   }
 
   session(sessionID: string): number {
     this.prune()
-    return total(this.book(), sessionID)
+    return total(this.book(), sessionID, this.now())
   }
 
   spend(sessionID: string): Spend {
@@ -638,10 +700,11 @@ export class Ledger {
   }
 
   /**
-   * Holds `credits` for a call before it is sent, and refuses when it does not fit. Nothing awaits between the check and
-   * the hold, so two calls that start together cannot both pass: the second sees the first's reservation, including one
-   * held by another ledger on the same storage. Returns the write that puts the hold in the store, for a caller that
-   * can await it before the call is dispatched; a caller that cannot leaves a window in which a crash loses the hold.
+   * Holds `credits` for a call before it is sent, and refuses when it does not fit. Nothing awaits between the check
+   * and the hold, so two calls that start together in this process cannot both pass: the second sees the first's
+   * reservation, including one held by another ledger on the same storage (DR-1). The returned promise is the hold's
+   * own key reaching the store; a caller that can await it does so before the call is dispatched, and a write that
+   * fails takes the hold back out of memory and refuses the call rather than spend against a cap it cannot keep.
    */
   reserve(id: string, sessionID: string, credits: number, caps: Caps): Promise<void> {
     if (!(credits > 0)) {
@@ -657,54 +720,58 @@ export class Ledger {
         RAISE,
       )
     }
-    this.book().holds.set(id, { sessionID, credits, at: this.now() })
-    return this.persist()
+    const book = this.book()
+    const row: Row = { kind: "hold", at: this.now(), credits, sessionID }
+    book.own.set(id, row)
+    return this.writeRow(book, id, row, () => {
+      if (book.own.get(id) === row) book.own.delete(id)
+    })
   }
 
   /** The reservation a call holds, if any. */
   reservation(id: string) {
-    return this.book().holds.get(id)
+    const row = this.book().own.get(id)
+    return row?.kind === "hold" ? row : undefined
   }
 
   /**
-   * Turns a reservation into a recorded charge. Never below the reserved price unless `attested` is set: a zero, a
-   * missing result or a prose figure must not free the budget. A higher figure replaces the settlement.
+   * Turns a reservation into a recorded charge, on the hold's own key. Never below the reserved price unless
+   * `attested` is set: a zero, a missing result or a prose figure must not free the budget. A higher figure replaces
+   * the settlement, and a repeat settlement reads the recorded charge as its floor.
    */
   settle(id: string, sessionID: string, credits: number, attested = false): Spend {
     const book = this.book()
-    const held = book.holds.get(id)
-    book.holds.delete(id)
-    const existing = book.entries.find((entry) => entry.id === id)
-    const floor = Math.max(held?.credits ?? 0, existing?.credits ?? 0)
+    const held = book.own.get(id)
+    const floor = held?.credits ?? 0
     const charge = credits > floor ? credits : attested && credits > 0 ? credits : floor
-    if (existing) {
-      if (charge > 0 && charge !== existing.credits) {
-        existing.credits = charge
-        void this.persist()
-      }
-      return this.spend(sessionID)
+    if (charge > 0 && !(held?.kind === "charge" && held.credits === charge)) {
+      const row: Row = { kind: "charge", at: held?.at ?? this.now(), credits: charge, sessionID }
+      book.own.set(id, row)
+      this.store(this.writeRow(book, id, row))
+    } else if (charge <= 0 && held) {
+      book.own.delete(id)
+      this.store(this.removeKey(book, rowKey(book.writerId, id)))
     }
-    if (charge > 0) {
-      book.entries.push({ at: held?.at ?? this.now(), credits: charge, sessionID, id })
-      this.prune()
-      void this.persist()
-    }
+    this.prune()
     return this.spend(sessionID)
   }
 
   /** A failure settles the reserved price. It does not free the budget: a billed error and a free one look the same. */
   release(id: string) {
-    const held = this.book().holds.get(id)
+    const held = this.reservation(id)
     if (!held) return
     this.settle(id, held.sessionID, held.credits)
   }
 
-  /** Records a completed call. The memory total moves at once; the stored copy follows, one write at a time. */
+  /** Records a completed call. The memory total moves at once; its own key follows, one write at a time. */
   record(sessionID: string, credits: number, at = this.now()): Spend {
     if (credits > 0) {
-      this.book().entries.push({ at, credits, sessionID, id: randomUUID() })
+      const book = this.book()
+      const id = randomUUID()
+      const row: Row = { kind: "charge", at, credits, sessionID }
+      book.own.set(id, row)
+      this.store(this.writeRow(book, id, row))
       this.prune()
-      void this.persist()
     }
     return this.spend(sessionID)
   }
@@ -721,85 +788,142 @@ export class Ledger {
     return this.now() - found.at > 10 * 60 * 1000 ? undefined : found.price
   }
 
-  /** Forgets everything. The tests use it. */
+  /** Forgets everything this book holds in memory. The tests use it. */
   reset() {
     const book = this.book()
-    book.entries = []
-    book.holds.clear()
-    book.rolled = []
+    book.own.clear()
     book.folded.clear()
+    book.others.clear()
+    book.otherFolded.clear()
+    book.legacy = { rows: [] }
     this.remembered.clear()
   }
 
   /**
-   * Drops entries past the window. An expired hold is settled at the reserved price, not deleted. An in-window charge
-   * that would be sliced off the detail log is folded into a total instead.
+   * Ages the book. An expired hold becomes the charge it reserved, on its own key. A row past the window loses its
+   * key, which is the one thing that removes a key: a key inside the window is only ever rewritten by its own writer,
+   * or folded, and a fold writes the hour's total before it removes the detail it came from.
    */
   private prune() {
     const book = this.book()
     const now = this.now()
-    let changed = false
-    for (const [id, held] of [...book.holds]) {
-      if (held.at >= now - RESERVATION_MS) continue
-      book.holds.delete(id)
-      const existing = book.entries.find((entry) => entry.id === id)
-      if (existing) {
-        if (held.credits > existing.credits) existing.credits = held.credits
-      } else book.entries.push({ at: held.at, credits: held.credits, sessionID: held.sessionID, id })
-      changed = true
+    const horizon = now - WINDOW_MS
+    for (const [id, row] of [...book.own]) {
+      if (row.at < horizon) {
+        book.own.delete(id)
+        this.store(this.removeKey(book, rowKey(book.writerId, id)))
+        continue
+      }
+      if (row.kind === "hold" && row.at < now - RESERVATION_MS) {
+        const charge: Row = { kind: "charge", at: row.at, credits: row.credits, sessionID: row.sessionID }
+        book.own.set(id, charge)
+        this.store(this.writeRow(book, id, charge))
+      }
     }
-    const inWindow = book.entries.filter((entry) => entry.at >= now - WINDOW_MS)
-    if (inWindow.length !== book.entries.length) changed = true
-    book.entries = inWindow
-    const rolled = book.rolled.filter((item) => bucketLive(item, now))
-    if (rolled.length !== book.rolled.length) changed = true
-    book.rolled = rolled
-    if (book.entries.length > MAX_ENTRIES) {
-      for (const entry of book.entries.slice(0, book.entries.length - MAX_ENTRIES)) fold(book, entry)
-      book.entries = book.entries.slice(-MAX_ENTRIES)
-      changed = true
+    for (const hour of [...book.folded.keys()]) {
+      if (hour + BUCKET_MS >= horizon) continue
+      book.folded.delete(hour)
+      this.store(this.removeKey(book, hourKey(book.writerId, hour)))
     }
-    if (changed) void this.persist()
+    // Another writer's key is never rewritten, but once it is past the window it holds nothing any cap counts, and
+    // leaving it would grow the scan without bound across restarts, each of which is a new writer.
+    for (const [key, row] of [...book.others]) {
+      if (row.at >= horizon) continue
+      book.others.delete(key)
+      this.store(this.removeKey(book, key))
+    }
+    for (const [key, folded] of [...book.otherFolded]) {
+      if (folded.at + BUCKET_MS >= horizon) continue
+      book.otherFolded.delete(key)
+      this.store(this.removeKey(book, key))
+    }
+    if (book.legacy.rows.length > 0) {
+      const live = book.legacy.rows.filter((row) => (row.hourly ? row.at + BUCKET_MS >= horizon : row.at >= horizon))
+      if (live.length === 0) {
+        book.legacy = { rows: [] }
+        this.store(this.removeKey(book, LEDGER_KEY))
+      } else book.legacy = { rows: live }
+    }
+    const excess = book.own.size - MAX_ENTRIES
+    if (excess <= 0) return
+    const settled = [...book.own].filter(([, row]) => row.kind === "charge").sort((a, b) => a[1].at - b[1].at)
+    const hours = new Set<number>()
+    const detail: string[] = []
+    for (const [id, row] of settled.slice(0, excess)) {
+      const hour = bucketOf(row.at)
+      const bySession = book.folded.get(hour) ?? new Map<string, number>()
+      bySession.set(row.sessionID, (bySession.get(row.sessionID) ?? 0) + row.credits)
+      book.folded.set(hour, bySession)
+      book.own.delete(id)
+      hours.add(hour)
+      detail.push(rowKey(book.writerId, id))
+    }
+    this.store(this.writeFold(book, hours, detail))
   }
 
   /**
-   * Re-reads and merges before set, on one chain per storage, so two writers cannot drop each other's charges or holds.
-   * One chain only covers writers that share a book. Two storage objects over one store — two locations, or two
-   * OpenCode processes on one data directory — have two chains, and a set that lands between another writer's read and
-   * its own set would drop the rows it had just merged. `ctx.storage` offers `get`, `set`, `remove` and `scan` and no
-   * compare-and-set, so the write is read back: when the record no longer holds a row of this book's, the other
-   * writer's record is merged in and written again. A charge that settled is never lost to another writer's merge.
+   * Writes the hours a fold touched, then removes the detail keys they now hold, as one piece of work on the chain.
+   * That order is deliberate: a crash between the two can only count a charge twice, which refuses more calls, never
+   * fewer. The other order would lose one.
    */
-  private persist(): Promise<void> {
-    return this.enqueue(async (book) => {
-      if (!this.storage) return
-      for (let attempt = 0; attempt < PERSIST_ATTEMPTS; attempt++) {
-        unionInto(book, parseStored(await this.storage.get(LEDGER_KEY)), this.now())
-        await this.storage.set(LEDGER_KEY, serialize(book))
-        if (storedHas(book, parseStored(await this.storage.get(LEDGER_KEY)), this.now())) return
+  private writeFold(book: Book, hours: Set<number>, detail: readonly string[]): Promise<void> {
+    return this.enqueue(async () => {
+      const storage = this.storage
+      if (!storage) return
+      for (const hour of hours) {
+        const bySession = book.folded.get(hour)
+        if (bySession) await storage.set(hourKey(book.writerId, hour), { at: hour, sessions: Object.fromEntries(bySession) })
       }
+      for (const key of detail) await storage.remove(key)
     })
   }
 
-  /** Serialises a read-modify-write on this storage. A ledger with no storage runs the work at once. */
-  private enqueue(work: (book: Book) => Promise<void>): Promise<void> {
-    const book = this.book()
-    if (!this.storage) {
-      const run = book.chain.then(() => work(book)).then(() => undefined, () => undefined)
-      book.chain = run
-      this.writing = run
-      return run
-    }
-    const run = book.chain.then(async () => {
+  /** Writes one row's own key. No other writer touches it, so there is nothing to merge and nothing to read back. */
+  private writeRow(book: Book, id: string, row: Row, undo?: () => void): Promise<void> {
+    return this.enqueue(async () => {
+      const storage = this.storage
+      if (!storage) return
       try {
-        await work(book)
-      } catch {
-        // The in-memory total still bounds this process; a storage failure must not fail a generation that already ran.
+        await storage.set(rowKey(book.writerId, id), { kind: row.kind, at: row.at, credits: row.credits, sessionID: row.sessionID })
+      } catch (error) {
+        undo?.()
+        throw error
       }
+    }, undo !== undefined)
+  }
+
+  private removeKey(_book: Book, key: string): Promise<void> {
+    return this.enqueue(async () => {
+      await this.storage?.remove(key)
     })
-    book.chain = run
-    this.writing = run
-    return run
+  }
+
+  /**
+   * Runs one piece of storage work, in order, on the chain this book shares. A failure is swallowed unless the caller
+   * asked to hear about it: the in-memory total still bounds this process, and a write that failed after a generation
+   * already ran must not turn into an error the caller sees instead of its result.
+   */
+  private enqueue(work: () => Promise<void>, raise = false): Promise<void> {
+    const book = this.book()
+    const run = book.chain.then(work)
+    book.chain = run.then(
+      () => undefined,
+      () => undefined,
+    )
+    this.writing = book.chain
+    if (!raise) return book.chain
+    return run.catch((error: unknown) => {
+      throw new SpendRefused(
+        "SPEND_CAP_REACHED",
+        `this call's reservation could not be written to the plugin's storage (${message(error)}), so the call was refused rather than spent against a cap this plugin could no longer keep.`,
+        "Check that OpenCode can write its data directory, then run the call again.",
+      )
+    })
+  }
+
+  /** Keeps a fire-and-forget write off the unhandled-rejection path. The chain itself never rejects. */
+  private store(work: Promise<void>) {
+    void work.catch(() => undefined)
   }
 
   /** Waits for the writes in flight. The tests use it. */
@@ -808,128 +932,74 @@ export class Ledger {
   }
 }
 
-const total = (book: Book, sessionID: string | undefined) => {
-  const own = (item: { sessionID: string }) => sessionID === undefined || item.sessionID === sessionID
-  const spent = book.entries.reduce((sum, entry) => sum + (own(entry) ? entry.credits : 0), 0)
-  const folded = book.rolled.reduce((sum, item) => sum + (own(item) ? item.credits : 0), 0)
-  const reserved = [...book.holds.values()].reduce((sum, held) => sum + (own(held) ? held.credits : 0), 0)
-  return spent + folded + reserved
+/** Every live row, every live folded hour and whatever the old record still holds, added up. No figure is taken over another. */
+function total(book: Book, sessionID: string | undefined, now: number): number {
+  const horizon = now - WINDOW_MS
+  const mine = (id: string) => sessionID === undefined || id === sessionID
+  let sum = 0
+  for (const row of book.own.values()) if (row.at >= horizon && mine(row.sessionID)) sum += row.credits
+  for (const row of book.others.values()) if (row.at >= horizon && mine(row.sessionID)) sum += row.credits
+  for (const [hour, bySession] of book.folded) if (hour + BUCKET_MS >= horizon) sum += hourTotal(bySession, sessionID)
+  for (const folded of book.otherFolded.values()) if (folded.at + BUCKET_MS >= horizon) sum += hourTotal(folded.bySession, sessionID)
+  for (const row of book.legacy.rows) {
+    const live = row.hourly ? row.at + BUCKET_MS >= horizon : row.at >= horizon
+    if (live && mine(row.sessionID)) sum += row.credits
+  }
+  return sum
+}
+
+const hourTotal = (bySession: Map<string, number>, sessionID: string | undefined) => {
+  if (sessionID !== undefined) return bySession.get(sessionID) ?? 0
+  let sum = 0
+  for (const credits of bySession.values()) sum += credits
+  return sum
+}
+
+function parseRow(value: unknown): Row | undefined {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined
+  const row = value as Record<string, unknown>
+  if (typeof row.at !== "number" || typeof row.credits !== "number" || typeof row.sessionID !== "string") return undefined
+  return { kind: row.kind === "hold" ? "hold" : "charge", at: row.at, credits: row.credits, sessionID: row.sessionID }
+}
+
+function parseHour(value: unknown): Map<string, number> | undefined {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined
+  const sessions = (value as Record<string, unknown>).sessions
+  if (sessions === null || typeof sessions !== "object" || Array.isArray(sessions)) return undefined
+  const bySession = new Map<string, number>()
+  for (const [sessionID, credits] of Object.entries(sessions as Record<string, unknown>)) {
+    if (typeof credits === "number" && Number.isFinite(credits)) bySession.set(sessionID, credits)
+  }
+  return bySession
 }
 
 /**
- * Moves one charge out of the detail log into its session's total for the hour it was spent (RR2-9). The bucket's time
- * never moves: a charge folded now joins the hour it happened in, so it ages out when that hour does, rather than when
- * the newest charge that happened to share its bucket does.
+ * The record written before the ledger became append-only: its charges, its holds and its folded totals, read as rows
+ * that still count. A total written before the hourly keys holds the newest folded charge's own time; rounding it to
+ * its hour only ever lengthens the window it had, which is the side a cap must err on.
  */
-const fold = (book: Book, entry: Entry) => {
-  book.folded.add(entry.id)
-  const at = bucketOf(entry.at)
-  const existing = book.rolled.find((item) => sameBucket(item, { sessionID: entry.sessionID, at }))
-  if (!existing) book.rolled.push({ at, credits: entry.credits, sessionID: entry.sessionID })
-  else existing.credits += entry.credits
-}
-
-const serialize = (book: Book) => ({
-  entries: book.entries.map((entry) => ({ at: entry.at, credits: entry.credits, sessionID: entry.sessionID, id: entry.id })),
-  holds: [...book.holds].map(([id, held]) => ({ id, at: held.at, credits: held.credits, sessionID: held.sessionID })),
-  rolled: book.rolled.map((item) => ({ at: item.at, credits: item.credits, sessionID: item.sessionID })),
-})
-
-const parseStored = (stored: unknown): StoredLedger => {
-  if (Array.isArray(stored)) return { entries: parseEntries(stored), holds: [], rolled: [] }
-  if (stored === null || typeof stored !== "object") return { entries: [], holds: [], rolled: [] }
-  const record = stored as Record<string, unknown>
-  return { entries: parseEntries(record.entries), holds: parseHolds(record.holds), rolled: parseRolled(record.rolled) }
-}
-
-const parseEntries = (value: unknown): Entry[] =>
-  Array.isArray(value)
-    ? value.flatMap((item, index) => {
-        if (item === null || typeof item !== "object") return []
-        const entry = item as Record<string, unknown>
-        if (typeof entry.at !== "number" || typeof entry.credits !== "number" || typeof entry.sessionID !== "string") return []
-        const id = typeof entry.id === "string" ? entry.id : `${entry.at}:${entry.credits}:${entry.sessionID}:${index}`
-        return [{ at: entry.at, credits: entry.credits, sessionID: entry.sessionID, id }]
-      })
-    : []
-
-const parseHolds = (value: unknown): StoredLedger["holds"] =>
-  Array.isArray(value)
-    ? value.flatMap((item) => {
-        if (item === null || typeof item !== "object") return []
-        const hold = item as Record<string, unknown>
-        return typeof hold.id === "string" && typeof hold.at === "number" && typeof hold.credits === "number" && typeof hold.sessionID === "string"
-          ? [{ id: hold.id, at: hold.at, credits: hold.credits, sessionID: hold.sessionID }]
-          : []
-      })
-    : []
-
-const parseRolled = (value: unknown): Rolled[] =>
-  Array.isArray(value)
-    ? value.flatMap((item) => {
-        if (item === null || typeof item !== "object") return []
-        const rolled = item as Record<string, unknown>
-        // A record written before the hourly buckets holds the newest folded charge's own time; rounding it to its
-        // hour makes it one of this book's buckets, and the keep rule never shortens the window it had.
-        return typeof rolled.at === "number" && typeof rolled.credits === "number" && typeof rolled.sessionID === "string"
-          ? [{ at: bucketOf(rolled.at), credits: rolled.credits, sessionID: rolled.sessionID }]
-          : []
-      })
-    : []
-
-/**
- * Whether a record read back from the store still holds every in-window row of this book: its charges at no less than
- * this book's figure, each live hold either still held or already settled into a charge, and each folded total at no
- * less than this book's. False means another writer set the record between this book's read and its set.
- */
-function storedHas(book: Book, stored: StoredLedger, now: number): boolean {
-  const entries = new Map(stored.entries.map((entry) => [entry.id, entry.credits]))
-  for (const entry of book.entries) {
-    if (entry.at < now - WINDOW_MS) continue
-    const found = entries.get(entry.id)
-    if (found === undefined || found < entry.credits) return false
-  }
-  const holds = new Map(stored.holds.map((hold) => [hold.id, hold.credits]))
-  for (const [id, held] of book.holds) {
-    const found = holds.get(id) ?? entries.get(id)
-    if (found === undefined || found < held.credits) return false
-  }
-  for (const item of book.rolled) {
-    if (!bucketLive(item, now)) continue
-    const found = stored.rolled.find((other) => sameBucket(other, item))
-    if (found === undefined || found.credits < item.credits) return false
-  }
-  return true
-}
-
-/** Adds what storage has and this book does not. Never restores a folded charge, an expired row, or a settled hold. */
-function unionInto(book: Book, stored: StoredLedger, now: number) {
-  for (const entry of stored.entries) {
-    if (entry.at < now - WINDOW_MS || book.folded.has(entry.id)) continue
-    const existing = book.entries.find((item) => item.id === entry.id)
-    if (!existing) book.entries.push(entry)
-    else if (entry.credits > existing.credits) existing.credits = entry.credits
-  }
-  for (const hold of stored.holds) {
-    if (book.entries.some((entry) => entry.id === hold.id) || book.folded.has(hold.id)) {
-      book.holds.delete(hold.id)
-      continue
+function parseLegacy(stored: unknown): Legacy {
+  const rows: Legacy["rows"] = []
+  const take = (value: unknown, hourly: boolean) => {
+    if (!Array.isArray(value)) return
+    for (const item of value) {
+      if (item === null || typeof item !== "object") continue
+      const row = item as Record<string, unknown>
+      if (typeof row.at !== "number" || typeof row.credits !== "number" || typeof row.sessionID !== "string") continue
+      rows.push({ at: hourly ? bucketOf(row.at) : row.at, credits: row.credits, sessionID: row.sessionID, hourly })
     }
-    if (hold.at < now - RESERVATION_MS) {
-      book.entries.push({ at: hold.at, credits: hold.credits, sessionID: hold.sessionID, id: hold.id })
-      continue
-    }
-    if (!book.holds.has(hold.id)) book.holds.set(hold.id, { sessionID: hold.sessionID, credits: hold.credits, at: hold.at })
   }
-  for (const rolled of stored.rolled) {
-    if (!bucketLive(rolled, now)) continue
-    const existing = book.rolled.find((item) => sameBucket(item, rolled))
-    // Two books fold different charges into one hour, so the totals overlap by an unknown amount: the larger is kept,
-    // as it always was. Summing would count a charge both books folded twice.
-    if (!existing) book.rolled.push({ ...rolled })
-    else existing.credits = Math.max(existing.credits, rolled.credits)
+  if (Array.isArray(stored)) take(stored, false)
+  else if (stored !== null && typeof stored === "object") {
+    const record = stored as Record<string, unknown>
+    take(record.entries, false)
+    take(record.holds, false)
+    take(record.rolled, true)
   }
+  return { rows }
 }
+
+const message = (error: unknown) => (error instanceof Error ? error.message : String(error))
 
 /** A call's price key: the tool and its arguments, so a different prompt is a different price. */
 const keyOf = (tool: string, input: Record<string, unknown>) => {
@@ -1129,8 +1199,9 @@ function quoteSync(context: Omit<GuardInput, "estimate">, tool: string, args: Re
   if (price === undefined || !(price.credits > 0)) throw unknownPrice(tool, priced(tool), priceObstacle(tool, args))
   price = clamp(price, caps, args, context.ledger.spend(call.sessionID))
   // Synchronous by the shared shaper contract: this path cannot await the store before the call is dispatched, so it
-  // decides from this process's book and the write follows. See the residual in SECURITY.md.
-  void context.ledger.reserve(call.id, call.sessionID, price.credits, caps)
+  // decides from this process's book and the write follows. A write that fails therefore cannot refuse a call that has
+  // already gone out; the in-memory hold still bounds this process. See the residual in SECURITY.md.
+  void context.ledger.reserve(call.id, call.sessionID, price.credits, caps).catch(() => undefined)
   return { price, tracked: true }
 }
 

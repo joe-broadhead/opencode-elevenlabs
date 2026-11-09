@@ -5,6 +5,7 @@ import { join } from "node:path"
 import { ALL_TOOLS, SPEND_ANY, mustPrice } from "../../src/elevenlabs-tools.js"
 import { priceOf, quoteCall, quoteCallSync, Ledger, SpendRefused } from "../../src/billing.js"
 import { SAVE_ACTION, runSaveMedia } from "../../src/media/tool.js"
+import { sharedStore } from "../fixtures/store.js"
 
 const root = mkdtempSync(join(tmpdir(), "elevenlabs-guard-"))
 afterAll(() => rmSync(root, { recursive: true, force: true }))
@@ -44,10 +45,7 @@ describe("nothing that may spend runs unguarded (DR-3)", () => {
 })
 
 describe("two ledgers handed one storage object share one cap", () => {
-  const stored = () => {
-    const records = new Map<string, unknown>()
-    return { records, handle: () => ({ get: async (key: string) => records.get(key) as never, set: async (key: string, value: unknown) => void records.set(key, value) }) }
-  }
+  const stored = sharedStore
 
   test("a reservation in one ledger is visible to the other at once", () => {
     // One storage object is one location in one OpenCode: the two ledgers share a book, so the second sees the first's

@@ -9,6 +9,7 @@ import { creativeGuardSentence } from "../../src/elevenlabs-tools.js"
 import { shapersFor } from "../../src/host/tools-rpc.js"
 import { defaultRules, evaluate } from "../../src/permissions.js"
 import type { Rule } from "../../src/permissions.js"
+import { storageOver } from "../fixtures/store.js"
 
 const repo = fileURLToPath(new URL("../..", import.meta.url))
 
@@ -22,13 +23,14 @@ const allow = (action: string): Rule => ({ action, resource: "*", effect: "allow
 
 const storage = () => {
   const stored = new Map<string, unknown>()
-  return {
-    stored,
-    get: async (key: string) => stored.get(key) as never,
-    set: async (key: string, value: unknown) => void stored.set(key, value),
-    remove: async () => {},
-    scan: async () => ({ entries: [] as never[] }),
-  }
+  return { stored, ...storageOver(stored) }
+}
+
+/** What a restart reads: the whole store as it stands on disk, which the append-only ledger spreads over many keys. */
+const coldCopy = (store: { stored: Map<string, unknown> }) => {
+  const cold = storage()
+  for (const [key, value] of store.stored) cold.stored.set(key, structuredClone(value))
+  return cold
 }
 
 describe("a caller-typed number cannot set a low price", () => {
@@ -178,10 +180,7 @@ describe("one daily cap in the store", () => {
     expect(() => quoteCallSync({ ledger: second, caps: () => caps(2000, 2000) }, "creative_generate_speech", { text: "x".repeat(600) }, call("b", "ses_b"))).toThrow(SpendRefused)
     first.settle("a", "ses_a", 1200)
     await first.flush()
-    const saved = structuredClone(store.stored.get("spend.ledger"))
-    const cold = storage()
-    cold.stored.set("spend.ledger", saved)
-    const restarted = new Ledger({ storage: cold })
+    const restarted = new Ledger({ storage: coldCopy(store) })
     await restarted.hydrate()
     expect(restarted.daily()).toBe(1200)
     expect(restarted.session("ses_a")).toBe(1200)
@@ -198,9 +197,7 @@ describe("one daily cap in the store", () => {
     second.record("ses_b", 250)
     await first.flush()
     await second.flush()
-    const cold = storage()
-    cold.stored.set("spend.ledger", structuredClone(store.stored.get("spend.ledger")))
-    const restarted = new Ledger({ storage: cold })
+    const restarted = new Ledger({ storage: coldCopy(store) })
     await restarted.hydrate()
     expect(restarted.daily()).toBe(350)
     expect(restarted.session("ses_a")).toBe(100)

@@ -43,15 +43,15 @@ Report privately through GitHub's private vulnerability reporting on
   agent can spend. Running an agent test (`agents_create_test`) may also bill the agent's LLM usage; that is not capped
   until the live reconcile. The plugin prices each call before sending it, reserves the price, and prints a cost line;
   the caps (`sessionCreditCap`, `dailyCreditCap`) are the only bound, and they bound this plugin, not your account.
-- **What a cap cannot decide.** A cap is exact inside one OpenCode, parallel turns and locations included, and every
-  charge it writes survives another writer's merge. It is not a lock: `ctx.storage` offers `get`, `set`, `remove` and
-  `scan`, and no compare-and-set, so two OpenCodes running at once on one data directory each admit against what they
-  have read and can together go over the cap by about one call each before they see each other's charges. The model
-  path narrows that window — it re-reads the store before it reserves, and the hold reaches the store before the call
-  is dispatched. The script path cannot: the shared shaper contract is synchronous, so its reservation is written one
-  tick after the call goes out, and a crash inside that tick loses the hold for a call that ran. Set the caps with the
-  bound you can afford to be crossed once per extra OpenCode, not as a hard limit on the account; the account's own
-  limits are at ElevenLabs. A cap also binds one server entry: the `elevenlabs` entry this plugin manages. A second MCP
+- **What a cap cannot decide.** Exactly: **within one process the caps are exact; two calls started at the same instant
+  in two processes can exceed a cap by at most one call's reservation; a settled charge is never lost.** A cap is not a
+  lock: `ctx.storage` offers `get`, `set`, `remove` and `scan`, and no compare-and-set, so two OpenCodes running at once
+  on one data directory each admit against what they have read. Nothing is lost to that race, because every hold and
+  every charge has its own key that only its own OpenCode rewrites and a total is a scan and a sum, not a merge. The
+  check and the hold are taken in memory with nothing awaited between them, so two calls in one process cannot both
+  pass; the hold's key is then written and awaited before the call is dispatched, and a write that fails refuses the
+  call. Set the caps with the bound you can afford to be crossed once per extra OpenCode, not as a hard limit on the
+  account; the account's own limits are at ElevenLabs. A cap also binds one server entry: the `elevenlabs` entry this plugin manages. A second MCP
   entry pointing at ElevenLabs under another name serves its tools under that name's prefix, which this plugin's hooks
   never see, so its calls are priced by nothing here. `/elevenlabs-status` names such an entry when one exists.
 - **Change live agents.** `agents_update` publishes straight to the branch it targets, `main` by default. It is not

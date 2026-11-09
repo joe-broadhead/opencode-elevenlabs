@@ -1,21 +1,28 @@
 // Reproductions from the third re-review. Each one failed at 96db0ed and must pass after the fix.
 import { afterAll, describe, expect, test } from "bun:test"
-import { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs"
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { fileURLToPath } from "node:url"
 import {
   Ledger,
   measureAudio,
   priceOf,
+  quoteCall,
   quoteCallSync,
   RATES,
   RESERVATION_MS,
   settlementOf,
+  SPEND_PREFIX,
   SpendRefused,
   transcriptionPrice,
 } from "../../src/billing.js"
 import { shapersFor } from "../../src/host/tools-rpc.js"
+import { sharedStore, storageOver } from "../fixtures/store.js"
 import { buildMp4, buildWav, hostileChunkSize, WAV_FIXTURES, zeroSizeChunks } from "../fixtures/wav.js"
+
+const HOUR = 60 * 60 * 1_000
+const ROOT = fileURLToPath(new URL("../..", import.meta.url))
 
 const root = mkdtempSync(join(tmpdir(), "elevenlabs-rr3-"))
 afterAll(() => rmSync(root, { recursive: true, force: true }))
@@ -303,4 +310,186 @@ describe("RR3-1 — a hostile file neither hangs nor reads past its own end", ()
     expect(measureAudio({ path: many })?.durationSeconds).toBe(1)
     expect(performance.now() - started).toBeLessThan(1_000)
   })
+})
+
+describe("RR3-4 — one key per record, one writer per key, so no settled charge is lost", () => {
+  const caps = { sessionCreditCap: 100_000, dailyCreditCap: 100_000 }
+
+  /** A store whose writes wait until the test lets each one through, so two writers' order can be chosen. */
+  const gatedStore = () => {
+    const stored = new Map<string, unknown>()
+    const waiting = new Map<string, Array<() => void>>()
+    return {
+      stored,
+      handle: (who: string) => {
+        const base = storageOver(stored)
+        const gate = () =>
+          new Promise<void>((resolve) => {
+            const queue = waiting.get(who) ?? []
+            queue.push(resolve)
+            waiting.set(who, queue)
+          })
+        return {
+          ...base,
+          set: async (key: string, value: unknown) => {
+            await gate()
+            await base.set(key, value)
+          },
+          remove: async (key: string) => {
+            await gate()
+            await base.remove(key)
+          },
+        }
+      },
+      /** Lets one of that writer's waiting writes land. False when it has none waiting. */
+      release: async (who: string) => {
+        const next = waiting.get(who)?.shift()
+        if (!next) return false
+        next()
+        await Bun.sleep(0)
+        return true
+      },
+    }
+  }
+
+  test("two writers' settled charges both survive, in all sixteen write orderings", async () => {
+    // 96db0ed: each writer read the record, merged its own rows in and set the whole thing back, then checked only
+    // that its own rows had landed. In four of these orderings the store kept 500 of the 1,200 that was spent, and no
+    // later flush and no cold restart recovered it.
+    for (let order = 0; order < 16; order++) {
+      const store = gatedStore()
+      const a = new Ledger({ storage: store.handle("A"), writerId: "A", now: () => 0 })
+      const b = new Ledger({ storage: store.handle("B"), writerId: "B", now: () => 0 })
+      await Promise.all([a.hydrate(), b.hydrate()])
+      const writes = [a.reserve("a1", "ses_a", 500, caps), b.reserve("b1", "ses_a", 700, caps)]
+      a.settle("a1", "ses_a", 500)
+      b.settle("b1", "ses_a", 700)
+      await Bun.sleep(0)
+      for (let step = 0; step < 4; step++) {
+        const first = ((order >> step) & 1) === 1 ? "B" : "A"
+        if (!(await store.release(first))) await store.release(first === "A" ? "B" : "A")
+      }
+      await Promise.all(writes)
+      await Promise.all([a.flush(), b.flush()])
+      const keys = [...store.stored.keys()].filter((key) => key.startsWith(SPEND_PREFIX))
+      expect({ order, keys: keys.length }).toEqual({ order, keys: 2 })
+      const restarted = new Ledger({ storage: store.handle("C"), writerId: "C", now: () => 0 })
+      await restarted.hydrate()
+      expect({ order, daily: restarted.daily() }).toEqual({ order, daily: 1_200 })
+    }
+  })
+
+  test("a hold whose key never reaches the store refuses the call rather than spending", async () => {
+    const stored = new Map<string, unknown>()
+    const storage = { ...storageOver(stored), set: async () => void (await Promise.reject(new Error("disk full"))) }
+    const ledger = new Ledger({ storage, now: () => 0 })
+    await ledger.hydrate()
+    await expect(
+      quoteCall({ ledger, caps: () => caps }, "creative_generate_speech", { text: "x".repeat(600) }, { sessionID: "ses_a", agent: "build", messageID: "m1", id: "a" }),
+    ).rejects.toMatchObject({ code: "SPEND_CAP_REACHED" })
+    // The hold came back out of memory with it, so a refused call does not eat the budget either.
+    expect(ledger.daily()).toBe(0)
+  })
+
+  test("a day of charges leaves a bounded number of keys, read over as many pages as it takes", async () => {
+    const store = sharedStore()
+    let now = 0
+    const ledger = new Ledger({ storage: store.handle(), writerId: "A", now: () => now })
+    await ledger.hydrate()
+    for (let hour = 0; hour < 24; hour++) {
+      now = hour * HOUR
+      for (let i = 0; i < 100; i++) ledger.record("ses_a", 1, now)
+    }
+    await ledger.flush()
+    const keys = [...store.stored.keys()].filter((key) => key.startsWith(SPEND_PREFIX))
+    // 2,400 charges, of which the newest 1,000 keep their own key; the other 1,400 are 14 hours of folded totals.
+    expect(keys.length).toBe(1_014)
+    expect(ledger.daily()).toBe(2_400)
+    // More keys than one scan page, so a reader that stopped at the first page would lose the rest.
+    const restarted = new Ledger({ storage: store.handle(), writerId: "B", now: () => now })
+    await restarted.hydrate()
+    expect(restarted.daily()).toBe(2_400)
+  })
+})
+
+describe("RR3-5 — two writers' folded hours are summed, never taken one over the other", () => {
+  test("two busy locations on one data directory keep every folded credit", async () => {
+    // 96db0ed merged a bucket both books held with Math.max, so half the folded credits vanished: the store held
+    // 1,000 of the 2,000 folded, and the two locations read 11,000 and 21,000 against a truth of 22,000.
+    const store = sharedStore()
+    const now = () => 0
+    const a = new Ledger({ storage: store.handle(), writerId: "A", now })
+    const b = new Ledger({ storage: store.handle(), writerId: "B", now })
+    await Promise.all([a.hydrate(), b.hydrate()])
+    // One session, so both books fold the same hour: the bucket the old merge collapsed.
+    for (let i = 0; i < 1_100; i++) a.record("ses_a", 10, 0)
+    await a.flush()
+    for (let i = 0; i < 1_100; i++) b.record("ses_a", 10, 0)
+    await b.flush()
+    await Promise.all([a.refresh(), b.refresh()])
+    expect([a.daily(), b.daily()]).toEqual([22_000, 22_000])
+    expect(a.session("ses_a")).toBe(22_000)
+    // Each writer folded its own hour under its own key, so the two totals are there to be added.
+    const hours = [...store.stored.keys()].filter((key) => key.startsWith(`${SPEND_PREFIX}A/h/`) || key.startsWith(`${SPEND_PREFIX}B/h/`))
+    expect(hours.length).toBe(2)
+    const restarted = new Ledger({ storage: store.handle(), writerId: "C", now })
+    await restarted.hydrate()
+    expect(restarted.daily()).toBe(22_000)
+  })
+
+  test("a hold, a charge and a folded hour each age out on their own clock", async () => {
+    const store = sharedStore()
+    let now = 5 * HOUR
+    const ledger = new Ledger({ storage: store.handle(), writerId: "A", now: () => now })
+    await ledger.hydrate()
+    await ledger.reserve("h", "ses_a", 100, { sessionCreditCap: 100_000, dailyCreditCap: 100_000 })
+    ledger.record("ses_a", 50, 5 * HOUR)
+    // An expired hold is the charge it reserved, and it ages from when it was taken, not from when it expired.
+    now = 5 * HOUR + RESERVATION_MS + 1
+    expect(ledger.daily()).toBe(150)
+    now = 29 * HOUR
+    expect(ledger.daily()).toBe(150)
+    now = 29 * HOUR + 1
+    expect(ledger.daily()).toBe(0)
+    await ledger.flush()
+    // Past the window the keys are gone, which is the only thing that removes one.
+    expect([...store.stored.keys()].filter((key) => key.startsWith(SPEND_PREFIX)).length).toBe(0)
+  })
+
+  test("a folded hour read from another writer ages on that hour, not on when it was read", async () => {
+    const store = sharedStore()
+    let now = 0
+    const a = new Ledger({ storage: store.handle(), writerId: "A", now: () => now })
+    await a.hydrate()
+    for (let i = 0; i < 1_100; i++) a.record("ses_a", 10, 0)
+    await a.flush()
+    const b = new Ledger({ storage: store.handle(), writerId: "B", now: () => now })
+    await b.hydrate()
+    expect(b.daily()).toBe(11_000)
+    // Hour 0 is kept while any minute of it is inside the window, and goes an hour after the charges it holds would.
+    now = 24 * HOUR + 59 * 60 * 1_000
+    expect(b.daily()).toBe(1_000)
+    now = 25 * HOUR + 1
+    expect(b.daily()).toBe(0)
+  })
+})
+
+describe("RR3-4/RR3-5 — the documented residual is what the ledger now does", () => {
+  // The review struck the old claims: they said a merge kept every row, which it did not. These three clauses are
+  // what the append-only ledger actually guarantees, and the three documents the user reads must carry them word for
+  // word, so a later change cannot leave a stronger sentence behind.
+  const RESIDUAL =
+    "within one process the caps are exact; two calls started at the same instant in two processes can exceed a cap by at most one call's reservation; a settled charge is never lost"
+
+  for (const file of ["README.md", "SECURITY.md", "docs/architecture.md"]) {
+    test(`${file} states the residual exactly`, () => {
+      const prose = readFileSync(join(ROOT, file), "utf8").replace(/\*\*/g, "").replace(/\s+/g, " ")
+      expect(prose).toContain(RESIDUAL)
+    })
+
+    test(`${file} no longer claims a merge keeps every row`, () => {
+      const prose = readFileSync(join(ROOT, file), "utf8")
+      expect(prose).not.toMatch(/another writer's merge|re-read, merge|re-reads, merges/)
+    })
+  }
 })

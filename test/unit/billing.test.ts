@@ -19,6 +19,7 @@ import {
   transcriptionPrice,
 } from "../../src/billing.js"
 import { mustPrice } from "../../src/elevenlabs-tools.js"
+import { storageOver } from "../fixtures/store.js"
 
 const caps = (session: number | null = 2000, daily: number | null = 10000) => ({ sessionCreditCap: session, dailyCreditCap: daily })
 const spend = (sessionCredits = 0, dailyCredits = 0) => ({ sessionCredits, dailyCredits })
@@ -130,13 +131,7 @@ describe("the caps", () => {
 describe("the ledger", () => {
   const storage = () => {
     const stored = new Map<string, unknown>()
-    return {
-      stored,
-      get: async (key: string) => stored.get(key) as never,
-      set: async (key: string, value: unknown) => void stored.set(key, value),
-      remove: async () => {},
-      scan: async () => ({ entries: [] as never[] }),
-    }
+    return { stored, ...storageOver(stored) }
   }
 
   test("records amounts, times and the session, prunes past 24 hours, and survives through storage", async () => {
@@ -149,8 +144,10 @@ describe("the ledger", () => {
     ledger.record("ses_b", 50)
     await ledger.flush()
     expect(ledger.spend("ses_a")).toEqual({ sessionCredits: 500, dailyCredits: 550 })
-    const saved = store.stored.get("spend.ledger") as { entries: { at: number; credits: number; sessionID: string }[] }
-    expect(saved.entries.every((entry) => typeof entry.sessionID === "string")).toBe(true)
+    // Since RR3-4 each charge is its own key, so the store holds three of them, each naming its session.
+    const saved = [...store.stored].filter(([key]) => key.startsWith("spend/")).map(([, value]) => value as { at: number; credits: number; sessionID: string })
+    expect(saved.length).toBe(3)
+    expect(saved.every((entry) => typeof entry.sessionID === "string" && typeof entry.at === "number")).toBe(true)
 
     // A reload in the same window keeps both totals, the session's included (DR-9).
     const reopened = new Ledger({ storage: store, now: () => 1_000_500 })
@@ -163,12 +160,12 @@ describe("the ledger", () => {
   })
 
   test("serialises its writes, so two charges at once cannot lose one", async () => {
-    const written: unknown[] = []
+    const written = new Map<string, unknown>()
     const slow = {
       get: async () => undefined,
-      set: async (_key: string, value: unknown) => {
+      set: async (key: string, value: unknown) => {
         await Bun.sleep(5)
-        written.push(value)
+        written.set(key, value)
       },
       remove: async () => {},
       scan: async () => ({ entries: [] as never[] }),
@@ -179,8 +176,10 @@ describe("the ledger", () => {
     ledger.record("a", 20)
     ledger.record("a", 30)
     await ledger.flush()
-    const final = written.at(-1) as { entries: { credits: number }[] }
-    expect(final.entries.reduce((sum, entry) => sum + entry.credits, 0)).toBe(60)
+    // Since RR3-4 the three charges are three keys, so one slow write cannot overtake another and drop it.
+    const charges = [...written.values()] as Array<{ credits: number }>
+    expect(charges.length).toBe(3)
+    expect(charges.reduce((sum, entry) => sum + entry.credits, 0)).toBe(60)
     expect(ledger.daily()).toBe(60)
   })
 
