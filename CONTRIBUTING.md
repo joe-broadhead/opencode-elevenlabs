@@ -27,8 +27,8 @@ SDK and print a notice.
 
 ## ElevenLabs' tools
 
-`src/elevenlabs-tools.ts` holds the 40 tool names ElevenLabs' own MCP skills name; the live list is reconciled after a
-sign-in. To reconcile:
+`src/elevenlabs-tools.ts` classifies the 190 tools the live server lists. The capture in `test/fixtures/live-tools.json` is
+what `npm run drift` checks it against. To reconcile after the live list changes:
 
 1. Save the raw `tools/list` response over `test/fixtures/live-tools.json` (the command is in
    `test/fixtures/README.md`).
@@ -43,7 +43,6 @@ sign-in. To reconcile:
 2. Tag it `v<version>` and push the tag. `release.yml` refuses a private package or a mismatched tag, runs `npm run
    check`, packs, tests that exact tarball, and publishes with npm trusted publishing and provenance after approval in the
    `release` environment. A version already on npm is skipped with a notice.
-3. The platform packages, if any, publish before the main one.
 
 ## Installing from a checkout
 
