@@ -84,19 +84,56 @@ export const SPEND_TOOLS: readonly string[] = [
  */
 export const SPEND_READS: readonly string[] = ["creative_transcribe_audio"]
 
+/** One operation the guard prices: a published formula, or for image and video ElevenLabs' own estimate. */
+export type PricedOperation = "speech" | "transcription" | "music" | "soundEffect" | "image" | "video"
+
 /**
- * Names the published formulas already price, which are not in the attested 40. They are in the table the guard
- * consults, so a formula is never left where the dispatcher will not run it.
+ * Every name a priced call may arrive under, by the operation that prices it. This is the one list that decides a
+ * tool is priced: `billing.ts` builds its rate table, its argument allowlists and its formula dispatch from these
+ * names, and `mustPrice` gates on them, so a name cannot be documented to the owner as priced in one place and be
+ * unknown to the gate in another (RR5-2). A name here is priced whatever its prefix; a `creative_` name that is not
+ * here is still gated, and refused.
+ *
+ * Each list holds the name ElevenLabs' own skills use and the canonical name its API documents for the same
+ * operation. The live `tools/list` is the first moment a differently-named server can appear, which is why names
+ * nothing in this repository reaches are anticipated here rather than after a reconcile finds them unguarded.
  */
-export const SPEND_ALIASES: readonly string[] = ["creative_compose_music", "creative_sound_effects"]
+export const PRICED_NAMES: Readonly<Record<PricedOperation, readonly string[]>> = {
+  speech: ["creative_generate_speech", "creative_speech", "text_to_speech"],
+  transcription: ["creative_transcribe_audio", "speech_to_text", "creative_transcription"],
+  music: ["creative_generate_music", "creative_compose_music"],
+  soundEffect: ["creative_generate_sound_effect", "creative_sound_effects"],
+  image: ["creative_generate_image"],
+  video: ["creative_generate_video"],
+}
+
+const PRICED_OPERATIONS: ReadonlyMap<string, PricedOperation> = new Map(
+  Object.entries(PRICED_NAMES).flatMap(([operation, names]) => names.map((name): [string, PricedOperation] => [name, operation as PricedOperation])),
+)
+
+/**
+ * The operation that prices a call, or undefined when nothing here prices it. Case is folded as `mustPrice` folds it
+ * (RR2-8): the gate and the price table must agree about which names they are talking about.
+ */
+export const operationOf = (name: string): PricedOperation | undefined => PRICED_OPERATIONS.get(name.toLowerCase())
+
+/**
+ * Names the published formulas already price, which are not in the attested 40 — derived, so a name cannot be added
+ * to the price table and left where the dispatcher will not run it.
+ */
+export const SPEND_ALIASES: readonly string[] = Object.values(PRICED_NAMES)
+  .flat()
+  .filter((name) => !SPEND_TOOLS.includes(name) && !SPEND_READS.includes(name))
 
 /** Every call the price table prices, whether it writes or reads, aliases included. */
 export const SPEND_ANY: readonly string[] = [...SPEND_TOOLS, ...SPEND_READS, ...SPEND_ALIASES]
 
 /**
- * True when a cap must price this call or refuse it, before dispatch. Every name that starts with `creative_` is
- * included, except one this table classifies as a read, write, export or delete that does not spend. A name the table
- * does not price is refused. There is no keyword list.
+ * True when a cap must price this call or refuse it, before dispatch. Every name the price table prices is included,
+ * whatever its prefix, because `SPEND_ANY` is derived from `PRICED_NAMES`: a tool documented to the owner as priced
+ * is one the gate holds, and the two cannot drift apart (RR5-2). So is every other name that starts with
+ * `creative_`, except one this table classifies as a read, write, export or delete that does not spend. A name the
+ * price table does not price is refused. There is no keyword list.
  *
  * Case is folded, as the permission rules fold it (RR2-8): ElevenLabs' live names are lowercase, but the money gate
  * must not be the weaker of the two, and `Creative_Generate_Speech` spends exactly what its lowercase form spends.

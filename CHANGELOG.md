@@ -84,6 +84,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and thi
 - A WAV holding more than one `data` chunk is not measured. CoreAudio reads the last such chunk and Python's `wave`
   the first, so the file's length depends on which decoder opens it: a call that needs it is refused with
   `PRICE_UNKNOWN`, and a saved file shows no duration. One `data` chunk is measured as before, whatever follows it.
+- One list decides that a tool is priced. Every name each priced operation may arrive under lives in `PRICED_NAMES`,
+  and the gate that holds a call, the published rates, the argument allowlists and the formula that prices the call
+  are all built from it. `text_to_speech` and `speech_to_text` — ElevenLabs' canonical names, documented as priced in
+  three places — were known to every one of those tables and not to the gate, so under both caps they reserved
+  nothing, charged nothing and showed no cost line. Both are now priced like the names beside them.
 - A WAV holding more than one `fmt ` chunk is not measured either, and for the same reason: the sample rate turns
   bytes into seconds, so two of them are two lengths for one file. Reading the first was an accident of the walk and
   the one reading that can under-price — a first chunk claiming ten times the real rate priced ten seconds as one.

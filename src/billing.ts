@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto"
 import { closeSync, openSync, statSync } from "node:fs"
 import type { Plugin } from "@opencode/plugin"
 import { elevenlabsError, type PluginCode } from "./constants.js"
-import { ESTIMATE_TOOLS, mustPrice, priced, spends } from "./elevenlabs-tools.js"
+import { ESTIMATE_TOOLS, mustPrice, operationOf, priced, PRICED_NAMES, type PricedOperation, spends } from "./elevenlabs-tools.js"
 import { fileReader, type RiffReading, riffReadingWith } from "./media/policy.js"
 import type { CreditCap } from "./options.js"
 
@@ -81,15 +81,15 @@ const quoted = (names: readonly string[]) =>
 export const RATED_TOOLS: ReadonlyMap<string, string> = new Map(
   (
     [
-      [["creative_generate_speech", "creative_speech", "text_to_speech"], `Pass the text to speak as a string in ${quoted(SPEECH_TEXT_KEYS)}, and any count as a number.`],
+      ["speech", `Pass the text to speak as a string in ${quoted(SPEECH_TEXT_KEYS)}, and any count as a number.`],
       [
-        ["creative_generate_music", "creative_compose_music"],
+        "music",
         `Pass the length as a number — "music_length_ms" in milliseconds, or "duration_seconds" — or a composition plan whose sections state their own, and any count as a number.`,
       ],
-      [["creative_generate_sound_effect", "creative_sound_effects"], `Pass any generation count as a number.`],
-      [["creative_transcribe_audio", "speech_to_text", "creative_transcription"], `Pass a local PCM WAV file this plugin can measure.`],
-    ] as const
-  ).flatMap(([tools, step]) => tools.map((tool): [string, string] => [tool, step])),
+      ["soundEffect", `Pass any generation count as a number.`],
+      ["transcription", `Pass a local PCM WAV file this plugin can measure.`],
+    ] as [PricedOperation, string][]
+  ).flatMap(([operation, step]) => PRICED_NAMES[operation].map((tool): [string, string] => [tool, step])),
 )
 
 /** A count field holding something no number can be read out of. The whole call's price multiplies by it (RR4-6). */
@@ -172,7 +172,10 @@ export function priceOf(name: string, input: Record<string, unknown>): Price | u
   const asked = generationsOf(input)
   if (asked === NOT_A_COUNT) return undefined
   const generations = asked ?? 1
-  if (tool === "creative_generate_speech" || tool === "creative_speech" || tool === "text_to_speech") {
+  // One formula per operation, over the names `PRICED_NAMES` gives it: the gate and this table read the same list, so
+  // a name the owner is told is priced cannot reach a dispatch that does not know it (RR5-2).
+  const operation = operationOf(tool)
+  if (operation === "speech") {
     const text = field(input, SPEECH_TEXT_KEYS)
     if (typeof text !== "string") return undefined
     // The server is not attested to honour `takes`. Two takes is the bound until a live call proves otherwise. A
@@ -190,10 +193,10 @@ export function priceOf(name: string, input: Record<string, unknown>): Price | u
       parts: [`${count(characters)} ${characters === 1 ? "character" : "characters"}`, `${takes} ${takes === 1 ? "take" : "takes"}`, ...generationParts(generations)],
     }
   }
-  if (tool === "creative_transcribe_audio" || tool === "speech_to_text" || tool === "creative_transcription") {
+  if (operation === "transcription") {
     return transcriptionPrice(input)
   }
-  if (tool === "creative_generate_music" || tool === "creative_compose_music") {
+  if (operation === "music") {
     const stated = musicLengthsMs(input)
     // A composition plan asks for music section by section, and a plan of minutes may carry no length field at all;
     // priced at the three-second floor, that is minutes of music a cap never saw (RR4-3).
@@ -216,7 +219,7 @@ export function priceOf(name: string, input: Record<string, unknown>): Price | u
     parts.push(...generationParts(generations))
     return { credits, basis: "at-most", parts }
   }
-  if (tool === "creative_generate_sound_effect" || tool === "creative_sound_effects") {
+  if (operation === "soundEffect") {
     const credits = RATES.sfxPerGeneration * generations
     if (!(credits > 0)) return undefined
     return { credits, basis: "at-most", parts: [`${generations} ${generations === 1 ? "generation" : "generations"} at ${RATES.sfxPerGeneration} credits`] }
@@ -365,22 +368,21 @@ const VIDEO_ARGUMENTS = new Set<string>([...COMMON_ARGUMENTS, "prompt", "model_i
  * fake server — plus the ones the pricing itself reads. Both are provisional until the live reconcile confirms them;
  * `docs/architecture.md` lists every one of these sets, and the checklist there carries that step.
  *
- * A tool with no list is a tool this plugin cannot price at all, which a cap already refuses.
+ * A tool with no list is a tool this plugin cannot price at all, which a cap already refuses. Every name the price
+ * table names has one by construction, because both are built from `PRICED_NAMES` (RR5-2).
  */
-export const PRICED_ARGUMENTS: ReadonlyMap<string, ReadonlySet<string>> = new Map<string, ReadonlySet<string>>([
-  ["creative_generate_speech", SPEECH_ARGUMENTS],
-  ["creative_speech", SPEECH_ARGUMENTS],
-  ["text_to_speech", SPEECH_ARGUMENTS],
-  ["creative_transcribe_audio", TRANSCRIPTION_ARGUMENTS],
-  ["speech_to_text", TRANSCRIPTION_ARGUMENTS],
-  ["creative_transcription", TRANSCRIPTION_ARGUMENTS],
-  ["creative_generate_music", MUSIC_ARGUMENTS],
-  ["creative_compose_music", MUSIC_ARGUMENTS],
-  ["creative_generate_sound_effect", SOUND_EFFECT_ARGUMENTS],
-  ["creative_sound_effects", SOUND_EFFECT_ARGUMENTS],
-  ["creative_generate_image", IMAGE_ARGUMENTS],
-  ["creative_generate_video", VIDEO_ARGUMENTS],
-])
+export const PRICED_ARGUMENTS: ReadonlyMap<string, ReadonlySet<string>> = new Map<string, ReadonlySet<string>>(
+  (
+    [
+      ["speech", SPEECH_ARGUMENTS],
+      ["transcription", TRANSCRIPTION_ARGUMENTS],
+      ["music", MUSIC_ARGUMENTS],
+      ["soundEffect", SOUND_EFFECT_ARGUMENTS],
+      ["image", IMAGE_ARGUMENTS],
+      ["video", VIDEO_ARGUMENTS],
+    ] as [PricedOperation, ReadonlySet<string>][]
+  ).flatMap(([operation, allowed]) => PRICED_NAMES[operation].map((tool): [string, ReadonlySet<string>] => [tool, allowed])),
+)
 
 /** The first argument a priced call carries that its tool's allowlist does not have, in words the caller can act on. */
 export function unknownArgument(name: string, input: Record<string, unknown>): string | undefined {
@@ -1401,7 +1403,7 @@ export function quoteCallSync(input: Omit<GuardInput, "estimate">, tool: string,
   return quoteSync(input, tool, args, call)
 }
 
-const isTranscription = (tool: string) => tool === "creative_transcribe_audio" || tool === "speech_to_text" || tool === "creative_transcription"
+const isTranscription = (tool: string) => operationOf(tool) === "transcription"
 
 /**
  * The dearer of two prices for one call. A published rate and the server's own estimate for the same arguments are
@@ -1438,7 +1440,7 @@ export function priceObstacle(name: string, input: Record<string, unknown>): str
   // A count multiplies whatever one pass costs, so one that cannot be read stops every priced tool (RR4-6).
   const badCount = GENERATION_KEYS.find((key) => countValue(input[key]) === NOT_A_COUNT)
   if (badCount !== undefined) return `"${badCount}" states a generation count no number can be read out of`
-  if (tool === "creative_generate_speech" || tool === "creative_speech" || tool === "text_to_speech") {
+  if (operationOf(tool) === "speech") {
     const text = field(input, SPEECH_TEXT_KEYS)
     if (text === undefined) return `no argument holds the text to speak (${quoted(SPEECH_TEXT_KEYS)})`
     if (typeof text !== "string") return `"${keyUsed(input, SPEECH_TEXT_KEYS)}" holds something that is not text`
@@ -1446,7 +1448,7 @@ export function priceObstacle(name: string, input: Record<string, unknown>): str
     if (countValue(field(input, SPEECH_TAKE_KEYS)) === NOT_A_COUNT) return `"${keyUsed(input, SPEECH_TAKE_KEYS)}" states a take count no number can be read out of`
     return undefined
   }
-  if (tool === "creative_generate_music" || tool === "creative_compose_music") {
+  if (operationOf(tool) === "music") {
     const badLength = MUSIC_LENGTH_KEYS.find((key) => lengthValue(input[key]) === NOT_A_LENGTH)
     if (badLength !== undefined) return `"${badLength}" states a length no number can be read out of`
     const plan = planLengthMs(input["composition_plan"])

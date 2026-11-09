@@ -87,6 +87,13 @@ that cannot be priced is refused (`PRICE_UNKNOWN`), never guessed. While either 
 `creative_` and is not priced by the table the guard consults is refused before dispatch. There is no keyword list. A
 price that does not fit is refused before dispatch (`SPEND_CAP_REACHED`).
 
+One list decides that a tool is priced. `PRICED_NAMES` in `src/elevenlabs-tools.ts` holds every name each priced
+operation may arrive under, and the gate, the rate table, the argument allowlists below and the formula that prices
+the call are all built from it, so a name documented here as priced is one the gate holds, whatever its prefix
+(RR5-2). `text_to_speech` and `speech_to_text` are ElevenLabs' canonical names for two of these operations: nothing in
+this repository reaches them today, and a live server that uses them is guarded on the first call rather than after a
+reconcile finds them unguarded.
+
 Every such refusal names the argument that caused it: an argument outside the tool's allowlist, a file the price does
 not cover, or the length, text or count field no number could be read out of. The refusal is written for the tool it
 refuses. Speech, music, sound effects and transcription are priced from the published rates above, so theirs says the
