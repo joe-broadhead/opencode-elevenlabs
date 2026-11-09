@@ -3,9 +3,12 @@
 import { ROOT } from "./isolate.js"
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test"
 import { existsSync, readFileSync, realpathSync } from "node:fs"
+import { createServer } from "node:http"
+import type { AddressInfo } from "node:net"
 import { tmpdir } from "node:os"
 import { join, sep } from "node:path"
 import { Plugin } from "@opencode/plugin"
+import * as z from "zod"
 import { defaultRules, type Rule } from "../../src/permissions.js"
 import { SKILL_NAMES } from "../../src/skills.js"
 import { OAUTH_SCOPES, SUPPORTED_HOST, TESTED_HOSTS } from "../../src/constants.js"
@@ -506,5 +509,85 @@ describe("the /connect entry", () => {
     await until("the entry is named ElevenLabs again after the reload", async () => (await entry())?.name === "ElevenLabs")
     await Bun.sleep(1000)
     expect((await entry())?.name).toBe("ElevenLabs")
+  })
+})
+
+// Once another namespace spends the inline tool budget, OpenCode drops every tool into Code Mode and writes one
+// catalogue section per namespace into the system prompt. That section is sent on every request of every session that
+// loads the plugin, so it is a standing cost: the family holds it to 1,000 tokens, and the shape is the namespace
+// description, the skill it points at, and the tools it shows.
+describe("the forced Code Mode catalogue", () => {
+  let host: Host
+  let captured = ""
+  let server: ReturnType<typeof createServer>
+
+  beforeAll(async () => {
+    server = createServer(async (request, response) => {
+      let raw = ""
+      for await (const chunk of request) raw += chunk
+      const body = JSON.parse(raw) as { messages?: { role: string; content?: unknown }[] }
+      captured = (body.messages ?? [])
+        .filter((item) => item.role === "system")
+        .map((item) => (typeof item.content === "string" ? item.content : ""))
+        .join("\n")
+      response.writeHead(200, { "content-type": "text/event-stream" })
+      const chunk = (delta: Record<string, unknown>, finish: string | null = null) =>
+        `data: ${JSON.stringify({ id: "mock", object: "chat.completion.chunk", created: 0, model: "m1", choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`
+      response.write(chunk({ role: "assistant", content: "ok" }))
+      response.write(chunk({}, "stop"))
+      response.end("data: [DONE]\n\n")
+    })
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()))
+    const baseURL = `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1`
+    // A second namespace whose one tool carries a 9 kB description, which is what forces Code Mode on.
+    const filler = Plugin.define({
+      id: "elevenlabs.host-test.filler",
+      async setup(ctx) {
+        await ctx.tool.transform((editor) => {
+          editor.namespace({ name: "filler", description: "Spends the inline budget." })
+          editor.add({
+            name: "pad",
+            description: "pad",
+            input: z.object({ note: z.string().describe("x".repeat(9_000)) }),
+            options: { namespace: "filler", permission: "filler_pad", pinned: true },
+            execute: async () => ({ content: "ok" }),
+          } as never)
+        })
+      },
+    })
+    host = await startHost({
+      plugins: [filler],
+      config: () => ({
+        providers: {
+          scripted: {
+            name: "Scripted",
+            package: ["@opencode", "ai", "providers", "openai-compatible"].join("/"),
+            settings: { baseURL, apiKey: "test" },
+            models: { m1: { name: "Mock", capabilities: { tools: true } } },
+          },
+        },
+        model: "scripted/m1",
+      }),
+    })
+  })
+  afterAll(async () => {
+    await host?.close()
+    await new Promise<void>((resolve) => server.close(() => resolve()))
+  })
+
+  test("stays at most 1,000 tokens, and still names the skill to read first", async () => {
+    // Measure the full catalogue: every served tool registered, not just the plugin's own one.
+    expect(await elevenlabsTools(host)).toHaveLength(SERVED.length + 1)
+    const sessionID = await session(host)
+    await host.client.sessions.prompt({ sessionID, text: "Reply with ok." } as never)
+    await until("the catalogue reaches the model", async () => captured.includes("- elevenlabs ("))
+    const lines = captured.split("\n")
+    const start = lines.findIndex((line) => line.startsWith("- elevenlabs ("))
+    const section = [lines[start]!]
+    for (let i = start + 1; i < lines.length && lines[i]!.startsWith("  "); i++) section.push(lines[i]!)
+    const text = section.join("\n")
+    // The one thing the section must carry: where the model reads the rules before it spends anything.
+    expect(text).toContain("elevenlabs skill")
+    expect(Math.round(text.length / 4)).toBeLessThanOrEqual(1_000)
   })
 })

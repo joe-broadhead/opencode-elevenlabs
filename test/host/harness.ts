@@ -56,6 +56,8 @@ export interface HostInput {
   readonly oauth?: true
   /** Options for the loopback fake server. */
   readonly fake?: FakeMcpOptions
+  /** Extra plugins, loaded after this one: a test that needs another namespace in the session. */
+  readonly plugins?: readonly Plugin.Plugin[]
 }
 
 let hosts = 0
@@ -84,7 +86,7 @@ export async function startHost(input: HostInput = {}) {
   }
   const { OpenCode } = (await import(pathToFileURL(join(SDK, "dist", "index.js")).href)) as typeof import("@opencode/sdk")
   const client: Client = await OpenCode.create({
-    plugins: [withOptions, probe],
+    plugins: [withOptions, ...(input.plugins ?? []), probe],
     // An embedded host reports "unknown" unless told, and the plugin's host guard refuses that.
     app: { version: HOST_VERSION },
     config: { content: JSON.stringify(config), directory: join(base, "config"), project: false, claude: false },
