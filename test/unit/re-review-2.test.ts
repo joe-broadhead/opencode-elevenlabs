@@ -495,7 +495,9 @@ describe("RR2-9 — folded credits age from when they were spent", () => {
     expect(ledger.spend("ses_a").sessionCredits).toBe(1_001)
     advance(49 * HOUR)
     expect(ledger.daily()).toBe(0)
-  })
+    // `overflowed()` builds 2,001 charges to make the detail log spill into folded totals. That is real work, and on
+    // a loaded machine it runs past bun's five-second default; what this asserts is a credit figure, not a duration.
+  }, 30_000)
 
   test("what is left over is one hour of it, not a day", () => {
     const { ledger, advance } = overflowed()
@@ -503,7 +505,7 @@ describe("RR2-9 — folded credits age from when they were spent", () => {
     // newest charge by up to an hour. One credit of the 23h hour, never the thousand of t0's.
     advance(47 * HOUR + 59 * 60 * 1_000)
     expect(ledger.daily()).toBe(1)
-  })
+  }, 30_000)
 
   test("each session and each hour folds into its own total", () => {
     let now = 3 * HOUR
