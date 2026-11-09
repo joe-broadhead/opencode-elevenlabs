@@ -1037,11 +1037,15 @@ export class Ledger {
     const book = this.book()
     const held = book.own.get(id)
     const floor = held?.credits ?? 0
+    // A charge keeps the session that reserved it, the same way it keeps that row's own figure as its floor (RR4-5).
+    // The argument opens a row that does not exist yet and does nothing else: a result delivered under a second
+    // session would otherwise move the charge there and hand the first session its whole session cap back (RR5-5).
+    const owner = held?.sessionID ?? sessionID
     // The band is checked here as well as in `settlementOf`, because here the row's own figure is known.
     const lowerable = held?.kind === "hold" && attested && credits > 0 && credits * ATTESTED_MIN_RATIO >= floor
     const charge = credits > floor || lowerable ? credits : floor
     if (charge > 0 && !(held?.kind === "charge" && held.credits === charge)) {
-      const row: Row = { kind: "charge", at: held?.at ?? this.now(), credits: charge, sessionID }
+      const row: Row = { kind: "charge", at: held?.at ?? this.now(), credits: charge, sessionID: owner }
       book.own.set(id, row)
       this.store(this.writeRow(book, id, row))
     } else if (charge <= 0 && held) {
@@ -1049,7 +1053,8 @@ export class Ledger {
       this.store(this.removeKey(book, rowKey(book.writerId, id)))
     }
     this.prune()
-    return this.spend(sessionID)
+    // The cost line is drawn from this, so it reports the budget the charge actually came out of.
+    return this.spend(owner)
   }
 
   /** A failure settles the reserved price. It does not free the budget: a billed error and a free one look the same. */

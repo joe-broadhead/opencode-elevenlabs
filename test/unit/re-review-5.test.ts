@@ -360,3 +360,41 @@ describe("RR5-4 — an audio path is read once, and that one reading is the one 
     expect(freezeAudioPaths({ text: "nothing audio here" })).toBeUndefined()
   })
 })
+
+describe("RR5-5 — a charge keeps the session that reserved it", () => {
+  const caps = { sessionCreditCap: 2_000, dailyCreditCap: 10_000 }
+
+  test("a result delivered under a second session does not move the charge out of the first", async () => {
+    // The review's reproduction. At aa1e26c `settle` took `sessionID` from its caller, so a repeat of the same entry
+    // id under another session rewrote the row: the daily total stayed right, so no money was lost, but ses_a fell to
+    // zero and was handed its whole session cap back, and ses_b carried a charge for a call it never made.
+    const ledger = new Ledger()
+    await ledger.reserve("c1", "ses_a", 1_500, caps)
+    ledger.settle("c1", "ses_a", 1_500)
+    expect(ledger.spend("ses_a").sessionCredits).toBe(1_500)
+
+    const after = ledger.settle("c1", "ses_b", 4_000)
+    expect(ledger.daily()).toBe(4_000)
+    expect(ledger.spend("ses_a").sessionCredits).toBe(4_000)
+    expect(ledger.spend("ses_b").sessionCredits).toBe(0)
+    // The cost line is drawn from what `settle` returns, so it reports the budget the charge came out of.
+    expect(after).toEqual({ sessionCredits: 4_000, dailyCredits: 4_000 })
+  })
+
+  test("the session argument still opens a row for a call this ledger has no reservation for", () => {
+    // The argument is not ignored: with no row to take a session from, it is the only thing that says whose call this
+    // was. `release` and both hooks pass the row's own session, so this is the case where it is read.
+    const ledger = new Ledger()
+    expect(ledger.settle("fresh", "ses_c", 700)).toEqual({ sessionCredits: 700, dailyCredits: 700 })
+    expect(ledger.spend("ses_c").sessionCredits).toBe(700)
+  })
+
+  test("a failure settles the hold against the session that took it", async () => {
+    // `release` reads the row's session already; after the fix it could pass anything and the row would not move.
+    const ledger = new Ledger()
+    await ledger.reserve("c2", "ses_a", 900, caps)
+    ledger.release("c2")
+    expect(ledger.spend("ses_a").sessionCredits).toBe(900)
+    expect(ledger.spend("ses_b").sessionCredits).toBe(0)
+  })
+})

@@ -103,7 +103,9 @@ no published price and offered the `estimate_only` route — which is the only r
 A price is **reserved** in the ledger before the call is sent and settled into a charge when its result arrives, so a
 parallel turn cannot spend one budget twice. A call that fails, and a hold still open after ten minutes, is charged the
 reserved price: the plugin cannot tell a free failure from a billed one. A later higher figure may replace that charge.
-A zero or a missing result does not free the budget. The ledger is append-only: every hold and every charge is one
+A zero or a missing result does not free the budget. A charge stays in the session that reserved it, whichever session
+a later result is delivered under, exactly as it keeps that row's figure as its floor: a settlement may raise what a
+call cost but never moves it to another session's budget. The ledger is append-only: every hold and every charge is one
 `ctx.storage` key, `spend/<writerId>/<entryId>`, where `writerId` is unique to this plugin instance and only the
 instance that created a key ever rewrites it. A total is a scan over `spend/` and a sum — there is no merge, no
 `Math.max` and no read-modify-write of a shared record, so no writer can drop another's row. Pruning folds older
