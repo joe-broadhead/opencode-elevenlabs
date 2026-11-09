@@ -2,14 +2,13 @@ import { afterAll, describe, expect, test } from "bun:test"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import type { Plugin } from "@opencode/plugin"
 import { ENDPOINT, NAMESPACE_DESCRIPTION, OAUTH_SCOPES, REGIONS } from "../../src/constants.js"
 import elevenlabs from "../../src/index.js"
 import { conflictUrl, createElevenlabsPlugin, displayUrl, guardsSource, regionOf, registerServer, serverConfig } from "../../src/plugin.js"
 import { SKILL_NAMES } from "../../src/skills.js"
 import type { ServerSource } from "../../src/status.js"
 import { READ_TOOLS, SPEND_TOOLS } from "../../src/elevenlabs-tools.js"
-import { agentEditor, builtInAgents, mcpEditor, transforms, type McpEditor } from "./fake.js"
+import { agentEditor, builtInAgents, mcpEditor, pluginContext as context, transforms, type McpEditor } from "./fake.js"
 
 const skillsDir = mkdtempSync(join(tmpdir(), "elevenlabs-skills-"))
 afterAll(() => rmSync(skillsDir, { recursive: true, force: true }))
@@ -118,64 +117,6 @@ describe("the elevenlabs server", () => {
     expect(displayUrl("not a url")).toBe("an invalid URL")
   })
 })
-
-type SetupContext = Pick<Plugin.Context, "app" | "options" | "mcp" | "agent" | "skill" | "command" | "session" | "tool" | "integration" | "rpc" | "permission" | "location" | "event" | "storage">
-
-/** A context with only what setup touches. Each transform is collected so the test can replay it. */
-function context(options: unknown, version = "2.2.3") {
-  const mcp = transforms<McpEditor>()
-  const agent = transforms<Parameters<Parameters<Plugin.Context["agent"]["transform"]>[0]>[0]>()
-  const skill = transforms<Parameters<Parameters<Plugin.Context["skill"]["transform"]>[0]>[0]>()
-  const command = transforms<Parameters<Parameters<Plugin.Context["command"]["transform"]>[0]>[0]>()
-  const tool = transforms<Parameters<Parameters<Plugin.Context["tool"]["transform"]>[0]>[0]>()
-  const integration = transforms<Parameters<Parameters<Plugin.Context["integration"]["transform"]>[0]>[0]>()
-  const rpc: string[] = []
-  const handlers = new Map<string, Record<string, (input: unknown, context: unknown) => Promise<unknown>>>()
-  const hooks: string[] = []
-  const hookFns = new Map<string, (event: never) => Promise<void>>()
-  const stored = new Map<string, unknown>()
-  const store = {
-    get: async (key: string) => stored.get(key) as never,
-    set: async (key: string, value: unknown) => void stored.set(key, value),
-    remove: async (key: string) => void stored.delete(key),
-    scan: async () => ({ entries: [] }),
-  }
-  const ctx = {
-    app: { name: "opencode", version, channel: "latest" },
-    options: options as Plugin.Context["options"],
-    storage: store,
-    mcp: { transform: mcp.transform, list: async () => ({ data: [{ name: "elevenlabs", status: { status: "connected" } }] }) },
-    skill: { transform: skill.transform },
-    command: { transform: command.transform },
-    rpc: {
-      register: async (definition: { id: string }, methods: Record<string, (input: unknown, context: unknown) => Promise<unknown>>) => {
-        rpc.push(definition.id)
-        handlers.set(definition.id, methods)
-        return { dispose: async () => void rpc.splice(rpc.indexOf(definition.id), 1) }
-      },
-    },
-    session: { get: async () => ({ id: "ses_test", agent: "build", location: { directory: "/projects/elevenlabs-test" }, permissions: [] }) },
-    agent: { transform: agent.transform, list: async () => ({ data: [] }), get: async () => ({ data: { id: "build", permissions: [{ action: "*", resource: "*", effect: "allow" }] } }) },
-    tool: {
-      transform: tool.transform,
-      list: async () => [{ id: `elevenlabs_${READ}`, execute: async () => ({ content: [{ type: "text", text: "ok" }] }) }],
-      hook: async (name: string, callback?: (event: never) => Promise<void>) => {
-        hooks.push(name)
-        if (callback) hookFns.set(name, callback)
-        return { dispose: async () => void hooks.splice(hooks.indexOf(name), 1) }
-      },
-    },
-    integration: {
-      transform: integration.transform,
-      get: async () => ({ data: { name: "ElevenLabs", connections: [] } }),
-      connection: { active: async () => undefined, resolve: async () => undefined, status: async () => undefined },
-    },
-    location: { directory: "/projects/elevenlabs-test" },
-    permission: { assert: async () => undefined, hook: async () => ({ dispose: async () => undefined }) },
-    event: { subscribe: ({ signal }: { signal: AbortSignal }) => ({ [Symbol.asyncIterator]: () => ({ next: () => new Promise((resolve) => signal.addEventListener("abort", () => resolve({ done: true, value: undefined }))) }) }) },
-  } as unknown as SetupContext
-  return { ctx: ctx as Plugin.Context, mcp, agent, skill, command, tool, integration, rpc, handlers, hooks, hookFns, stored }
-}
 
 describe("setup", () => {
   test("the package default export is the plugin with its stable ID", () => {

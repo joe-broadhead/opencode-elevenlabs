@@ -342,8 +342,12 @@ export function createElevenlabsPlugin(seam: ElevenlabsSeam = {}) {
           if (reserved !== undefined && reserved > 0) ledger.settle(event.id, event.sessionID, reserved)
           return
         }
-        const floor = before?.credits ?? ledger.reservation(event.id)?.credits ?? 0
-        const settled = settlementOf(event.result, floor, caps().dailyCreditCap)
+        // The floor is the ledger's own row for this call, not this hook's memory of it: once the first result has
+        // been settled `pending` is empty and the hold is a charge, and a second result for the same call measured
+        // against nothing would read as a raise above zero and lower the charge to itself (RR4-5).
+        const recorded = ledger.recorded(event.id)
+        const floor = recorded?.credits ?? before?.credits ?? 0
+        const settled = settlementOf(event.result, floor, caps().dailyCreditCap, recorded?.kind ?? "hold")
         // A figure the plugin would not settle on, and one it settled on but had to flag, both say so in the cost
         // line: the owner sees why the reservation stands, or that a raise was far above what was reserved.
         const parts = settled.credits === floor

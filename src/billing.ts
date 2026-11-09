@@ -481,15 +481,23 @@ export function attestedCreditsOf(result: { readonly output?: unknown }): number
  * The figure a completed call is settled at. A higher figure always raises the charge, whatever its size, clamped at
  * the day's cap. A lower one is believed only when an attested field states it and it reads as this call's charge; a
  * prose match, a zero and a missing result all keep the reservation.
+ *
+ * `held` says what `reserved` is: a live hold, which one attested figure inside the band may settle below, or a
+ * charge this call has already been recorded at, which nothing lowers. A second result for one call is a repeat, not
+ * a correction — the plugin cannot tell which of the two figures the server meant — so the higher one stands (RR4-5).
  */
 export function settlementOf(
   result: { readonly output?: unknown; readonly text?: string; readonly content?: unknown },
   reserved: number,
   dailyCap: CreditCap = null,
+  held: "hold" | "charge" = "hold",
 ): { readonly credits: number; readonly attested: boolean; readonly note?: string } {
   const attested = attestedCreditsOf(result)
   if (attested !== undefined) {
     if (attested > reserved) return { ...raiseTo(attested, reserved, dailyCap), attested: true }
+    if (held === "charge") {
+      return { credits: reserved, attested: false, note: `the result reported ${count(attested)} against ${count(reserved)} already charged for this call, so the recorded charge stands` }
+    }
     // Lowering a reservation is the one thing a figure the plugin may have misread can do with the owner's money, so
     // it has to look like a charge for this call: a whole number of credits, not orders of magnitude below the hold.
     if (!Number.isSafeInteger(attested)) {
@@ -836,15 +844,29 @@ export class Ledger {
   }
 
   /**
-   * Turns a reservation into a recorded charge, on the hold's own key. Never below the reserved price unless
-   * `attested` is set: a zero, a missing result or a prose figure must not free the budget. A higher figure replaces
-   * the settlement, and a repeat settlement reads the recorded charge as its floor.
+   * What this ledger has for one call, a live hold or a recorded charge. A caller settling a result reads its floor
+   * from here rather than from its own memory of the reservation, which a second result finds already spent (RR4-5).
+   */
+  recorded(id: string): { readonly kind: "hold" | "charge"; readonly credits: number } | undefined {
+    const row = this.book().own.get(id)
+    return row === undefined ? undefined : { kind: row.kind, credits: row.credits }
+  }
+
+  /**
+   * Turns a reservation into a recorded charge, on the hold's own key. A recorded charge only ever rises. The first
+   * settlement of a live hold may lower it — an attested figure, inside the band, is the server saying this call cost
+   * less than the bound — and every settlement after that may only raise it: a repeated or duplicated result is
+   * ignored unless it is higher. The floor is this row's own figure, not the caller's idea of what was reserved,
+   * because by the time a second result arrives the hold may already be a charge, settled here or converted by
+   * `prune` at minute ten, and a caller reading `reservation()` then sees nothing and would offer zero (RR4-5).
    */
   settle(id: string, sessionID: string, credits: number, attested = false): Spend {
     const book = this.book()
     const held = book.own.get(id)
     const floor = held?.credits ?? 0
-    const charge = credits > floor ? credits : attested && credits > 0 ? credits : floor
+    // The band is checked here as well as in `settlementOf`, because here the row's own figure is known.
+    const lowerable = held?.kind === "hold" && attested && credits > 0 && credits * ATTESTED_MIN_RATIO >= floor
+    const charge = credits > floor || lowerable ? credits : floor
     if (charge > 0 && !(held?.kind === "charge" && held.credits === charge)) {
       const row: Row = { kind: "charge", at: held?.at ?? this.now(), credits: charge, sessionID }
       book.own.set(id, row)

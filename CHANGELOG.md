@@ -55,6 +55,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and thi
   absurd figure blocks spending for a single window at most; the cost line flags a raise of more than ten times. A
   figure below it is believed only when the result attests it as this call's charge, in whole credits, and at least a
   tenth of the hold.
+- A recorded charge only ever rises. One attested figure inside that tenth-band may settle a live hold below itself;
+  every settlement after that, for the same call, may only raise the charge. A result delivered twice, and a figure
+  arriving for a call whose hold expired into a charge, are ignored unless they are higher.
 - One priced call per session and method is in flight on the script path.
 - The daily cap is one total for this data directory. Two machines do not share it.
 - Conversation denies match without regard to case, and cover `get_call`, `list_calls` and `export_history`.
