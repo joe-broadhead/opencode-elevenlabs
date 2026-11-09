@@ -201,7 +201,8 @@ spend your credits without asking, and so can a tool ElevenLabs adds later. Rest
    ```
 
 The plugin inserts this block directly after each agent's base rule that allows everything, generated from
-`defaultRules("all")` in `src/permissions.ts`. It is one rule per live tool, 191 of them, so it is folded here:
+`defaultRules("all")` in `src/permissions.ts`. It is the namespace rule plus one rule per live tool: 191 rules in all, so
+it is folded here:
 
 <details>
 <summary>The 191 rules <code>access: "all"</code> inserts</summary>
