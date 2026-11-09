@@ -502,6 +502,35 @@ const stampOf = (path: string): string => {
  * written is one that grows. The guard stamps them around the measurement and again immediately before the hold, so a
  * price is never reserved for a file that is no longer the file it measured (RR4-9).
  */
+/**
+ * Reads every argument that may name an audio file once, and writes back what it read. The guard reads these names
+ * several times over — the allowlist, the measurement, two stampings — and the server reads them again when the call
+ * goes out, so an argument that answers differently on each read is priced at one reading and sent at another. The
+ * stamps of RR4-9 cannot see that: the file on disk never moved, and the argument moved instead. After this, every
+ * reader including the dispatcher sees the one string the price was taken from (RR5-4).
+ *
+ * The name of an argument that would not hold still is returned, and the call is refused: a reading this plugin
+ * cannot pin to the call it is about to allow is no price at all. Both shipped paths hand the guard the object they
+ * dispatch, so the write-back reaches the call itself.
+ */
+export function freezeAudioPaths(args: Record<string, unknown>): string | undefined {
+  for (const name of AUDIO_PATHS) {
+    const described = Object.getOwnPropertyDescriptor(args, name)
+    if (described === undefined) continue
+    // A value that can be neither written nor redefined is one reading already, by the language's own rule.
+    if ("value" in described && described.writable === false && described.configurable === false) continue
+    const value = args[name]
+    try {
+      Object.defineProperty(args, name, { value, writable: true, enumerable: described.enumerable, configurable: described.configurable })
+    } catch {
+      return name
+    }
+    // An object whose reads are intercepted may take the write and go on answering with something else.
+    if (args[name] !== value) return name
+  }
+  return undefined
+}
+
 export function audioStamps(input: Record<string, unknown>): ReadonlyMap<string, string> {
   const stamps = new Map<string, string>()
   for (const name of AUDIO_PATHS) {
@@ -1485,6 +1514,10 @@ async function quote(context: GuardInput, tool: string, args: Record<string, unk
   if (caps.sessionCreditCap === null && caps.dailyCreditCap === null) {
     return { price: priceOf(tool, args) ?? { credits: 0, basis: "at-most", parts: ["cost not tracked: both caps are off"] }, tracked: false }
   }
+  // Every audio path is read once, here, and the reading is written back over the argument: from this line on the
+  // measurement, both stampings and the dispatched call all see the one string (RR5-4).
+  const unstable = freezeAudioPaths(args)
+  if (unstable !== undefined) throw unstableArgument(tool, unstable)
   // An argument no allowlist has is refused here as well as in the table, so the server's own estimate cannot price
   // around it: the estimate answers for the arguments it is sent, and this is one whose effect nothing here knows.
   const unknown = unknownArgument(tool, args)
@@ -1520,6 +1553,9 @@ function quoteSync(context: Omit<GuardInput, "estimate">, tool: string, args: Re
   if (caps.sessionCreditCap === null && caps.dailyCreditCap === null) {
     return { price: priceOf(tool, args) ?? { credits: 0, basis: "at-most", parts: ["cost not tracked: both caps are off"] }, tracked: false }
   }
+  // The same freeze as the model path, and for the same reason: this object is the one the shapers dispatch (RR5-4).
+  const unstable = freezeAudioPaths(args)
+  if (unstable !== undefined) throw unstableArgument(tool, unstable)
   // An argument no allowlist has is refused here as well as in the table, so the server's own estimate cannot price
   // around it: the estimate answers for the arguments it is sent, and this is one whose effect nothing here knows.
   const unknown = unknownArgument(tool, args)
@@ -1553,6 +1589,18 @@ function clamp(price: Price, caps: Caps, args: Record<string, unknown>, spend: S
   if (allowed >= generations) return price
   clampGenerations(args, allowed)
   return { ...price, credits: price.perGeneration * allowed, basis: "at-most", parts: [`${allowed} ${allowed === 1 ? "generation" : "generations"}, at ElevenLabs' estimate`] }
+}
+
+/**
+ * The refusal for an argument that would not hold still long enough to be priced. The stamps of RR4-9 answer for a
+ * file that changed on disk; this answers for the name of the file changing under the reader, which no stamp can see.
+ */
+function unstableArgument(tool: string, name: string) {
+  return new SpendRefused(
+    "PRICE_UNKNOWN",
+    `${tool} cannot be priced: "${name}" gives a different answer each time it is read, so no price belongs to the call that would be sent.`,
+    "Pass the file as a plain string, then call it again.",
+  )
 }
 
 /**

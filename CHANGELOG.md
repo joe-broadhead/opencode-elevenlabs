@@ -84,6 +84,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and thi
 - A WAV holding more than one `data` chunk is not measured. CoreAudio reads the last such chunk and Python's `wave`
   the first, so the file's length depends on which decoder opens it: a call that needs it is refused with
   `PRICE_UNKNOWN`, and a saved file shows no duration. One `data` chunk is measured as before, whatever follows it.
+- The guard reads each argument that may name an audio file once and writes that reading back, so the file it measures
+  is the file the call sends. It used to read `audio_path` five times and keep no copy: an argument that answered with
+  a one-second file for five reads and a ten-minute file after that was held at 6 credits and dispatched at 3,300, on
+  both paths. An argument that will not hold still is refused with `PRICE_UNKNOWN`, naming it.
 - A ledger reads the store behind every call it admits, and every five seconds besides, so a cap now holds across two
   running OpenCodes. The synchronous path cannot read the store before it decides, and nothing made it read after, so
   an OpenCode decided from its startup snapshot for its whole life: two of them taking turns each spent a full

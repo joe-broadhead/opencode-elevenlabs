@@ -200,6 +200,13 @@ input and a file that grew between the two readings would be dispatched on the s
 reach is the window after the dispatch: ElevenLabs' server opens the file itself, and no check here holds it still
 while it reads.
 
+A stamp answers for the file; the argument that names it is held still separately. Before anything is priced, the
+guard reads each name that may carry audio once and writes that reading back over the argument, so the measurement,
+both stampings and the call that is dispatched all see the one string rather than one read each. An argument that
+keeps its own answer after the write — a value that cannot be replaced, or an object that intercepts its own reads —
+is refused by name (`PRICE_UNKNOWN`), because a reading nothing can pin to the call about to be sent is not a price.
+Neither shipped path can produce one: both hand the guard a JSON-parsed object.
+
 The saved line uses `durationOf`, which measures a WAV the same way and otherwise reads the duration an MP4 or M4A
 states in the `mvhd` box inside its `moov` — the format ElevenLabs returns, which carries no length anywhere a
 decoder-free reader can compute. That walk is bounded: every read is inside the file's own size, the number of boxes

@@ -3,7 +3,7 @@ import { afterAll, describe, expect, test } from "bun:test"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { Ledger, LEDGER_REFRESH_MS, measureAudio, PRICED_ARGUMENTS, quoteCallSync, RATED_TOOLS, transcriptionPrice } from "../../src/billing.js"
+import { freezeAudioPaths, Ledger, LEDGER_REFRESH_MS, measureAudio, PRICED_ARGUMENTS, priceOf, quoteCall, quoteCallSync, RATED_TOOLS, transcriptionPrice } from "../../src/billing.js"
 import { ALL_TOOLS, mustPrice, PRICED_NAMES, SPEND_ANY } from "../../src/elevenlabs-tools.js"
 import { riffReadingWith } from "../../src/media/policy.js"
 import { createElevenlabsPlugin } from "../../src/plugin.js"
@@ -267,5 +267,96 @@ describe("RR5-3 — a book that decides is never older than one call", () => {
       globalThis.setInterval = realSet
       globalThis.clearInterval = realClear
     }
+  })
+})
+
+describe("RR5-4 — an audio path is read once, and that one reading is the one that is sent", () => {
+  const caps = { sessionCreditCap: 1_000_000, dailyCreditCap: 1_000_000 }
+  // The review's two files: one second of audio, and ten minutes of it.
+  const cheap = file("rr5-4-cheap.wav", buildWav({ seconds: 1 }))
+  const dear = file("rr5-4-dear.wav", buildWav({ seconds: 600 }))
+  const call = (id: string) => ({ sessionID: "ses_a", agent: "build", messageID: "m1", id })
+  /** The review's arguments object: `audio_path` answers with the cheap file for `flip` reads and the dear one after. */
+  const flipping = (flip: number) => {
+    const reads = { count: 0 }
+    const args: Record<string, unknown> = {}
+    Object.defineProperty(args, "audio_path", {
+      get: () => {
+        reads.count++
+        return reads.count <= flip ? cheap : dear
+      },
+      enumerable: true,
+      configurable: true,
+    })
+    return { args, reads }
+  }
+
+  test("the review's baseline: the two files are worth 6 and 3,300 credits", () => {
+    expect(priceOf("creative_transcribe_audio", { audio_path: cheap })?.credits).toBe(6)
+    expect(priceOf("creative_transcribe_audio", { audio_path: dear })?.credits).toBe(3_300)
+  })
+
+  for (const flip of [1, 2, 3, 4, 5, 6]) {
+    test(`a path that flips after ${flip} reads is priced at the file the call then names, on both paths`, async () => {
+      // At aa1e26c the guard read `audio_path` five times and kept no copy, so "flip after 5 reads" was priced at 6
+      // credits and the dear file went out: a 3,300-credit call held at 6. The four earlier flips were refused by
+      // RR4-9's stamps, which can only ever see the disk — the file never moved here, the argument did. The reading
+      // is now written back over the argument, so the measurement, both stampings and the dispatcher all see the one
+      // string, and the getter is called exactly once whatever it had planned to do next.
+      const sync = flipping(flip)
+      const quoted = quoteCallSync({ ledger: new Ledger(), caps: () => caps }, "creative_transcribe_audio", sync.args, call("s1"))
+      expect(sync.args["audio_path"]).toBe(cheap)
+      expect(sync.reads.count).toBe(1)
+      expect(quoted).toMatchObject({ tracked: true, price: { credits: 6 } })
+
+      const model = flipping(flip)
+      const ledger = new Ledger()
+      const result = await quoteCall({ ledger, caps: () => caps }, "creative_transcribe_audio", model.args, call("m1"))
+      expect(model.args["audio_path"]).toBe(cheap)
+      expect(model.reads.count).toBe(1)
+      expect(result).toMatchObject({ tracked: true, price: { credits: 6 } })
+      // The hold is the price of the file the call now names, and no later read can make it the other one.
+      expect(ledger.daily()).toBe(6)
+    })
+  }
+
+  test("a path the guard cannot pin is refused by name, on both paths, and nothing is held", async () => {
+    // What the guard cannot write back it cannot price: an argument that keeps its own answer after the write would
+    // be measured at one file and sent at another, which is the whole of RR5-4. Both shapes are refused by name.
+    /** A getter the guard may read but may not replace. */
+    const sealed = () => {
+      const args: Record<string, unknown> = {}
+      let reads = 0
+      Object.defineProperty(args, "audio_path", { get: () => (reads++ === 0 ? cheap : dear), enumerable: true, configurable: false })
+      return args
+    }
+    /** An object that reports a plain string, takes the write, and goes on answering with whatever it likes. */
+    const slippery = () => {
+      let reads = 0
+      return new Proxy({ audio_path: cheap } as Record<string, unknown>, {
+        get: (target, key) => (key === "audio_path" ? (reads++ % 2 === 0 ? cheap : dear) : Reflect.get(target, key)),
+        defineProperty: () => true,
+      })
+    }
+    for (const [name, make] of [["a getter that cannot be redefined", sealed], ["an object that drops the write", slippery]] as const) {
+      const ledger = new Ledger()
+      expect(() => quoteCallSync({ ledger, caps: () => caps }, "creative_transcribe_audio", make(), call("s1")), name).toThrow("PRICE_UNKNOWN")
+      await expect(quoteCall({ ledger, caps: () => caps }, "creative_transcribe_audio", make(), call("m1"))).rejects.toMatchObject({
+        code: "PRICE_UNKNOWN",
+        message: expect.stringContaining(`"audio_path"`),
+      })
+      expect(ledger.daily(), name).toBe(0)
+    }
+  })
+
+  test("an argument that is already one string is left exactly as it was", () => {
+    // The ordinary call, which is every call either shipped path makes: both hand the guard a JSON-parsed object, and
+    // `JSON.parse` writes plain values. A frozen object is one reading by the language's own rule, so it is skipped
+    // rather than refused.
+    const args: Record<string, unknown> = { audio_path: cheap, model_id: "scribe_v1" }
+    expect(freezeAudioPaths(args)).toBeUndefined()
+    expect(args).toEqual({ audio_path: cheap, model_id: "scribe_v1" })
+    expect(freezeAudioPaths(Object.freeze({ audio_path: cheap }) as Record<string, unknown>)).toBeUndefined()
+    expect(freezeAudioPaths({ text: "nothing audio here" })).toBeUndefined()
   })
 })
