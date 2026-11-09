@@ -3,7 +3,7 @@ import { afterAll, describe, expect, test } from "bun:test"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { freezeAudioPaths, Ledger, LEDGER_REFRESH_MS, measureAudio, PRICED_ARGUMENTS, priceOf, quoteCall, quoteCallSync, RATED_TOOLS, transcriptionPrice } from "../../src/billing.js"
+import { freezeAudioPaths, Ledger, LEDGER_REFRESH_MS, measureAudio, PRICED_ARGUMENTS, priceOf, quoteCall, quoteCallSync, RATED_TOOLS, spokenDuration, transcriptionPrice } from "../../src/billing.js"
 import { ALL_TOOLS, mustPrice, PRICED_NAMES, SPEND_ANY } from "../../src/elevenlabs-tools.js"
 import { riffReadingWith } from "../../src/media/policy.js"
 import { createElevenlabsPlugin } from "../../src/plugin.js"
@@ -396,5 +396,54 @@ describe("RR5-5 — a charge keeps the session that reserved it", () => {
     ledger.release("c2")
     expect(ledger.spend("ses_a").sessionCredits).toBe(900)
     expect(ledger.spend("ses_b").sessionCredits).toBe(0)
+  })
+})
+
+describe("RR5-6 — the cost line states the measurement, in the unit it is really in", () => {
+  /** What `creative_transcribe_audio` costs for a file of this length, and the line the owner reads beside it. */
+  const priced = (seconds: number) => transcriptionPrice({ path: file(`rr5-6-${seconds}.wav`, buildWav({ seconds })) })
+
+  test("a file under a minute states its seconds, where it used to state '0 minutes'", () => {
+    // The review's reproduction: 6 credits beside a line calling the audio nothing at all. The price was right and
+    // its description was not, which is the one line a bill is reconciled against.
+    expect(priced(1)).toMatchObject({ credits: 6, parts: ["1 second of audio, measured"] })
+    expect(priced(30)).toMatchObject({ credits: 165, parts: ["30 seconds of audio, measured"] })
+  })
+
+  test("a minute is singular, and longer files still state minutes", () => {
+    expect(priced(60)).toMatchObject({ credits: 330, parts: ["1 minute of audio, measured"] })
+    expect(priced(90)).toMatchObject({ credits: 495, parts: ["1.5 minutes of audio, measured"] })
+    expect(priced(600)).toMatchObject({ credits: 3_300, parts: ["10 minutes of audio, measured"] })
+  })
+
+  test("a caller's own duration is quoted in the same unit", () => {
+    const path = file("rr5-6-raised.wav", buildWav({ seconds: 1 }))
+    expect(transcriptionPrice({ path, duration_seconds: 120 })?.parts).toEqual([
+      "1 second of audio, measured",
+      "caller duration raised the bound to 2 minutes",
+    ])
+    expect(transcriptionPrice({ path, duration_seconds: 30 })?.parts).toEqual([
+      "1 second of audio, measured",
+      "caller duration raised the bound to 30 seconds",
+    ])
+  })
+
+  test("music reads the same way, and its own minimum is one line below a minute", () => {
+    // The music line already split at a minute; it had the plural slip and nothing else did the splitting for it.
+    expect(priceOf("creative_generate_music", { music_length_ms: 60_000 })?.parts[0]).toBe("1 minute")
+    expect(priceOf("creative_generate_music", { music_length_ms: 30_000 })?.parts[0]).toBe("30 seconds")
+    expect(priceOf("creative_generate_music", { music_length_ms: 1_000 })?.parts[0]).toBe("3 seconds")
+  })
+
+  test("no measurement this plugin can price ever prints as zero, or as a plural one", () => {
+    // The rule, over every duration a priced call can carry: a tenth of a second to an hour. A line that says a
+    // measured file is zero long, or says "1 minutes", is the defect; there is no length where either may come back.
+    for (let seconds = 0.1; seconds <= 3_600; seconds = Math.round((seconds + (seconds < 60 ? 0.1 : 7)) * 10) / 10) {
+      const said = spokenDuration(seconds)
+      expect(["0 minutes", "0 seconds", "1 minutes", "1 seconds"], `${seconds}s`).not.toContain(said)
+      expect(said, `${seconds}s`).toMatch(seconds < 60 ? /^[\d.]+ seconds?$/ : /^[\d.]+ minutes?$/)
+    }
+    // The smallest file the guard will price at all still states a length rather than rounding away to nothing.
+    expect(spokenDuration(0.000125)).toBe("0.00013 seconds")
   })
 })

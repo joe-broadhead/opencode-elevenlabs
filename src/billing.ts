@@ -151,6 +151,23 @@ export function clampGenerations(input: Record<string, unknown>, allowed: number
 }
 
 /**
+ * A duration for the cost line, in the unit it is really in: minutes at a minute and over, seconds below one, and a
+ * singular for exactly one of either. A line that reads "0 minutes of audio, measured" beside a charge is the plugin
+ * describing its own measurement as nothing, and it is the line an owner reconciling a bill stops at (RR5-6). Two
+ * significant figures below a minute, so a short file states a length rather than rounding to zero in turn.
+ */
+export function spokenDuration(seconds: number): string {
+  // The unit is the one the audio is really in: a minute is a minute of audio, not fifty-seven seconds rounded up to
+  // one, so the split is the real sixty and not whatever a tenth of a minute rounds to.
+  if (seconds >= 60) {
+    const minutes = Math.round((seconds / 60) * 10) / 10
+    return `${minutes} ${minutes === 1 ? "minute" : "minutes"}`
+  }
+  const below = seconds > 0 ? Number(seconds.toPrecision(2)) : 0
+  return `${below} ${below === 1 ? "second" : "seconds"}`
+}
+
+/**
  * The credits a call costs, from its arguments and ElevenLabs' published formula. Undefined when the formula does not
  * cover the tool, when the computed price is 0, or when a transcription's file cannot be measured. A number the caller
  * typed may raise a measured price. It cannot set one, and it cannot lower one.
@@ -214,7 +231,7 @@ export function priceOf(name: string, input: Record<string, unknown>): Price | u
     const minutes = milliseconds / 60_000
     const credits = Math.ceil(minutes * RATES.musicPerMinute * generations)
     if (!(credits > 0)) return undefined
-    const parts = [milliseconds < 60_000 ? `${Math.round(milliseconds / 100) / 10} seconds` : `${Math.round(minutes * 10) / 10} minutes`]
+    const parts = [spokenDuration(milliseconds / 1_000)]
     if (milliseconds > longest) parts.push(`${MUSIC_MIN_MS / 1_000} second minimum`)
     parts.push(...generationParts(generations))
     return { credits, basis: "at-most", parts }
@@ -573,11 +590,11 @@ export function transcriptionPrice(input: Record<string, unknown>): Price | unde
   if (!(seconds > 0)) return undefined
   const credits = Math.ceil((seconds / 60) * RATES.sttPerMinute)
   if (!(credits > 0)) return undefined
-  const parts = [`${Math.round((measured.durationSeconds / 60) * 10) / 10} minutes of audio, measured`]
+  const parts = [`${spokenDuration(measured.durationSeconds)} of audio, measured`]
   // Which reading the figure came from, when the file states one and holds another. The decoders tried here read the
   // stated size; this plugin reads to the end, because that cannot under-price, and the owner is told which (RR4-8).
   if (measured.understated) parts.push("the data chunk states less than the file holds, so every byte after it is priced as audio")
-  if (stated !== undefined && stated > measured.durationSeconds) parts.push(`caller duration raised the bound to ${Math.round((seconds / 60) * 10) / 10} minutes`)
+  if (stated !== undefined && stated > measured.durationSeconds) parts.push(`caller duration raised the bound to ${spokenDuration(seconds)}`)
   return { credits, basis: "at-most", parts }
 }
 
