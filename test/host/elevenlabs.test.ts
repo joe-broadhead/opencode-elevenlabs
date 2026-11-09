@@ -319,11 +319,22 @@ describe(`a text-only credit figure on OpenCode ${HOST_VERSION}`, () => {
   })
   afterAll(() => host?.close())
 
-  test("the model path charges the figure it was told, not the pre-call bound", async () => {
+  const speak = async (text: string) => {
     const sessionID = await session(host)
-    const outcome = await codeMode(host, sessionID, `const r = await tools.elevenlabs[${JSON.stringify(SPEECH)}]({ text: "hello" }); throw new Error("SEEN " + JSON.stringify(r))`)
+    const outcome = await codeMode(host, sessionID, `const r = await tools.elevenlabs[${JSON.stringify(SPEECH)}](${JSON.stringify({ text })}); throw new Error("SEEN " + JSON.stringify(r))`)
     expect(outcome).toHaveProperty("seen")
-    expect((outcome as { seen: { cost: { credits: number; basis: string } } }).seen.cost).toMatchObject({ credits: 120, basis: "exact" })
+    return (outcome as { seen: { cost: { credits: number; basis: string } } }).seen.cost
+  }
+
+  test("the model path charges the figure it was told, not the pre-call bound", async () => {
+    // Twelve characters at two takes reserve 24, and the fake reports 120: a raise inside the band, so it is charged.
+    expect(await speak("hello world!")).toMatchObject({ credits: 120, basis: "exact" })
+  })
+
+  test("a figure more than ten times the reservation keeps the reservation", async () => {
+    // Ruling B: a result may raise a charge up to ten times the reservation. "hello" reserves 10, and a reported 120
+    // is twelve times that, which is not a figure this call can have earned, so the reserved price stands.
+    expect(await speak("hello")).toMatchObject({ credits: 10, basis: "at-most" })
   })
 })
 
