@@ -3,7 +3,8 @@ import { afterAll, describe, expect, test } from "bun:test"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { MUSIC_MIN_MS, measureAudio, priceOf, RATES, transcriptionPrice } from "../../src/billing.js"
+import { Ledger, MUSIC_MIN_MS, measureAudio, priceOf, RATES, RESERVATION_MS, transcriptionPrice } from "../../src/billing.js"
+import { shapersFor } from "../../src/host/tools-rpc.js"
 import { brokenRiff, buildWav, WAV_FIXTURES } from "../fixtures/wav.js"
 
 const root = mkdtempSync(join(tmpdir(), "elevenlabs-rr2-"))
@@ -132,5 +133,76 @@ describe("RR2-3 — music is priced at the longest length it states, and never b
     }
     // But a zero beside a real length does not drag the price down to nothing.
     expect(priceOf("creative_compose_music", { music_length_ms: 0, duration_seconds: 300 })?.credits).toBe(4_500)
+  })
+})
+
+describe("RR2-4 — a late result cannot settle the call that replaced it", () => {
+  const caps = () => ({ sessionCreditCap: 100_000, dailyCreditCap: 100_000 })
+  const shape = (sessionID = "ses_a", action = "elevenlabs_creative_generate_speech") => ({ sessionID, agent: "build", action })
+  /** A speech call of `credits` credits: one character is one credit, and the bound is two takes. */
+  const speech = (credits: number) => ({ text: "x".repeat(credits / RATES.speechTakes) })
+
+  /** A reserves `a` credits and never returns; ten minutes on, it is charged and B reserves `b`. */
+  const abandonedThenNext = (a: number, b: number) => {
+    let now = 0
+    const ledger = new Ledger({ now: () => now })
+    const shapers = shapersFor({ ledger, caps })
+    const call = shape()
+    shapers.input("creative_generate_speech", speech(a), call)
+    now += RESERVATION_MS + 1
+    expect(ledger.daily()).toBe(a)
+    shapers.input("creative_generate_speech", speech(b), call)
+    expect(ledger.daily()).toBe(a + b)
+    return { ledger, shapers, call, advance: (ms: number) => void (now += ms) }
+  }
+
+  test("the abandoned call's late result does not free the live call's budget", () => {
+    // d107a11: A's result settled B's 3,000-credit hold at the 1 credit it attested, and the day read 1,501.
+    const { ledger, shapers, call } = abandonedThenNext(1_500, 3_000)
+    shapers.result("creative_generate_speech", { output: { credits: 1 }, text: "" }, call)
+    expect(ledger.daily()).toBe(4_500)
+    shapers.result("creative_generate_speech", { output: { credits: 3_000 }, text: "" }, call)
+    expect(ledger.daily()).toBe(4_500)
+  })
+
+  test("the live call's own result settles it, and the abandoned one's cannot reopen it", () => {
+    // The other order: B answers first, then A's stray figure of 1 arrives against a slot with no flight left.
+    const { ledger, shapers, call } = abandonedThenNext(1_500, 3_000)
+    shapers.result("creative_generate_speech", { output: { credits: 3_000 }, text: "" }, call)
+    expect(ledger.daily()).toBe(4_500)
+    shapers.result("creative_generate_speech", { output: { credits: 1 }, text: "" }, call)
+    expect(ledger.daily()).toBe(4_500)
+  })
+
+  test("a call admitted beside an abandoned one is never settled below what it reserved", () => {
+    // Whichever of the two results arrives, 3,000 was reserved for a call that ran: the figure may raise it only.
+    for (const figure of [1, 2, 0.5]) {
+      const { ledger, shapers, call } = abandonedThenNext(1_500, 3_000)
+      shapers.result("creative_generate_speech", { output: { credits: figure }, text: "" }, call)
+      shapers.result("creative_generate_speech", { output: { credits: figure }, text: "" }, call)
+      expect({ figure, daily: ledger.daily() }).toEqual({ figure, daily: 4_500 })
+    }
+    const raised = abandonedThenNext(1_500, 3_000)
+    raised.shapers.result("creative_generate_speech", { output: { credits: 4_000 }, text: "" }, raised.call)
+    raised.shapers.result("creative_generate_speech", { output: { credits: 4_000 }, text: "" }, raised.call)
+    expect(raised.ledger.daily()).toBe(5_500)
+  })
+
+  test("a stray result that never arrives does not make the slot conservative for ever", () => {
+    const { ledger, shapers, call, advance } = abandonedThenNext(1_500, 3_000)
+    shapers.result("creative_generate_speech", { output: { credits: 3_000 }, text: "" }, call)
+    advance(RESERVATION_MS + 1)
+    // The orphan is gone, so the next call is an ordinary one: its own attested figure settles it.
+    shapers.input("creative_generate_speech", speech(2_000), call)
+    shapers.result("creative_generate_speech", { output: { credits: 10 }, text: "" }, call)
+    expect(ledger.daily()).toBe(4_510)
+  })
+
+  test("with nothing in flight, a late result is still ignored", () => {
+    const { ledger, shapers, call } = abandonedThenNext(1_500, 3_000)
+    shapers.result("creative_generate_speech", { output: { credits: 3_000 }, text: "" }, call)
+    shapers.result("creative_generate_speech", { output: { credits: 1 }, text: "" }, call)
+    shapers.result("creative_generate_speech", { output: { credits: 1 }, text: "" }, call)
+    expect(ledger.daily()).toBe(4_500)
   })
 })

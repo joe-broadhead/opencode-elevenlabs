@@ -41,6 +41,7 @@ import {
   isEstimate,
   Ledger,
   quoteCallSync,
+  RESERVATION_MS,
   settlementOf,
   SpendRefused,
   type Caps,
@@ -162,8 +163,48 @@ export function shapersFor(runtime: ToolRuntime): LocationShapers {
    * shapeResult has run. An estimate must not share a flag with a paid hold: the paid result would be settled at the
    * estimate. Pairing the two by call id needs that id on ShapeCall, which is shared and is not added here.
    */
-  const flights = new Map<string, { readonly kind: "paid" | "estimate"; readonly id: string; readonly price: Price; readonly args: Record<string, unknown> }>()
+  interface Flight {
+    readonly kind: "paid" | "estimate"
+    readonly id: string
+    readonly price: Price
+    readonly args: Record<string, unknown>
+    /** Admitted while a charged call's result was still owed to this slot, so no figure may lower it. */
+    readonly strayRisk: boolean
+  }
+  const flights = new Map<string, Flight>()
   const key = (call: ShapeCall, method: string) => `${call.sessionID}\u0000${method}`
+
+  /**
+   * One entry per call whose reservation became a charge while the call itself was still running. Its result is still
+   * owed to this slot, and nothing on `ShapeCall` says which call a result belongs to, so while one is outstanding no
+   * result may be read as the figure for the call in flight now: it could be the charged call's. An orphan is
+   * forgotten one reservation window after it was made. The call had a full window before it was charged, and keeping
+   * a slot conservative for ever would spend the owner's budget on an abandoned call's ghost.
+   */
+  const orphans = new Map<string, number[]>()
+
+  /** The orphans of a slot that could still be answered, pruning the ones that cannot. */
+  const outstanding = (slot: string): number[] => {
+    const found = orphans.get(slot)
+    if (found === undefined) return []
+    const live = found.filter((at) => at > runtime.ledger.now() - RESERVATION_MS)
+    if (live.length === 0) orphans.delete(slot)
+    else orphans.set(slot, live)
+    return live
+  }
+
+  /** Records that a charged call's result is still to come. */
+  const orphan = (slot: string) => orphans.set(slot, [...outstanding(slot), runtime.ledger.now()])
+
+  /** Takes one orphan to be answered by the result now in hand, and says whether it took one. */
+  const takeOrphan = (slot: string): boolean => {
+    const live = outstanding(slot)
+    if (live.length === 0) return false
+    live.pop()
+    if (live.length === 0) orphans.delete(slot)
+    else orphans.set(slot, live)
+    return true
+  }
 
   return {
     input(method, input, call) {
@@ -180,9 +221,13 @@ export function shapersFor(runtime: ToolRuntime): LocationShapers {
           "Wait for that call to finish, then call it again.",
         )
       }
-      flights.delete(slot)
+      if (flight) {
+        // Its reservation ran out and was charged while the call was still running: its result is still owed here.
+        flights.delete(slot)
+        orphan(slot)
+      }
       if (isEstimate(args)) {
-        flights.set(slot, { kind: "estimate", id: "", price: { credits: 0, basis: "exact", parts: [] }, args })
+        flights.set(slot, { kind: "estimate", id: "", price: { credits: 0, basis: "exact", parts: [] }, args, strayRisk: outstanding(slot).length > 0 })
         return input
       }
       const id = `${call.sessionID}\u0000${method}\u0000${randomUUID()}`
@@ -193,23 +238,32 @@ export function shapersFor(runtime: ToolRuntime): LocationShapers {
         messageID: "",
         id,
       })
-      if (tracked) flights.set(slot, { kind: "paid", id, price, args })
+      // A call admitted while a charged call's result is still owed here can never be lowered by a figure: one of the
+      // results this slot is about to see belongs to the other call, and which one cannot be told apart.
+      if (tracked) flights.set(slot, { kind: "paid", id, price, args, strayRisk: outstanding(slot).length > 0 })
       return input
     },
 
     result(method, result, call) {
       if (!mustPrice(method)) return result
-      const flight = flights.get(key(call, method))
+      const slot = key(call, method)
+      // A result that may be a charged call's answer carries nothing about the call in flight now.
+      const stray = takeOrphan(slot)
+      const flight = flights.get(slot)
       // No priced call is in flight. Do not record a stray figure: an estimate result must not settle a paid hold.
       if (!flight) return result
-      flights.delete(key(call, method))
+      flights.delete(slot)
       if (flight.kind === "estimate") {
-        const price = estimatePrice(flight.args, result)
+        const price = stray ? undefined : estimatePrice(flight.args, result)
         if (price) runtime.ledger.rememberPrice(method, flight.args, price)
         return result
       }
       const caps = runtime.caps()
-      const settled = settlementOf(result, flight.price.credits)
+      const reported = settlementOf(result, flight.price.credits)
+      // A figure that may belong to the other call may raise this one's price and may not lower it: whichever call it
+      // came from, the slot as a whole spent at least that much, and over-counting is the safe side of a pairing this
+      // path cannot make. The reservation stands otherwise.
+      const settled = (stray || flight.strayRisk) && reported.credits < flight.price.credits ? { credits: flight.price.credits, attested: false } : reported
       const price: Price = settled.credits === flight.price.credits ? flight.price : { credits: settled.credits, basis: "exact", parts: [] }
       const spend = runtime.ledger.settle(flight.id, call.sessionID, price.credits, settled.attested)
       const line = costLine(price, spend, caps)

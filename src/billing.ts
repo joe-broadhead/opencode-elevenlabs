@@ -334,7 +334,7 @@ function parseJson(text: string): unknown {
 export const LEDGER_KEY = "spend.ledger"
 const WINDOW_MS = 24 * 60 * 60 * 1000
 /** A hold still open after this is settled at the reserved price. Ten minutes is inside a long video; expiry must not free the budget. */
-const RESERVATION_MS = 10 * 60 * 1000
+export const RESERVATION_MS = 10 * 60 * 1000
 /** The detail log is bounded. An in-window charge that no longer fits is folded into a total prune cannot shrink. */
 const MAX_ENTRIES = 1_000
 
@@ -410,7 +410,8 @@ export interface LedgerInput {
 export class Ledger {
   private readonly local = emptyBook()
   private readonly remembered = new Map<string, { price: Price; at: number }>()
-  private readonly now: () => number
+  /** This ledger's clock, public so a caller that ages its own bookkeeping ages it on the same clock the holds use. */
+  readonly now: () => number
   private storage: Storage | undefined
   private hydrated: Promise<void> | undefined
   private writing: Promise<void> = Promise.resolve()
