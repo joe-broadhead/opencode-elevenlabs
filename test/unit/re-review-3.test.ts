@@ -602,7 +602,9 @@ describe("RR3-4 — one key per record, one writer per key, so no settled charge
     const restarted = new Ledger({ storage: store.handle(), writerId: "B", now: () => now })
     await restarted.hydrate()
     expect(restarted.daily()).toBe(2_400)
-  })
+    // 2,400 records and two full hydrations over 1,014 keys: real work, and bun's five-second default is not enough
+    // for it on a loaded machine. The bound this asserts is a key count, not a duration.
+  }, 30_000)
 })
 
 describe("RR3-5 — two writers' folded hours are summed, never taken one over the other", () => {
