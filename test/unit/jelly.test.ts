@@ -30,11 +30,17 @@ describe("the jelly declaration", () => {
     expect(jelly.tools.map((tool) => tool.permission)).toEqual([...READ_TOOLS, ...ALL_TOOLS.filter((tool) => !READ_TOOLS.includes(tool)), ...OWN_TOOLS].map((tool) => `elevenlabs_${tool}`))
   })
 
-  test("has no views, RPC or Home contributions, and one sign-in: the elevenlabs server", () => {
+  test("has no views, RPC or Home contributions, one sign-in, and only the access setting: the elevenlabs server", () => {
     expect(jelly.title).toBe(DISPLAY_NAME)
     expect(jelly.rpc).toEqual([])
     expect(jelly.views).toEqual([])
-    expect(jelly.contributes).toEqual({ homeFeeds: [], homeWidgets: [], workKinds: [], settings: [] })
+    // The one setting is the family's access option, with the default the plugin ships with.
+    expect(jelly.contributes).toEqual({
+      homeFeeds: [],
+      homeWidgets: [],
+      workKinds: [],
+      settings: [{ key: "access", label: "Access", type: "string", default: "all", description: "all, ask-changes or read-only. Generates default rules for agents with a base allow rule." }],
+    })
     expect(jelly.signIns).toEqual([{ id: SERVER_NAME, label: DISPLAY_NAME, server: SERVER_NAME }])
     expect(jelly.skills).toEqual(["elevenlabs", "elevenlabs-creative", "elevenlabs-calls"])
   })
