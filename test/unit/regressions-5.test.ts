@@ -1,4 +1,4 @@
-// Reproductions from the fifth re-review. Each one failed at aa1e26c and must pass after the fix. Since live reconcile
+// Regression tests for one review pass. Each one failed before its fix and must pass after it. Since live reconcile
 // 1 the plugin computes no price of its own — ElevenLabs' own `estimate_only` call is the only price, and no file on
 // this machine is part of any call — so the blocks built on measured audio and on the published rates are
 // re-expressed. Each says what it used to assert, and what now holds instead.

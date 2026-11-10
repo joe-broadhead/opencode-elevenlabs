@@ -1,4 +1,4 @@
-// Reproductions from the third re-review. Each one failed at 96db0ed and must pass after the fix. Since live reconcile
+// Regression tests for one review pass. Each one failed before its fix and must pass after it. Since live reconcile
 // 1 the plugin computes no price of its own — ElevenLabs' own `estimate_only` call is the only price, and no file on
 // this machine is part of any call — so the blocks that measured audio to price it are re-expressed. Each says what it
 // used to assert, and what now holds instead: the decoder rigour the reproductions won is still exactly what the saved
@@ -743,7 +743,7 @@ describe("the documented residual is what the ledger now does", () => {
   // later change cannot leave a stronger sentence behind. corrected the middle clause, which gave the
   // two-process case as the general rule, and added the Code Mode one; then bounded that one — the ledger reads
   // the store behind every call and on a timer — so the sentence states a staleness instead of a whole cap. The
-  // crossing is proved in `re-review-4.test.ts` and the staleness in `re-review-5.test.ts`.
+  // crossing is proved in `regressions-4.test.ts` and the staleness in `regressions-5.test.ts`.
   const RESIDUAL =
     "within one OpenCode the caps are exact; across OpenCodes a cap is crossed by at most one call's reservation for each one deciding before its read of the others' holds lands, so eight of them at 3,000 credits a call can spend 31,000 against a 10,000 cap; every OpenCode reads the store behind each call it admits and every five seconds besides, so none decides on a book older than that; a settled charge is never lost"
 

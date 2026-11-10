@@ -2,11 +2,11 @@
 // lived — the tool table's own tests, the money gate's, and `billing.test.ts`'s strict-parse block — so what is here
 // is to.
 //
-// to are reproductions: five of these tests failed at e07ebfc and pass after the fix, and the rest of each
+// to are reproductions: five of these tests failed before their fix and pass after it, and the rest of each
 // block states what already held, so a fix cannot quietly take it away. The three were filed as nits and fixed anyway,
 // each because a guard was deciding from the wrong thing.
 //
-// is different: nothing was broken, and nothing in it failed at e07ebfc. It is the coverage the review found
+// is different: nothing was broken, and nothing in it failed before its fix. It is the coverage the review found
 // missing — four documents promised the user is "asked once" and no test counted a single assert, so a second prompt
 // would have been invisible here. What a host shows is still a host's to settle, and live pass 2 counts it.
 import { afterAll, describe, expect, test } from "bun:test"

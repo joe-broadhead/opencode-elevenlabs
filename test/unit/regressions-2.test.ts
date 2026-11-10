@@ -1,4 +1,4 @@
-// Reproductions from the second re-review. Each one failed at d107a11 and must pass after the fix. Since live
+// Regression tests for one review pass. Each one failed before its fix and must pass after it. Since live
 // reconcile 1 the plugin computes no price of its own — ElevenLabs' own `estimate_only` call is the only price — so
 // the three pricing reproductions (to) are re-expressed against what stands in the formula's place. Each
 // says what it used to assert, and what now holds instead.

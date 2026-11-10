@@ -1,4 +1,4 @@
-// Reproductions from the re-review. Each one failed on f864cf8 and must pass after the fix.
+// Regression tests for one review pass. Each one failed before its fix and must pass after it.
 import { afterAll, describe, expect, test } from "bun:test"
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"

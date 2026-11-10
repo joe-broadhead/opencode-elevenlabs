@@ -1,5 +1,5 @@
-// Reproductions from the fourth re-review. Each one failed at 6c21964 and must pass after the fix. to 
-// were answered in the round before this one and keep their tests in `re-review-3.test.ts`. Since live reconcile 1
+// Regression tests for one review pass. Each one failed before its fix and must pass after it. to 
+// were answered in the round before this one and keep their tests in `regressions-3.test.ts`. Since live reconcile 1
 // the plugin computes no price of its own — ElevenLabs' own `estimate_only` call is the only price, and no file on
 // this machine is part of any call — so the blocks built on the published rates and on measured audio are
 // re-expressed. Each says what it used to assert, and what now holds instead.
@@ -409,7 +409,7 @@ describe("the cap's real cross-process bound, and the sentence three files print
     // The shaper path is synchronous by the shared contract: it decides from what this OpenCode last read, and these
     // three read at startup. Each refuses its own fourth call and, inside its burst, knows nothing of the other two's
     // nine. That burst is as far as it goes: reads the store behind each call and on a timer, so the book is
-    // one call old rather than as old as the process, and `re-review-5.test.ts` holds that bound.
+    // one call old rather than as old as the process, and `regressions-5.test.ts` holds that bound.
     for (const [index, ledger] of ledgers.entries()) {
       for (const id of ["a", "b", "c"]) quoteCallSync({ ledger, caps: () => caps }, "creative_generate_speech", args(), call(`${index}${id}`))
       expect(() => quoteCallSync({ ledger, caps: () => caps }, "creative_generate_speech", args(), call(`${index}d`))).toThrow("SPEND_CAP_REACHED")

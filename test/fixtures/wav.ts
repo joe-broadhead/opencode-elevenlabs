@@ -89,7 +89,7 @@ function riffOf(parts: readonly Buffer[]): Buffer {
   return Buffer.concat([riff, rest])
 }
 
-/** The layouts the re-reviews name, each holding sixty seconds of audio unless its name says otherwise. */
+/** The layouts the regression tests name, each holding sixty seconds of audio unless its name says otherwise. */
 export const WAV_FIXTURES = {
   /** The 44-byte header every fixed-offset reader assumes. */
   canonical: () => buildWav({ seconds: 60 }),

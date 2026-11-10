@@ -118,7 +118,7 @@ Under `access: "read-only"` every spending tool is denied, the assert fails, and
 or failed assert leaves the call with no price, which a cap turns into `PRICE_UNKNOWN`.
 
 **How many prompts the user sees is the host's, and is not yet measured (RE-8).** Two asserts are raised for one priced
-call: `estimatorFor`'s, before the estimate, and the generation's own when it runs. `test/unit/re-review-6.test.ts`
+call: `estimatorFor`'s, before the estimate, and the generation's own when it runs. `test/unit/regressions-6.test.ts`
 counts them, so the number cannot change unnoticed. Whether OpenCode turns two asserts into one prompt — by holding an
 "allow once" answer for the same action within the same tool call — cannot be established without a host, and no
 version of this plugin has measured it. Earlier releases of these docs said the user is "asked once"; that was a claim
