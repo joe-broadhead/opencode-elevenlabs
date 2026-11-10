@@ -7,6 +7,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and thi
 
 ### Added
 
+- Jelly shows and sets the `access` option, so the same restriction is one setting in every host (default `all`).
 - Sign-in to ElevenLabs' hosted MCP server from `/connect`, with a client metadata document: no client ID and no API key
   ship with the plugin. The consent asks for seven scopes and never for `ads_read`.
 - A `region` option: `global` (the default), `us`, `eu`, `in` and `sg`. A change needs a new sign-in, and status names the
