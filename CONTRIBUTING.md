@@ -37,7 +37,7 @@ what `npm run drift` checks it against. To reconcile after the live list changes
 3. Update `src/elevenlabs-tools.ts`, then `package.json`'s `jelly.tools`, then the README's Permissions section.
 4. `npm run check` — a docs test and the Jelly test fail until all three agree.
 
-## Release
+## Releasing
 
 Every plugin releases as `v0.0.0`, and it installs from that GitHub tag. The release is one commit on top of a `master`
 head that CI passed, and the tag points at it.
@@ -54,6 +54,7 @@ head that CI passed, and the tag points at it.
 
 A tag that already exists stops step 3. Delete the old tag and its Release first, then start again.
 
+A Git install is removed and updated by its installed spec: `opencode plugin remove github:joe-broadhead/opencode-elevenlabs#v0.0.0`. `opencode plugin update` and `opencode plugin check` take the same spec.
 ## Installing from a checkout
 
 For development only, point OpenCode at the built plugin:

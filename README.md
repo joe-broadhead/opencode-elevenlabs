@@ -19,6 +19,8 @@ opencode plugin add github:joe-broadhead/opencode-elevenlabs#v0.0.0
 
 Run `opencode reload`, or restart OpenCode, then run `/elevenlabs-status`.
 
+A Git install is removed and updated by its installed spec: `opencode plugin remove github:joe-broadhead/opencode-elevenlabs#v0.0.0`. `opencode plugin update` and `opencode plugin check` take the same spec.
+
 The install takes the GitHub release tag. Its commit carries the built `dist/`, so the install runs no build.
 A new release is a new tag: install it with its own `#v<version>` spec.
 
@@ -517,7 +519,7 @@ Sign out first, so the stored credential goes with the plugin:
 ```sh
 opencode mcp logout elevenlabs
 opencode auth list
-opencode plugin remove @joe-broadhead/opencode-elevenlabs
+opencode plugin remove github:joe-broadhead/opencode-elevenlabs#v0.0.0
 ```
 
 Files already saved under `mediaRoot` stay. Remove them yourself if you no longer want them.
