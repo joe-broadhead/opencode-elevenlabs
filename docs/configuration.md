@@ -3,7 +3,7 @@
 Every option is optional. The plugin reads them from `opencode.json`:
 
 ```json
-{ "plugins": [{ "package": "@joe-broadhead/opencode-elevenlabs", "options": { "access": "all" } }] }
+{ "plugins": [{ "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.0", "options": { "access": "all" } }] }
 ```
 
 ## Options

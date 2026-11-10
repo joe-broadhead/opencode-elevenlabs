@@ -19,7 +19,13 @@ opencode plugin add github:joe-broadhead/opencode-elevenlabs#v0.0.0
 
 Run `opencode reload`, or restart OpenCode, then run `/elevenlabs-status`.
 
-A Git install is removed and updated by its installed spec: `opencode plugin remove github:joe-broadhead/opencode-elevenlabs#v0.0.0`. `opencode plugin update` and `opencode plugin check` take the same spec.
+Each release has its own tag, and a Git install does not update by itself. To move to a newer release, remove the old entry with `opencode plugin remove github:joe-broadhead/opencode-elevenlabs#v0.0.0`, then add the new tag with `opencode plugin add github:joe-broadhead/opencode-elevenlabs#v<version>`.
+
+Or add the plugin to `opencode.json` instead, with the same spec:
+
+```json
+{ "plugins": [{ "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.0" }] }
+```
 
 The install takes the GitHub release tag. Its commit carries the built `dist/`, so the install runs no build.
 A new release is a new tag: install it with its own `#v<version>` spec.
@@ -186,7 +192,7 @@ spend your credits without asking, and so can a tool ElevenLabs adds later. Rest
    | `"read-only"` | the read tools | nothing: everything else is **denied**, generations included |
 
    ```json
-   { "plugins": [{ "package": "@joe-broadhead/opencode-elevenlabs", "options": { "access": "read-only" } }] }
+   { "plugins": [{ "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.0", "options": { "access": "read-only" } }] }
    ```
 
 2. **An agent that is read-only or asks**, with rules of its own, later than the plugin's:
@@ -433,7 +439,7 @@ Options, the permission rules and every error code are in
 [docs/configuration.md](https://github.com/joe-broadhead/opencode-elevenlabs/blob/HEAD/docs/configuration.md).
 
 ```json
-{ "plugins": [{ "package": "@joe-broadhead/opencode-elevenlabs", "options": {
+{ "plugins": [{ "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.0", "options": {
   "access": "all",
   "region": "global",
   "sessionCreditCap": 2000,
@@ -452,7 +458,7 @@ Pre-set the region and the caps in the system config, so every member only press
 ```json
 {
   "plugins": [{
-    "package": "@joe-broadhead/opencode-elevenlabs",
+    "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.0",
     "options": { "region": "eu", "dailyCreditCap": 5000, "access": "ask-changes" }
   }]
 }
@@ -511,6 +517,8 @@ in your config shadows the plugin's. **Rename or move** that file, then restart 
   and the field is left out rather than estimated. A WAV holding more than one `data` chunk, or more than one `fmt `
   chunk, states two durations, and real decoders disagree about which counts, so it is treated as stating none. No
   price reads any of this.
+
+- Updates are not automatic for a Git install, and `opencode plugin update` and `opencode plugin check` do not work on one: to move to a newer release, remove the old entry and add the new tag.
 
 ## Uninstall
 
