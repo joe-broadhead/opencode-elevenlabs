@@ -35,8 +35,11 @@ describe("docs", () => {
   })
 
   // S5: version numbers live in package.json and the CHANGELOG heading only, and nothing says the package is unreleased.
-  test.each(["README.md", "CONTRIBUTING.md", ...DOCS, ...SKILLS])("%s names no version of the plugin and no pre-release state", (file) => {
-    expect(flat(file)).not.toMatch(/opencode-elevenlabs@\d|\bv?\d+\.\d+\.\d+-|\bv?0\.0\.\d\b|not (yet )?published|"private"/i)
+  // The release itself is the one exception: the README's install spec names its tag, and CONTRIBUTING's Release steps name
+  // the version. Everything else names no version and no pre-release state.
+  test.each(["README.md", "CONTRIBUTING.md", ...DOCS, ...SKILLS])("%s names no version of the plugin and no pre-release state, but the release", (file) => {
+    const body = flat(file).replace(/opencode-elevenlabs#v0\.0\.0/g, "").replace(/## Release .*?(?= ## |$)/, "")
+    expect(body).not.toMatch(/opencode-elevenlabs@\d|\bv?\d+\.\d+\.\d+-|\bv?0\.0\.\d\b|not (yet )?published|"private"/i)
   })
 
   // This used to assert that the README's Known limits was the one place calling the tool table provisional. The table

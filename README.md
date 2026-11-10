@@ -14,8 +14,13 @@ Unofficial; not affiliated with ElevenLabs.
 ## Install
 
 ```sh
-opencode plugin add @joe-broadhead/opencode-elevenlabs
+opencode plugin add github:joe-broadhead/opencode-elevenlabs#v0.0.0
 ```
+
+Run `opencode reload`, or restart OpenCode, then run `/elevenlabs-status`.
+
+The install takes the GitHub release tag. Its commit carries the built `dist/`, so the install runs no build.
+A new release is a new tag: install it with its own `#v<version>` spec.
 
 ## Sign in
 
