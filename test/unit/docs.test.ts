@@ -176,11 +176,12 @@ describe("docs", () => {
     expect(guide).toContain("estimate_only")
   })
 
-  test("the README says how much the caps allow, that they bound this plugin, and that no dollar figure comes from credits", () => {
+  test("the README says there is no cap unless you set one, that a cap bounds this plugin, and that no dollar figure comes from credits", () => {
     const readme = flat("README.md")
-    expect(readme).toContain("2,000 credits")
-    expect(readme).toContain("10,000")
-    expect(readme).toContain("The caps bound this plugin, not your account")
+    expect(readme).toContain("There is no credit cap unless you set one.")
+    expect(readme).toContain("Caps are opt-in.")
+    expect(readme).not.toMatch(/Caps are on by default|2,000 credits/)
+    expect(readme).toContain("A cap bounds this plugin, not your account")
     expect(readme).toContain("No dollar figure is derived from credits")
   })
 
