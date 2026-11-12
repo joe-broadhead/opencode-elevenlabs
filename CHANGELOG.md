@@ -3,6 +3,13 @@
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project follows
 [Semantic Versioning](https://semver.org).
 
+## [Unreleased]
+
+### Changed
+
+- The icon is ElevenLabs' "11" symbol, unmodified, on a neutral holding shape three times its height, used under
+  ElevenLabs' brand guidelines. The README carries ElevenLabs' trademark line.
+
 ## [0.0.0] - 2026-11-10
 <!-- kit-release: the GitHub release v0.0.0 -->
 
