@@ -205,8 +205,8 @@ describe("setup", () => {
     await cleanup!()
   })
 
-  test("a script's billed search is refused before dispatch when it cannot be priced, and nothing is called", async () => {
-    const { ctx, mcp, tool, handlers } = context({})
+  test("with a cap set, a script's billed search is refused before dispatch when it cannot be priced, and nothing is called", async () => {
+    const { ctx, mcp, tool, handlers } = context({ sessionCreditCap: 2000, dailyCreditCap: 10000 })
     const calls: string[] = []
     ;(ctx.tool as { list: unknown }).list = async () => [{ id: `elevenlabs_${SPEND}`, execute: async () => (calls.push(SPEND), { content: [] }) }]
     void tool
@@ -252,8 +252,8 @@ describe("setup", () => {
     }
   })
 
-  test("a creative tool ElevenLabs gives no estimate for is refused on the model path, and a failed call stays charged", async () => {
-    const { ctx, mcp, hookFns, toolList } = context({})
+  test("with a cap set, a creative tool ElevenLabs gives no estimate for is refused on the model path, and a failed call stays charged", async () => {
+    const { ctx, mcp, hookFns, toolList } = context({ sessionCreditCap: 2000, dailyCreditCap: 10000 })
     const cleanup = await createElevenlabsPlugin(seam).setup(ctx)
     mcp.run(mcpEditor().editor)
     const before = hookFns.get("execute.before")!

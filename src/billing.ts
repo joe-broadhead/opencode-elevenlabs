@@ -962,6 +962,8 @@ export function costLine(price: Price, spend: Spend, caps: Caps) {
   const exact = price.basis === "exact" ? "" : "at most "
   const basis = price.parts.length ? ` (${price.parts.join(", ")})` : ""
   const today = caps.dailyCreditCap === null ? `${count(spend.dailyCredits)} credits today` : `${count(spend.dailyCredits)} of ${count(caps.dailyCreditCap)} credits today`
+  // A call nothing priced and whose result reported nothing: say so, rather than print a figure of zero as a bound.
+  if (!(price.credits > 0)) return `Credits: not reported${basis}; ${today}.`
   return `Credits: ${exact}${count(price.credits)}${basis}; ${today}.`
 }
 
@@ -1048,10 +1050,20 @@ interface GuardInput {
 }
 
 interface Quote {
+  /**
+   * What the call is priced at before it runs. With no cap set it may be unpriced — credits 0, nothing to go on — and
+   * the call runs all the same; the cost line then reports what the result says, or that the cost was not reported.
+   */
   readonly price: Price
-  /** False when both caps are off, so nothing was reserved and nothing will be charged. */
+  /** True when a cap is on and the price was reserved in the ledger. False with no cap: nothing was held or refused. */
   readonly tracked: boolean
 }
+
+/** True when the owner set either credit cap. Every refusal, clamp, hold and in-flight rule here applies only then. */
+export const capped = (caps: Caps) => caps.sessionCreditCap !== null || caps.dailyCreditCap !== null
+
+/** The price an uncapped call runs at when nothing priced it first. Reporting only: it refuses nothing. */
+const UNPRICED: Price = { credits: 0, basis: "at-most", parts: ["not priced before it ran"] }
 
 /**
  * Prices a call, clamps its generation count, and reserves the price before it is sent. The reservation is what makes a
@@ -1127,9 +1139,7 @@ async function quote(context: GuardInput, tool: string, args: Record<string, unk
   const free = unpriced(context, tool, args)
   if (free !== undefined) return free
   const caps = context.caps()
-  if (caps.sessionCreditCap === null && caps.dailyCreditCap === null) {
-    return { price: { credits: 0, basis: "at-most", parts: ["cost not tracked: both caps are off"] }, tracked: false }
-  }
+  if (!capped(caps)) return uncapped(context, tool, args, mayEstimate, call)
   // An argument no allowlist has is refused before the estimate is asked for, not after: the estimate answers for the
   // arguments it is sent, so an argument the server's own schema does not have would be priced around rather than
   // priced. It is also one fewer flow created in the workspace for a call that is going to be refused.
@@ -1161,8 +1171,10 @@ function quoteSync(context: Omit<GuardInput, "estimate">, tool: string, args: Re
   const free = unpriced(context, tool, args)
   if (free !== undefined) return free
   const caps = context.caps()
-  if (caps.sessionCreditCap === null && caps.dailyCreditCap === null) {
-    return { price: { credits: 0, basis: "at-most", parts: ["cost not tracked: both caps are off"] }, tracked: false }
+  if (!capped(caps)) {
+    // No cap: price it from an estimate this ledger already holds, for the cost line, and refuse nothing.
+    const price = priceObstacle(tool, args) === undefined ? context.ledger.rememberedPrice(tool, args) : undefined
+    return { price: price ?? UNPRICED, tracked: false }
   }
   const obstacle = priceObstacle(tool, args)
   if (obstacle !== undefined) throw unknownPrice(tool, priced(tool), obstacle)
@@ -1179,6 +1191,23 @@ function quoteSync(context: Omit<GuardInput, "estimate">, tool: string, args: Re
   // this ledger decides from a book that has seen every other OpenCode's holds since this one.
   context.ledger.catchUp()
   return { price, tracked: true }
+}
+
+/**
+ * A call with no cap set. It is priced only so its result can carry a cost line: ElevenLabs' own estimate where the tool
+ * takes one, through the same permission-checked estimator the capped path uses, or one this ledger already holds. A
+ * call nothing prices — a tool with no `estimate_only`, a name the table does not classify, an argument outside the
+ * tool's schema, an estimate that failed — runs unpriced. Nothing is refused, clamped or reserved: the workspace's own
+ * balance at ElevenLabs and the permission rules are the bounds.
+ */
+async function uncapped(context: GuardInput, tool: string, args: Record<string, unknown>, mayEstimate: boolean, call: GuardCall): Promise<Quote> {
+  if (priceObstacle(tool, args) !== undefined) return { price: UNPRICED, tracked: false }
+  let price = context.ledger.rememberedPrice(tool, args)
+  if (price === undefined && mayEstimate && priced(tool) && context.estimate) {
+    price = await context.estimate(tool, args, call).catch(() => undefined)
+    if (price) context.ledger.rememberPrice(tool, args, price)
+  }
+  return { price: price !== undefined && price.credits > 0 ? price : UNPRICED, tracked: false }
 }
 
 /**

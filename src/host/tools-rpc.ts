@@ -33,8 +33,9 @@ import { Rpc } from "@opencode/plugin/rpc"
 
 // >>> PLUGIN-SPECIFIC >>>
 import { PLUGIN_ID as ELEVENLABS_PLUGIN_ID, SERVER_NAME } from "../constants.js"
-import { ALL_TOOLS, classify, mustPrice } from "../elevenlabs-tools.js"
+import { ALL_TOOLS, classify, mustPrice, spends } from "../elevenlabs-tools.js"
 import {
+  capped,
   costLine,
   costValue,
   estimatePrice,
@@ -159,7 +160,7 @@ export function shapeResult(method: string, result: McpResult, call: ShapeCall):
  */
 export function shapersFor(runtime: ToolRuntime): LocationShapers {
   /**
-   * One in-flight priced call per session and method. A second shapeInput, estimate or not, waits until this call's
+   * While a cap is on, one in-flight priced call per session and method. A second shapeInput, estimate or not, waits until this call's
    * shapeResult has run. An estimate must not share a flag with a paid hold: the paid result would be settled at the
    * estimate. Pairing the two by call id needs that id on ShapeCall, which is shared and is not added here.
    */
@@ -172,6 +173,13 @@ export function shapersFor(runtime: ToolRuntime): LocationShapers {
     readonly at: number
   }
   const flights = new Map<string, Flight>()
+  /**
+   * With no cap, the calls of one session and method are not serialised: each is queued here so its result can be
+   * paired with the price it ran at, in the order they were sent, and none waits for another. Nothing on `ShapeCall`
+   * says which call a result answers, so two of one method whose results come back out of order swap cost lines; the
+   * figures are reporting only, and nothing is refused or held on them.
+   */
+  const open = new Map<string, Flight[]>()
   /**
    * The slot a call's flight is held in. The name is folded, as the money gate and the permission gate both fold it:
    * a slot that told `Creative_Generate_Speech` from `creative_generate_speech` would let two priced calls run beside
@@ -192,11 +200,51 @@ export function shapersFor(runtime: ToolRuntime): LocationShapers {
   const lowerIgnored = (reported: number, reserved: number) =>
     `the result reported ${reported.toLocaleString("en-US")} credits, which this path cannot tell apart from another call's, so the ${reserved.toLocaleString("en-US")} reserved stands`
 
+  /**
+   * A result with no cap set: an estimate is remembered for the paid call that follows, and a paid call is recorded at
+   * the higher of its price and the figure its result reports, with the cost line beside it. Nothing was held.
+   */
+  const uncappedResult = (method: string, result: McpResult, call: ShapeCall, flight: Flight): McpResult => {
+    if (flight.kind === "estimate") {
+      const price = estimatePrice(method, flight.args, result)
+      if (price) runtime.ledger.rememberPrice(method, flight.args, price)
+      return result
+    }
+    const caps = runtime.caps()
+    const reported = settlementOf(result, flight.price.credits, null)
+    const raised = reported.credits > flight.price.credits
+    const price: Price = raised
+      ? { credits: reported.credits, basis: "exact", parts: reported.note === undefined ? [] : [reported.note] }
+      : { ...flight.price, parts: reported.note === undefined ? flight.price.parts : [...flight.price.parts, reported.note] }
+    const spend = price.credits > 0 ? runtime.ledger.record(call.sessionID, price.credits) : runtime.ledger.spend(call.sessionID)
+    const line = costLine(price, spend, caps)
+    const value = costValue(price, spend, caps)
+    const output = result.output !== null && typeof result.output === "object" && !Array.isArray(result.output)
+      ? { ...(result.output as Record<string, unknown>), cost: value }
+      : { cost: value }
+    return { ...result, output, text: result.text === "" ? line : `${result.text}\n${line}` }
+  }
+
   return {
     input(method, input, call) {
       const args = (typeof input === "object" && input !== null ? input : {}) as Record<string, unknown>
       if (!mustPrice(method)) return input
       const slot = key(call, method)
+      if (!capped(runtime.caps())) {
+        // No cap: nothing is refused, clamped, held or serialised. A name the table does not classify runs as it is.
+        if (!spends(method) && !isEstimate(method, args)) return input
+        const now = runtime.ledger.now()
+        const queue = (open.get(slot) ?? []).filter((flight) => flight.at > now - RESERVATION_MS)
+        if (isEstimate(method, args)) {
+          queue.push({ kind: "estimate", id: "", price: { credits: 0, basis: "exact", parts: [] }, args, at: now })
+        } else {
+          const id = `${call.sessionID}\u0000${method}\u0000${randomUUID()}`
+          const { price } = quoteCallSync({ ledger: runtime.ledger, caps: runtime.caps }, method, args, { sessionID: call.sessionID, agent: call.agent, messageID: "", id })
+          queue.push({ kind: "paid", id, price, args, at: now })
+        }
+        open.set(slot, queue)
+        return input
+      }
       // Prune first, so a hold that outlasted ten minutes is already a charge and no longer a reservation.
       runtime.ledger.spend(call.sessionID)
       const flight = flights.get(slot)
@@ -230,6 +278,12 @@ export function shapersFor(runtime: ToolRuntime): LocationShapers {
     result(method, result, call) {
       if (!mustPrice(method)) return result
       const slot = key(call, method)
+      const queued = open.get(slot)
+      if (queued !== undefined && queued.length > 0 && !flights.has(slot)) {
+        const next = queued.shift()!
+        if (queued.length === 0) open.delete(slot)
+        return uncappedResult(method, result, call, next)
+      }
       const flight = flights.get(slot)
       // No priced call is in flight. Do not record a stray figure: an estimate result must not settle a paid hold.
       if (!flight) return result

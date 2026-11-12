@@ -13,12 +13,16 @@ const CONVERSATION_VALUES: readonly Conversations[] = ["full", "summary", "off"]
 /** A credit cap: a positive whole number of credits, or null for no cap. */
 export type CreditCap = number | null
 
-const DEFAULT_SESSION_CAP: CreditCap = 2_000
-const DEFAULT_DAILY_CAP: CreditCap = 10_000
+/**
+ * No cap unless the owner sets one. ElevenLabs already refuses a call the workspace's balance cannot pay for, and the
+ * permission rules decide whether a paid call runs at all; a cap is an extra bound an owner may opt in to.
+ */
+const DEFAULT_SESSION_CAP: CreditCap = null
+const DEFAULT_DAILY_CAP: CreditCap = null
 export const DEFAULT_MEDIA_ROOT = "~/Downloads/elevenlabs"
 export const DEFAULT_MEDIA_BYTES = 200 * 1024 * 1024
 
-/** A credit cap above this is nearly always a typo, and a typo must not disable the guard. */
+/** A credit cap above this is nearly always a typo, and a typo must not quietly turn an opted-in cap into no cap. */
 const CAP_LIMIT = 10_000_000
 
 interface Options {
@@ -28,9 +32,9 @@ interface Options {
   readonly access: Access
   /** The region whose MCP server the plugin registers and signs in to. */
   readonly region: Region
-  /** The most credits one session (one conversation with the model) may spend. */
+  /** The most credits one session (one conversation with the model) may spend. Null, the default, is no cap. */
   readonly sessionCreditCap: CreditCap
-  /** The most credits this plugin may spend in any rolling 24 hours in this data directory. Two machines do not share it. */
+  /** The most credits this plugin may spend in any rolling 24 hours in this data directory. Null, the default, is no cap. */
   readonly dailyCreditCap: CreditCap
   /** Where `elevenlabs_save_media` writes, with `~` expanded when the file is written. */
   readonly mediaRoot: string
@@ -47,8 +51,8 @@ const ACCEPTED = {
   allowUntestedHost: "true or false (the default)",
   access: `"all" (the default), "ask-changes" or "read-only"`,
   region: `${REGION_VALUES.map((value) => `"${value}"`).join(", ")}; "global" is the default`,
-  sessionCreditCap: `a whole number of credits, or null for no cap (the default is ${DEFAULT_SESSION_CAP})`,
-  dailyCreditCap: `a whole number of credits, or null for no cap (the default is ${DEFAULT_DAILY_CAP})`,
+  sessionCreditCap: "a whole number of credits, or null for no cap (the default)",
+  dailyCreditCap: "a whole number of credits, or null for no cap (the default)",
   mediaRoot: `a path, with ~ for your home folder (the default is "${DEFAULT_MEDIA_ROOT}")`,
   maxMediaBytes: "a whole number of bytes",
   conversations: `"full" (the default), "summary" or "off"`,
@@ -104,7 +108,7 @@ export function parseOptions(raw: unknown): Options {
     allowUntestedHost,
     access: access as Access,
     region: region as Region,
-    // `null` is a value here, not a missing one: it turns the cap off, so only `undefined` falls back to the default.
+    // A cap is opt-in: a missing one and `null` both mean no cap.
     sessionCreditCap: cap("sessionCreditCap", input.sessionCreditCap === undefined ? DEFAULT_SESSION_CAP : input.sessionCreditCap),
     dailyCreditCap: cap("dailyCreditCap", input.dailyCreditCap === undefined ? DEFAULT_DAILY_CAP : input.dailyCreditCap),
     mediaRoot,
@@ -114,8 +118,8 @@ export function parseOptions(raw: unknown): Options {
 }
 
 /**
- * A cap is a positive whole number, or null. `0` and negative numbers are refused: a typo must not turn the guard off,
- * and null is how a user turns it off on purpose.
+ * A cap is a positive whole number, or null. `0` and negative numbers are refused: a typo in a cap the owner set must
+ * not be read as some other bound, and null (or leaving it out) is how a user has no cap.
  */
 function cap(name: "sessionCreditCap" | "dailyCreditCap", value: unknown): CreditCap {
   if (value === null) return null
