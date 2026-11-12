@@ -270,10 +270,12 @@ const otherServersText = (names: readonly string[]) =>
 /** The credits spent, the caps, the workspace balance only when an API key is stored, and what the caps do not bind. */
 function spendText({ spend, region, otherServers }: Status) {
   const count = (value: number) => value.toLocaleString("en-US")
-  const cap = (value: CreditCap) => (value === null ? "no cap" : count(value))
+  // Caps are opt-in: with none set, the row says what was spent and that nothing here bounds it.
   const parts = [
-    `${count(spend.dailyCredits)} credits spent in the last 24 hours of ${cap(spend.dailyCap)}`,
-    `a session is capped at ${cap(spend.sessionCap)}`,
+    spend.dailyCap === null
+      ? `${count(spend.dailyCredits)} credits spent in the last 24 hours, with no daily cap`
+      : `${count(spend.dailyCredits)} credits spent in the last 24 hours of ${count(spend.dailyCap)}`,
+    spend.sessionCap === null ? "no session cap" : `a session is capped at ${count(spend.sessionCap)}`,
   ]
   if (spend.balance) {
     const { used, limit, resetsAt, extension } = spend.balance
