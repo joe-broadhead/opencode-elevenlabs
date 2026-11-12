@@ -41,6 +41,10 @@ Checked by `scripts/check-forbidden.mjs` across `src/`, `test/`, `scripts/` and 
   fractional. One fact is still unverified, and the README's Known limits is the one place that says so: whether a paid
   result reports what it really cost, and in which field. Do not state that as settled, and do not call the tool table
   provisional.
+- The icon `assets/icon.svg` (and the two PNGs rendered from it) is ElevenLabs' "11" symbol from https://elevenlabs.io/brand,
+  used under those guidelines: the symbol unmodified (black, only scaled, its path data pre-scaled to the family's 48 grid)
+  on a neutral holding shape whose height is three times the symbol's. Do not recolour, redraw or combine it, and keep the
+  README's trademark line.
 - No personal email in anything we publish. Every commit, tag and package is authored and committed as
   `joe-broadhead <91376460+joe-broadhead@users.noreply.github.com>`. Before committing or tagging, check that
   `git config user.email` is that address: a fresh clone inherits the machine's global identity, which is not that
