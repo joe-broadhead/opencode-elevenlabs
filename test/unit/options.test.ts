@@ -58,7 +58,7 @@ describe("parseOptions", () => {
       const { message, code, nextStep } = error as Error & { code: string; nextStep: string }
       expect(code).toBe("OPTIONS_INVALID")
       expect(message.startsWith("OPTIONS_INVALID: ")).toBe(true)
-      expect(nextStep).toContain(`"package": "github:joe-broadhead/opencode-elevenlabs#v0.0.0", "options": {`)
+      expect(nextStep).toContain(`"package": "github:joe-broadhead/opencode-elevenlabs#v0.0.1", "options": {`)
       expect(message.endsWith(`. Next step: ${nextStep}`)).toBe(true)
       expect(nextStep.endsWith(".")).toBe(true)
     }
