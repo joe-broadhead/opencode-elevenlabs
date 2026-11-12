@@ -3,6 +3,21 @@
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project follows
 [Semantic Versioning](https://semver.org).
 
+## [Unreleased]
+
+### Changed
+
+- Credit caps are opt-in. `sessionCreditCap` and `dailyCreditCap` now default to `null` (no cap); set either to a
+  number to add a bound of your own, which works as before. With no cap the plugin refuses, cuts and queues nothing
+  for money: a paid call runs at any size, `creative_design_voice`, `agents_run_tests` and the other tools with no
+  estimate run unpriced, a name the table does not classify runs, and a script may run two calls of one method at
+  once. The bounds are the workspace's balance at ElevenLabs and the permission rules: `ask-changes` still asks for
+  every paid call and `read-only` still denies it.
+- With no cap, no estimate is sent before a paid call, so no flow or node is left in the workspace for it and no extra
+  prompt is raised. Every paid result still carries a cost line, with the figure the result reports or
+  `Credits: not reported`, never a guess. An explicit `estimate_only` call still works, and under a cap the plugin still
+  sends the estimate first.
+
 ## [0.0.1] - 2026-11-12
 
 ### Changed

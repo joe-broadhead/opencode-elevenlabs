@@ -9,13 +9,13 @@ Every live tool is a method, in one of five classes. `/elevenlabs-status` and `d
 | --- | --- | --- |
 | read | 81 | reads the workspace and changes nothing |
 | write | 81 | creates or changes something, and spends nothing |
-| write (billed) | 12 | changes something **and** can spend credits: priced before it runs, or refused |
+| write (billed) | 12 | changes something **and** can spend credits: priced before it runs where ElevenLabs offers an estimate, and refused only under a cap you set |
 | export | 3 | sends something out of the workspace: `agents_get_link` mints a link usable outside it, `creative_get_generations` returns the signed links a flow's generations download from, and `elevenlabs_save_media` writes a file to this machine |
 | destructive | 14 | deletes something, often without an undo |
 | `describe` | — | not a tool: lists the methods, their classes and permission actions, whether OpenCode lists each tool now, each tool's input as JSON Schema, and — with a session — that session's permission for each |
 
 The 12 billed methods. Seven are priced from ElevenLabs' own `estimate_only` figure before they run; the other five
-declare no such flag, so while a cap is on they are refused rather than run unpriced:
+declare no such flag, so they run unpriced, and while a cap you set is on they are refused instead:
 
 `agents_compute_kb_rag_index`, `agents_query_knowledge_base_rag`, `agents_run_tests`, `creative_create_brand_kit_from_website`, `creative_design_voice`, `creative_edit_image`, `creative_generate_image`, `creative_generate_in_flow`, `creative_generate_speech`, `creative_generate_video`, `creative_run_flow_nodes`, `creative_transcribe_audio`
 
@@ -118,17 +118,22 @@ opencode api post /api/rpc/elevenlabs.tools/describe -H "x-opencode-directory:$P
 A script's calls count against the same rolling 24-hour ledger the model's do. Twelve methods can spend, and every one
 of them is a change: under `access: "read-only"` all twelve are denied, `creative_transcribe_audio` included.
 
-- **The price is ElevenLabs'.** Before a billed call the plugin sends the same call with `estimate_only: true` and uses
-  that figure. Seven of the twelve take `estimate_only`; `creative_design_voice`, `agents_run_tests`,
+- **The price is ElevenLabs'.** It is the answer to the same call with `estimate_only: true`, which a script sends
+  itself; under a cap the plugin needs one before each paid call. Seven of the twelve take `estimate_only`; `creative_design_voice`, `agents_run_tests`,
   `agents_compute_kb_rag_index`, `agents_query_knowledge_base_rag` and `creative_create_brand_kit_from_website` do not,
-  so while a cap is on they are refused with `PRICE_UNKNOWN`.
-- **A script can ask for the estimate itself**, once, then call again with the same arguments: the plugin remembers the
-  figure for ten minutes and does not create a second flow. An estimate costs nothing and returns no `cost` object, but
+  so they run unpriced, and while a cap you set is on they are refused with `PRICE_UNKNOWN`.
+- **No cap is set by default.** A script's paid call is then priced, refused, cut and queued for nothing: it runs at
+  the size it asks for, two calls of one method run side by side, and each result's cost line states only the figure
+  that result reports, or `Credits: not reported`. Nothing is kept between calls, so a call that failed leaves nothing a
+  later result could be read against. An `estimate_only` answer is passed back as it is, with no cost line and no
+  charge. Everything below about refusals, cuts, holds and in-flight calls applies only while a cap you set is on.
+- **A script can ask for the estimate itself**, once, then call again with the same arguments. Under a cap, the plugin
+  remembers the figure for ten minutes, prices the paid call with it, and does not create a second flow. An estimate costs nothing and returns no `cost` object, but
   it does create a flow and a node in the workspace.
 - **The figure covers the whole batch.** It is for every generation the call asks for, not for one, it can be
-  fractional, and it is rounded up to whole credits. A batch that does not fit is cut to what the budget affords; a call
-  that named no `generations_count` is refused whole.
-- A script's price is **reserved** before dispatch and settled when the result arrives, so two calls in flight cannot
+  fractional, and it is rounded up to whole credits. Under a cap, a batch that does not fit is cut to what the budget
+  affords; a call that named no `generations_count` is refused whole.
+- Under a cap, a script's price is **reserved** before dispatch and settled when the result arrives, so two calls in flight cannot
   spend the same budget. A failed call is charged the reserved price. One priced call per session and method is in
   flight; a second, estimate or not, is refused until the first settles.
 - **Only the arguments ElevenLabs' schema for that tool has may be sent while a cap is on.** One it does not have is
@@ -142,12 +147,12 @@ of them is a change: under `access: "read-only"` all twelve are denied, `creativ
 opencode api post /api/rpc/elevenlabs.tools/creative_generate_image -H "x-opencode-directory:$PWD" -d '{"input":{"sessionID":"ses_…","input":{"prompt":"a ceramic mug on marble","model_id":"gpt-image-2","generations_count":1,"estimate_only":true,"context":"price one mug image"}}}'
 ```
 
-A paid call with no price and no remembered estimate is refused `PRICE_UNKNOWN`, with no generation and no charge.
-A paid call whose price does not fit is refused `SPEND_CAP_REACHED`, also with no generation. Both refusals name the
+Under a cap, a paid call with no price and no remembered estimate is refused `PRICE_UNKNOWN`, with no generation and
+no charge, and a paid call whose price does not fit is refused `SPEND_CAP_REACHED`, also with no generation. Both refusals name the
 option to change. Every paid result carries a `cost` object beside its output:
 
 ```json
-{ "credits": 762, "basis": "exact", "sessionSpent": 762, "dailySpent": 762, "sessionCap": 2000, "dailyCap": 10000 }
+{ "credits": 762, "basis": "exact", "sessionSpent": 762, "dailySpent": 762, "sessionCap": null, "dailyCap": null }
 ```
 
 `basis` is `"exact"` when the figure is ElevenLabs' own estimate for exactly these arguments, which is every priced call
@@ -208,8 +213,8 @@ standard output.
 | `SESSION_UNKNOWN` | OpenCode says the session does not exist in this location. Any other failure to look the session up is OpenCode's own error. |
 | `SESSION_AGENT_REQUIRED` | The session names no agent, or an agent that does not exist. |
 | `TOOL_UNAVAILABLE` | The server is connected, but OpenCode does not list the tool, or `elevenlabs_save_media` is not available in this location. |
-| `SPEND_CAP_REACHED` | The call would exceed `sessionCreditCap` or `dailyCreditCap`, or a priced call of the same method is already in flight. No generation was sent. |
-| `PRICE_UNKNOWN` | The call may spend, and no estimate prices it: none was remembered, the fresh one failed, an argument is outside ElevenLabs' schema for that tool, or the tool takes no `estimate_only` at all. No call was sent. |
+| `SPEND_CAP_REACHED` | The call would exceed the `sessionCreditCap` or `dailyCreditCap` you set, or, under that cap, a priced call of the same method is already in flight. No generation was sent. |
+| `PRICE_UNKNOWN` | A cap you set is on, the call may spend, and no estimate prices it: none was remembered, the fresh one failed, an argument is outside ElevenLabs' schema for that tool, or the tool takes no `estimate_only` at all. No call was sent. |
 | `SERVER_CONFLICT` | Your `opencode.json` defines its own `elevenlabs` server at a URL other than the plugin's, a trailing slash included. `/elevenlabs-status` names both. |
 | `AUTH_REQUIRED`, `CONNECTING`, `CONNECTION_FAILED`, `DISABLED`, `NOT_REGISTERED` | The `elevenlabs` server needs a sign-in, is still connecting, could not connect, is disabled, or is missing. `/elevenlabs-status` gives the details. |
 | `UPSTREAM_ERROR` | ElevenLabs answered with an error, such as an invalid input, an agent that does not exist, a rate limit, or a `429` concurrency refusal. The message holds the first line of ElevenLabs' text, at most 300 characters, with tokens and URL query strings removed. |
@@ -232,8 +237,8 @@ OpenCode itself answers `rpc.method_not_found` for a method that does not exist,
 
 - Call a tool that ElevenLabs adds later, even with an allow rule, until this plugin classifies it. Such a tool still
   runs for the model, under the `elevenlabs_*` rule; only the RPC needs it classified.
-- Price anything without asking ElevenLabs first: this plugin publishes no rates, so a billed call needs an estimate
-  for exactly its arguments, and a tool ElevenLabs gives no estimate for cannot run while a cap is on.
+- Price anything without asking ElevenLabs first: this plugin publishes no rates, so a billed call is priced only by an
+  estimate for exactly its arguments. Without one it runs unpriced, or, under a cap you set, it is refused.
 - Rely on a past "Always allow": it does not authorize an ad-hoc script.
 - Use a token: the plugin has none to give. The MCP connection, its sign-in and its refresh are OpenCode's.
 - Keep a generated file without the `external_directory` rule, which is a path rule and not a permission on the tool.

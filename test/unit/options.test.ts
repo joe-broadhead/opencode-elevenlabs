@@ -6,15 +6,15 @@ const DEFAULTS: ParsedOptions = {
   allowUntestedHost: false,
   access: "all",
   region: "global",
-  sessionCreditCap: 2000,
-  dailyCreditCap: 10000,
+  sessionCreditCap: null,
+  dailyCreditCap: null,
   mediaRoot: "~/Downloads/elevenlabs",
   maxMediaBytes: 200 * 1024 * 1024,
   conversations: "full",
 }
 
 describe("parseOptions", () => {
-  test("defaults to a supported host, every tool allowed, the global region and both caps on", () => {
+  test("defaults to a supported host, every tool allowed, the global region and no credit cap", () => {
     expect(parseOptions(undefined)).toEqual(DEFAULTS)
     expect(parseOptions(null)).toEqual(DEFAULTS)
     expect(parseOptions({})).toEqual(DEFAULTS)
@@ -44,10 +44,10 @@ describe("parseOptions", () => {
     [{ conversations: "some" }, 'The option "conversations" must be "full" (the default), "summary" or "off", found "some"'],
     [{ mediaRoot: "" }, 'The option "mediaRoot" must be a path, with ~ for your home folder (the default is "~/Downloads/elevenlabs"), found ""'],
     [{ maxMediaBytes: 10 }, 'The option "maxMediaBytes" must be a whole number of bytes of at least 1024, found 10'],
-    [{ sessionCreditCap: 0 }, 'The option "sessionCreditCap" must be a whole number of credits, or null for no cap (the default is 2000), found 0'],
-    [{ dailyCreditCap: -1 }, 'The option "dailyCreditCap" must be a whole number of credits, or null for no cap (the default is 10000), found -1'],
+    [{ sessionCreditCap: 0 }, 'The option "sessionCreditCap" must be a whole number of credits, or null for no cap (the default), found 0'],
+    [{ dailyCreditCap: -1 }, 'The option "dailyCreditCap" must be a whole number of credits, or null for no cap (the default), found -1'],
     [{ dailyCreditCap: 20000000 }, 'The option "dailyCreditCap" must be at most 10000000 credits, found 20000000'],
-    [{ dailyCreditCap: 1.5 }, 'The option "dailyCreditCap" must be a whole number of credits, or null for no cap (the default is 10000), found 1.5'],
+    [{ dailyCreditCap: 1.5 }, 'The option "dailyCreditCap" must be a whole number of credits, or null for no cap (the default), found 1.5'],
     ["true", 'The plugin options must be an object, found "true"'],
     [[], "The plugin options must be an object, found an array"],
   ])("rejects %j with the key, the accepted values and an example", (input, problem) => {

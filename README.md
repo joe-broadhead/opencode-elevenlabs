@@ -53,7 +53,7 @@ Ask for what you want in your own words:
 - "List my agents and tell me which ones still use the default first message."
 - "My checkout agent fails when someone asks about refunds. Read yesterday's calls and tell me why."
 - "Duplicate the production agent, change the voice, and set the first message to Spanish."
-- "Price a five-second video of a ceramic mug in morning light, then make it if it is under 2,000 credits."
+- "Price a five-second video of a ceramic mug in morning light, tell me what it costs, then make it."
 - "Save that voiceover to my Downloads folder."
 
 One tool and one guard do more than relay ElevenLabs:
@@ -61,8 +61,8 @@ One tool and one guard do more than relay ElevenLabs:
 - **`elevenlabs_save_media`** writes a generated file to disk from the signed link a generation returns. The link expires
   about two hours after the generation, so this is how a result is kept. It answers with the path, size, sha256 and, when
   the file states one, the duration; the file itself never enters the conversation.
-- **a spending guard** prices each generation, refuses one that does not fit the caps, and adds a cost line to every
-  paid result.
+- **a spending guard** adds a cost line to every paid result. It prices a call first and refuses one that does not fit
+  only when you set a credit cap.
 
 A script can call the same tools with no model, under the same spending guard:
 
@@ -80,9 +80,15 @@ the estimate path and every refusal.
 
 Generations are billed in **credits** against the workspace you signed in with.
 
-- **Caps are on by default.** `sessionCreditCap` is 2,000 credits and `dailyCreditCap` is 10,000, counted over a rolling
-  24 hours across sessions, scripts and restarts. A generation that does not fit is refused **before it is sent**, and a
-  request for more variations than the budget affords is cut to what fits. Set either to `null` for no cap.
+- **There is no credit cap unless you set one.** ElevenLabs already refuses a call the workspace's balance cannot pay
+  for, and the permission rules decide whether a paid call runs at all: under `access: "ask-changes"` every generation
+  asks, and under `"read-only"` it is denied. With the default options the plugin refuses, cuts and queues nothing for
+  money and sends no estimate before a paid call. Each paid result's cost line says what the result reported, or
+  `Credits: not reported`; it never shows a guess. To know a price first, ask for it: an `estimate_only` call.
+- **Caps are opt-in.** Set `sessionCreditCap`, `dailyCreditCap` or both to a whole number of credits to add a bound of
+  your own, counted over a rolling 24 hours across sessions, scripts and restarts. While either is set, a generation
+  that does not fit is refused **before it is sent**, a request for more variations than the budget affords is cut to
+  what fits, and the rest of this section's refusals apply.
 - **How far a cap reaches.** Every hold and every charge is written to this data directory's store under its own key,
   which only the OpenCode that created it ever rewrites, and a total is read by scanning those keys and adding them up.
   Nothing merges two writers' records, so no writer can drop another's charge. What a cap cannot do is decide across two
@@ -95,17 +101,19 @@ Generations are billed in **credits** against the workspace you signed in with.
   the 9,000 that fits. Size a cap as the bound you can afford to be crossed once per extra OpenCode, not as a hard
   limit on the account. Two machines share nothing: the store cannot see them.
 - **Every price comes from ElevenLabs, never from this plugin.** There is no rate table here: no credits per character,
-  per second or per minute, and nothing measures a file on this machine. Before a call that can spend, the plugin sends
-  ElevenLabs the **same call with `estimate_only: true`** and uses the figure that comes back. Twelve tools can spend:
+  per second or per minute, and nothing measures a file on this machine. A price is ElevenLabs' answer to the **same
+  call with `estimate_only: true`**: you or the model can ask for one at any time, and while a cap is set the plugin
+  asks for one itself before each paid call. Twelve tools can spend:
   `creative_generate_speech`, `creative_generate_image`, `creative_generate_video`, `creative_edit_image`,
   `creative_generate_in_flow`, `creative_run_flow_nodes`, `creative_transcribe_audio`, `creative_design_voice`,
   `agents_run_tests`, `agents_compute_kb_rag_index`, `agents_query_knowledge_base_rag` and
-  `creative_create_brand_kit_from_website`. The first seven take `estimate_only`; the other five do not, so while a cap
-  is on they are refused rather than run unpriced. The last three are counted as spending because ElevenLabs' catalogue
+  `creative_create_brand_kit_from_website`. The first seven take `estimate_only`; the other five do not, so they run
+  unpriced, and while a cap you set is on they are refused instead. The last three are counted as spending because ElevenLabs' catalogue
   says neither way and the work they describe — embedding a document, running a RAG query, reading a website — is work
-  it plausibly bills; a refusal you can turn off is better than a charge you did not see.
+  it plausibly bills, so each gets a cost line and, under a cap, counts against it.
 - **An estimate is free, but it is not nothing.** Measured against a real workspace: two estimates moved the balance by
-  zero credits, and each left a flow and a node behind in the workspace. So one estimate is asked per set of arguments,
+  zero credits, and each left a flow and a node behind in the workspace. That is why none is sent without a cap. Under a
+  cap, one estimate is asked per set of arguments,
   the figure is kept for ten minutes, and the paid call reuses it instead of creating a second flow. The estimate is
   sent only where the paid call could run: the permission it asks for is the generation's own, so nothing is estimated
   if you say no, and under `access: "read-only"` every spending tool is denied and no estimate is sent either. The
@@ -114,32 +122,34 @@ Generations are billed in **credits** against the workspace you signed in with.
   no release has measured it yet.
 - **The figure is the whole batch.** ElevenLabs answers for every generation the call asks for, not for one — a
   four-image estimate came back as 761.5151418103446 credits, about 190 an image. Credits are charged as whole numbers,
-  so a fractional figure is rounded up. A batch that does not fit is cut to the number of generations the budget
-  affords, and a call that named no count is refused whole rather than quietly given a smaller batch.
-- **A call that cannot be priced is refused, not guessed.** While either cap is on, each of the 12 tools that can spend is priced by ElevenLabs' own estimate or refused PRICE_UNKNOWN before it is sent, and so is any name this table does not classify, whatever it starts with.
+  so a fractional figure is rounded up. Under a cap, a batch that does not fit is cut to the number of generations the
+  budget affords, and a call that named no count is refused whole rather than quietly given a smaller batch.
+- **With no cap, nothing is priced first and nothing is refused.** A cost line reads `Credits: not reported` unless the
+  result reports a figure. **With a cap, a call that cannot be priced is refused, not guessed.** Only when you set a cap: each of the 12 tools that can spend is priced by ElevenLabs' own estimate or refused PRICE_UNKNOWN before it is sent, and so is any name this table does not classify, whatever it starts with. With no cap, the default, nothing is refused for want of a price.
   A failed or missing estimate, an argument ElevenLabs' own schema for that tool does not have, and a tool with no
   estimate at all each end there. The refusal says what to do: send the same call with `estimate_only: true`, or set
   both caps to `null`. A price of 0 is a refusal, not a free call.
 - **Transcription spends like everything else.** `creative_transcribe_audio` transcribes a node on a flow — it takes no
   file and no path — and it is priced from its own estimate. It is **not** a read: `access: "read-only"` denies it along
   with every other tool that can spend.
-- **Two calls that start together cannot both spend the same budget.** The price is reserved in the ledger before the call
-  is sent and settled when its result arrives. A call that fails, or whose result never arrives, is charged the reserved
-  price: the plugin cannot tell a free failure from a billed one, and over-counting is the safe side. A later result that
-  reports a higher figure may replace that charge. A missing result, a zero, or an error does not free the budget. A hold
-  still open after ten minutes is settled at the reserved price rather than dropped. On the script path, one priced call
-  per session and method is in flight; a second is refused until the first settles.
+- **Under a cap, two calls that start together cannot both spend the same budget.** The price is reserved in the ledger
+  before the call is sent and settled when its result arrives. A call that fails, or whose result never arrives, is
+  charged the reserved price: the plugin cannot tell a free failure from a billed one, and over-counting is the safe
+  side. A later result that reports a higher figure may replace that charge. A missing result, a zero, or an error does
+  not free the budget. A hold still open after ten minutes is settled at the reserved price rather than dropped. On the
+  script path, one priced call per session and method is in flight; a second is refused until the first settles. With
+  no cap none of this holds anything back: calls run side by side and each is recorded when its result arrives.
 - **Past a thousand priced calls in a day, the oldest ones are counted by the hour.** The detail log keeps the newest
   1,000 charges; an older charge still inside the window is folded into a total for its session and the hour it was
   spent in, which nothing afterwards can shrink. A folded total is kept while any minute of its hour is still inside the
-  24 hours, so a folded charge can go on counting for up to an hour after its own day ran out. The cap errs high, never
-  low, and only on a day that busy.
-- **The caps bound this plugin, not your account.** Someone generating in the ElevenLabs app spends from the same pool,
+  24 hours, so a folded charge can go on counting for up to an hour after its own day ran out. The total errs high,
+  never low, and only on a day that busy.
+- **A cap bounds this plugin, not your account.** Someone generating in the ElevenLabs app spends from the same pool,
   and so does a second MCP entry pointing at ElevenLabs under another name: its tools carry that name's prefix, which
   this plugin's guard never sees. `/elevenlabs-status` names such an entry when it finds one.
 - **The balance is only visible with an API key.** Add one through `/connect` → **ElevenLabs API key (optional)** and
   status shows the workspace balance and its reset date. It is used for one read, the subscription, and never to
-  generate. Without it the Spend row says the caps count this plugin's own calls only.
+  generate. Without it the Spend row says the plugin counts its own calls only.
 - **A retry is a second charge.** The skills poll for a result instead of asking again.
 - **No dollar figure is derived from credits.** There is no published conversion; `cost_fiat`, when ElevenLabs reports
   it, is the dollars.
@@ -444,8 +454,8 @@ Options, the permission rules and every error code are in
 { "plugins": [{ "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.1", "options": {
   "access": "all",
   "region": "global",
-  "sessionCreditCap": 2000,
-  "dailyCreditCap": 10000,
+  "sessionCreditCap": null,
+  "dailyCreditCap": null,
   "mediaRoot": "~/Downloads/elevenlabs",
   "maxMediaBytes": 209715200,
   "conversations": "full"
@@ -454,7 +464,7 @@ Options, the permission rules and every error code are in
 
 ## Organisation rollout
 
-Pre-set the region and the caps in the system config, so every member only presses sign-in. On Linux
+Pre-set the region, and a cap if you want one, in the system config, so every member only presses sign-in. On Linux
 `/etc/opencode/opencode.json`, on macOS `/Library/Application Support/opencode/opencode.json`:
 
 ```json
@@ -483,12 +493,12 @@ Every state, and every sentence `/elevenlabs-status` and `/elevenlabs-doctor` ca
 | `MEDIA_TOO_LARGE` | the file is larger than `maxMediaBytes` | raise `maxMediaBytes` deliberately |
 | `MEDIA_URL_INVALID` | the link is not `https`, or not on ElevenLabs' generated-file host | pass the link a generation returned |
 | `OPTIONS_INVALID` | a plugin option is wrong | fix the option; the message names the accepted values |
-| `PRICE_UNKNOWN` | a call that may spend cannot be priced, and a cap is on, so it was refused before it was sent | price it with `"estimate_only": true` where the tool takes it, or set both caps to `null` |
+| `PRICE_UNKNOWN` | a call that may spend cannot be priced, and a cap you set is on, so it was refused before it was sent | price it with `"estimate_only": true` where the tool takes it, or set both caps to `null` |
 | `RULES_NOT_ADDED` | the default rules could not be inserted | restart OpenCode |
 | `SAVE_FAILED` | the file could not be written | check `mediaRoot`, its permissions, and the `external_directory` rule |
 | `SERVER_NOT_REGISTERED` | the MCP server could not be registered | restart OpenCode |
 | `SKILLS_INVALID` | a skill failed to load | reinstall the plugin |
-| `SPEND_CAP_REACHED` | the call would exceed a credit cap, or a priced call of the same method is already in flight, so it was refused before it was sent | raise the cap, set it to `null`, wait for the 24-hour window, or wait for the in-flight call to return or for its ten-minute reservation to run out |
+| `SPEND_CAP_REACHED` | the call would exceed a credit cap you set, or, under that cap, a priced call of the same method is already in flight, so it was refused before it was sent | raise the cap, set it to `null`, wait for the 24-hour window, or wait for the in-flight call to return or for its ten-minute reservation to run out |
 | `STATUS_UNAVAILABLE` | the status report could not be read | restart OpenCode, then run `/elevenlabs-status` |
 
 An upstream error from ElevenLabs, a rate limit included, passes through unchanged.
@@ -504,15 +514,17 @@ in your config shadows the plugin's. **Rename or move** that file, then restart 
   unknown until it is classified.
 - **Every live tool requires a `context` argument**, a short line saying why the call is being made. ElevenLabs reads
   it; the plugin only passes it on.
-- **The caps bound this plugin, not the account.** The workspace balance needs the optional API key.
+- **There is no credit cap by default.** The workspace's balance at ElevenLabs and the permission rules are the bounds;
+  a cap you set bounds this plugin, not the account. The workspace balance is visible with the optional API key.
 - **No dollar figure is derived from credits.**
-- **Prices come from ElevenLabs' own estimate.** If the estimate is unavailable the call is refused rather than
-  guessed, and a tool ElevenLabs offers no estimate for cannot run while a cap is on.
+- **With no cap, a cost line is only as good as the result.** No estimate is sent before a paid call, so a result that
+  reports no figure says `Credits: not reported`. Under a cap you set, prices come from ElevenLabs' own estimate: a
+  call it cannot price is refused rather than guessed, and a tool ElevenLabs offers no estimate for cannot run.
 - **One fact about a paid call stays unverified until the live reconcile measures it:** whether a finished generation
   reports what it really cost, and in which field of its result. Pass 1 did not measure it: it spent nothing. Pass 2
   does, as step 2 of the checklist in `test/fixtures/README.md`, on the two cheapest paid calls this plugin can make.
-  Until then a call is charged the estimate it was reserved at, and a later figure can only raise that charge, never
-  lower it. What the live pass did settle is on the
+  Until then a call under a cap is recorded at its estimate, and a later figure can only raise that charge, never lower
+  it; with no cap, most cost lines may read `Credits: not reported`. What the live pass did settle is on the
   estimate's side: an estimate moved the balance by nothing, its figure covers the whole batch rather than one
   generation, it can be fractional, and it leaves a flow and a node behind in the workspace.
 - **Durations are read from the container, and only for display.** WAV and MP4/M4A state one; MP3, Ogg and WebM do not,

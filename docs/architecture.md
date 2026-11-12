@@ -87,12 +87,19 @@ with `estimate_only: true` and the same arguments, and reading the figure out of
 `src/billing.ts`). `ESTIMATE_TOOLS` holds the seven tools whose live schema declares `estimate_only`; `SPEND_TOOLS`
 holds the twelve that can spend. A spending tool with no estimate — `creative_design_voice`, `agents_run_tests`,
 `agents_compute_kb_rag_index`, `agents_query_knowledge_base_rag` and `creative_create_brand_kit_from_website` — has no
-price at all, so while either cap is on it is refused (`PRICE_UNKNOWN`) rather than run unpriced.
+price at all: with no cap it runs unpriced, and while a cap the owner set is on it is refused (`PRICE_UNKNOWN`).
+
+**Caps are opt-in.** `sessionCreditCap` and `dailyCreditCap` default to `null`. With neither set, `quote` and
+`quoteSync` send no estimate and refuse, clamp and reserve nothing. Each path records the figure the result itself
+reports, or reports `Credits: not reported`. The script path keeps nothing between calls: with no call id on
+`ShapeCall` it could not pair a result with its call, so it does not try, and it tells an `estimate_only` answer from a
+paid result by the answer's own `estimate` object (`isEstimateResult`). Everything below about refusals, clamps, holds and the one-in-flight rule applies only while a cap is
+set. The bounds without one are ElevenLabs' own balance check and the permission rules.
 
 **The figure is read strictly.** `estimatedCreditsOf` reads `estimate.credits` first, because that is the field the
 live result used (`{"estimate": {"credits": 761.5151418103446}}`), then the same five named keys settlement reads a
 charge under, at the top level. Nothing is read out of prose, and nothing is walked for several levels: a figure this
-parser does not find leaves the call with no price, which a cap turns into `PRICE_UNKNOWN`. The estimate sets the
+parser does not find leaves the call with no price, which a cap, when set, turns into `PRICE_UNKNOWN`. The estimate sets the
 reservation and, where no later figure is seen, the charge, so it is read under at least the rules a figure that could
 *lower* a reservation is read under.
 
@@ -106,8 +113,8 @@ no default of its own — `creative_generate_in_flow`, `creative_run_flow_nodes`
 the total.
 
 **An estimate is free but not harmless.** Live reconcile 1 measured two of them against the workspace balance and saw
-no movement and no new billable request, and each one created a flow and a node in the owner's workspace. So the guard
-asks for one estimate per set of arguments, remembers the figure for ten minutes (`RESERVATION_MS`), and reuses it for
+no movement and no new billable request, and each one created a flow and a node in the owner's workspace. So with no
+cap the guard sends none at all, and under a cap it asks for one estimate per set of arguments, remembers the figure for ten minutes (`RESERVATION_MS`), and reuses it for
 the paid call rather than creating a second flow. Different arguments are a different call and get their own estimate.
 
 **The estimate is asked for only where the paid call could run.** `estimatorFor` asserts the paid tool's own permission
@@ -115,7 +122,7 @@ the paid call rather than creating a second flow. Different arguments are a diff
 nothing can be estimated that the generation itself may not do. Under `access: "ask-changes"` the estimate goes out
 only if that permission is allowed, so an estimate never creates a flow for a generation the user is about to refuse.
 Under `access: "read-only"` every spending tool is denied, the assert fails, and no estimate is sent either. A declined
-or failed assert leaves the call with no price, which a cap turns into `PRICE_UNKNOWN`.
+or failed assert leaves the call with no price, which a cap, when set, turns into `PRICE_UNKNOWN`.
 
 **How many prompts the user sees is the host's, and is not yet measured (RE-8).** Two asserts are raised for one priced
 call: `estimatorFor`'s, before the estimate, and the generation's own when it runs. `test/unit/regressions-6.test.ts`
@@ -126,7 +133,7 @@ about what a host does, written as though this plugin decided it. Live pass 2 co
 The ordering itself is settled and is the safe one: asserting before estimating is what keeps `read-only` from creating
 a flow, and what makes `ask-changes` refuse the estimate when the generation is refused.
 
-While either cap is on, two kinds of call are priced or refused before dispatch: the ones the table classifies as
+While a cap the owner set is on, two kinds of call are priced or refused before dispatch: the ones the table classifies as
 spending, and **any name the table does not classify at all, whatever it starts with**. There is no keyword list and
 no prefix. A price that does not fit is refused (`SPEND_CAP_REACHED`), and a count the caller named is first cut to
 what the budget affords; a call that named no count is refused at its whole figure rather than quietly given a smaller
@@ -223,9 +230,9 @@ bills, and does not say it spends nothing, is counted as spending. The tools tha
 unprompted — `creative_upload_flow_reference` ends *"This starts no generation and spends no credits"*,
 `creative_update_node`, `creative_update_flow_nodes` and `creative_duplicate_flow_nodes` each end *"This never starts a
 generation"*, `creative_get_voice_design_previews` says it reads previews *"without spending credits"* — so silence
-beside billable work is the signal, and a refusal the owner can switch off is better than a charge they did not see.
-Four tools are classed as spending on that rule and nothing else; none of the four declares `estimate_only`, so while
-either cap is on each is refused rather than run unpriced, and live pass 2 measures whether they bill:
+beside billable work is the signal, and a cost line on a call that turns out free is better than a charge nobody
+reported. Four tools are classed as spending on that rule and nothing else; none of the four declares `estimate_only`,
+so each runs unpriced, or is refused while a cap is set, and live pass 2 measures whether they bill:
 
 - **`agents_run_tests`.** A test run makes the agent hold conversations, which bills the agent's own LLM usage.
   `agents_create_test` and the other test tools only describe a test, and are ordinary writes.
@@ -259,8 +266,8 @@ either cap is on each is refused rather than run unpriced, and live pass 2 measu
 
 Nothing is left unclassified, so `/elevenlabs-status` reports `0 unknown` against this catalogue. A name that really
 fits no class would go in `UNCLASSIFIED_TOOLS`, where `npm run drift` reports it as known rather than as drift — but
-while either credit cap is on, a name the table does not classify is refused before dispatch, so holding one there is
-not free.
+while a credit cap the owner set is on, a name the table does not classify is refused before dispatch, so holding one
+there is not free.
 
 ### The one duration, and what it is not
 

@@ -257,7 +257,7 @@ export const SPEND_TOOLS: readonly string[] = [
 /**
  * Reads that spend. Empty against this catalogue: `creative_transcribe_audio` was the one candidate, and live it adds
  * a node to a flow, so it is a write that spends and sits in `SPEND_TOOLS`. Kept because `access` is about changing
- * the workspace and money is a separate axis; the caps always apply either way.
+ * the workspace and money is a separate axis; a cap, when one is set, applies either way.
  */
 const SPEND_READS: readonly string[] = []
 
@@ -271,7 +271,7 @@ export const known = (raw: string) => {
 }
 
 /**
- * True when a cap must price this call or refuse it, before dispatch: every name in `SPEND_ANY`, and every name this
+ * True when a cap, once the owner sets one, must price this call or refuse it, before dispatch: every name in `SPEND_ANY`, and every name this
  * table does not classify at all, whatever it starts with. A classified name that does not spend — a read, a write, an
  * export, a delete — runs as it always did, and so does the plugin's own `save_media`, which is not ElevenLabs' to
  * bill.
@@ -295,7 +295,7 @@ export const mustPrice = (raw: string) => {
 /** The README sentence for that rule, counted from the same predicate rather than written beside it. */
 export function creativeGuardSentence() {
   const spenders = ALL_TOOLS.filter(mustPrice).length
-  return `While either cap is on, each of the ${spenders} tools that can spend is priced by ElevenLabs' own estimate or refused PRICE_UNKNOWN before it is sent, and so is any name this table does not classify, whatever it starts with.`
+  return `Only when you set a cap: each of the ${spenders} tools that can spend is priced by ElevenLabs' own estimate or refused PRICE_UNKNOWN before it is sent, and so is any name this table does not classify, whatever it starts with. With no cap, the default, nothing is refused for want of a price.`
 }
 
 /**

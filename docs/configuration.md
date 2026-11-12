@@ -12,39 +12,50 @@ Every option is optional. The plugin reads them from `opencode.json`:
 | --- | --- | --- | --- |
 | `access` | `"all"`, `"ask-changes"`, `"read-only"` | `"all"` | The permission posture the generated default rules express. |
 | `region` | `"global"`, `"us"`, `"eu"`, `"in"`, `"sg"` | `"global"` | Which ElevenLabs environment's MCP server to register. Changing it needs a new sign-in. |
-| `sessionCreditCap` | a whole number of credits, or `null` | `2000` | The most one session may spend. `null` disables the cap. |
-| `dailyCreditCap` | a whole number of credits, or `null` | `10000` | The most this plugin may spend in a rolling 24 hours in this data directory, across sessions, scripts and restarts. Two machines do not share it. `null` disables the cap. |
+| `sessionCreditCap` | a whole number of credits, or `null` | `null` (no cap) | Opt-in: the most one session may spend. |
+| `dailyCreditCap` | a whole number of credits, or `null` | `null` (no cap) | Opt-in: the most this plugin may spend in a rolling 24 hours in this data directory, across sessions, scripts and restarts. Two machines do not share it. |
 | `mediaRoot` | a path, `~` for your home folder | `"~/Downloads/elevenlabs"` | Where `elevenlabs_save_media` writes. Created on first use with mode 0700. |
 | `maxMediaBytes` | a whole number of bytes | `209715200` (200 MB) | The largest file the save tool writes. |
 | `conversations` | `"full"`, `"summary"`, `"off"` | `"full"` | How much of a call's history the conversation reads may return. |
 | `allowUntestedHost` | `true`, `false` | `false` | Start on an OpenCode version outside `>=2.2.3 <2.3.0`, with a note in status. |
 
-`0` is refused for either cap: a typo must not turn the guard off. Write `null` to mean it.
+Caps are opt-in. With neither set, the plugin refuses, cuts and queues nothing for money: ElevenLabs refuses a call the
+workspace's balance cannot pay for, and the permission rules decide whether a paid call runs at all. `0` is refused for
+either cap, because a typo in a cap you set must not be read as some other bound; leave the option out, or write `null`,
+for no cap.
 
 ## Spending
 
 Twelve tools can bill the workspace: `creative_generate_speech`, `creative_generate_image`, `creative_generate_video`,
 `creative_edit_image`, `creative_generate_in_flow`, `creative_run_flow_nodes`, `creative_transcribe_audio`,
 `creative_design_voice`, `agents_run_tests`, `agents_compute_kb_rag_index`, `agents_query_knowledge_base_rag` and
-`creative_create_brand_kit_from_website`. Each is priced before it runs, from ElevenLabs' own figure: the plugin
-sends the same call with `estimate_only: true` and uses what comes back. There is no rate table in this plugin.
+`creative_create_brand_kit_from_website`. A price is ElevenLabs' own figure: the same call with `estimate_only: true`.
+There is no rate table in this plugin. Every paid result carries a cost line, with or without a cap.
 
-The first seven take `estimate_only`. The other five do not, so while either cap is on they are refused
-(`PRICE_UNKNOWN`) rather than run unpriced; set both caps to `null` to run them. The last three are counted as
+The first seven take `estimate_only`. The other five do not, so with no cap they run unpriced, and while a cap you set
+is on they are refused (`PRICE_UNKNOWN`). The last three are counted as
 spending because ElevenLabs' catalogue says neither way about them and they describe server-side work it plausibly
 bills — embedding a knowledge-base document, running a RAG query, reading a public website — and the plugin counts
 silence against the owner's money rather than for it.
 
-A priced call is clamped to the number of generations the caps afford, **reserved** in the ledger before it is sent, and
-settled into a charge when its result arrives, so two calls that start together cannot both spend the same budget. A
-failure is charged the reserved price. The daily cap is one total for this data directory; two machines do not share it.
+With no cap, no estimate is sent before a paid call: no flow or node is left in the workspace for it, and the call
+raises no permission prompt beyond its own. It runs at whatever size it asks for, calls of one method run side by side,
+and each is recorded at the figure its result reports, or its cost line says `Credits: not reported`. An explicit
+`estimate_only` call still answers with ElevenLabs' figure, and is never reported as a charge.
+
+While a cap you set is on, the plugin sends the estimate itself before each paid call.
+
+While a cap you set is on, a priced call is clamped to the number of generations the caps afford, **reserved** in the
+ledger before it is sent, and settled into a charge when its result arrives, so two calls that start together cannot
+both spend the same budget. A failure is charged the reserved price. The daily cap is one total for this data
+directory; two machines do not share it.
 
 A call the plugin cannot price is refused with `PRICE_UNKNOWN` while a cap is on, never run unpriced: a failed or
 missing estimate, an argument ElevenLabs' own schema for that tool does not have, a `creative_*` name the table does not
 know, and the five spending tools ElevenLabs offers no estimate for — `creative_design_voice`, `agents_run_tests`,
 `agents_compute_kb_rag_index`, `agents_query_knowledge_base_rag` and `creative_create_brand_kit_from_website`.
 
-The estimate is sent only where the paid call could run, because it is a call of its own: it costs nothing, but it
+Under a cap, the estimate is sent only where the paid call could run, because it is a call of its own: it costs nothing, but it
 creates a flow and a node in the workspace. Under `access: "ask-changes"` the permission you answer is the generation's
 own, and nothing is estimated if you refuse. That permission is asked twice for one paid call — once before the
 estimate, once for the generation — so you may see two prompts for it; whether OpenCode folds them into one is
@@ -61,7 +72,8 @@ each agent's base `* * allow`. Everything later wins: the agent's own rules, you
 
 ### `access: "all"` — the default
 
-Every tool runs, including a tool ElevenLabs adds later, and generations spend credits within the caps.
+Every tool runs, including a tool ElevenLabs adds later, and generations spend credits within the workspace's balance
+and any cap you set.
 
 <details>
 <summary>The 191 rules it inserts</summary>
@@ -778,12 +790,12 @@ Every code the plugin raises, in the order the table lists them:
 | `MEDIA_TOO_LARGE` | The file is larger than `maxMediaBytes`. | Raise `maxMediaBytes` if you mean to keep a file this large. |
 | `MEDIA_URL_INVALID` | The link is not `https`, carries credentials, or is not on ElevenLabs' generated-file host. | Pass the link a generation returned. |
 | `OPTIONS_INVALID` | A plugin option is missing, of the wrong type, or out of range. | Fix the option; the message names the accepted values. |
-| `PRICE_UNKNOWN` | A call that may spend cannot be priced, and a cap is on, so it was refused before it was sent. | Price it first with `"estimate_only": true` where the tool takes it, or set both caps to `null` — the refusal's next step says which. |
+| `PRICE_UNKNOWN` | A call that may spend cannot be priced, and a cap you set is on, so it was refused before it was sent. | Price it first with `"estimate_only": true` where the tool takes it, or set both caps to `null` — the refusal's next step says which. |
 | `RULES_NOT_ADDED` | The default rules could not be inserted into the agents. | Restart OpenCode. |
 | `SAVE_FAILED` | The file could not be written, or the folder changed while it was. | Check `mediaRoot`, its permissions, and the `external_directory` rule. |
 | `SERVER_NOT_REGISTERED` | The MCP server could not be registered. | Restart OpenCode. |
 | `SKILLS_INVALID` | A skill file is missing or malformed. | Reinstall the plugin. |
-| `SPEND_CAP_REACHED` | The call would exceed `sessionCreditCap` or `dailyCreditCap`, or a priced call of the same method is already in flight. | Raise the cap, set it to `null`, wait for the 24-hour window to roll, or wait for the in-flight call to return or for its ten-minute reservation to run out. |
+| `SPEND_CAP_REACHED` | The call would exceed the `sessionCreditCap` or `dailyCreditCap` you set, or, under that cap, a priced call of the same method is already in flight. | Raise the cap, set it to `null`, wait for the 24-hour window to roll, or wait for the in-flight call to return or for its ten-minute reservation to run out. |
 | `STATUS_UNAVAILABLE` | The status report could not be read. | Restart OpenCode, then run `/elevenlabs-status` again. |
 
 An upstream error from ElevenLabs passes through unchanged, a `429` rate limit included: wait for the window it names.

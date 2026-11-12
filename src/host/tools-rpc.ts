@@ -33,17 +33,20 @@ import { Rpc } from "@opencode/plugin/rpc"
 
 // >>> PLUGIN-SPECIFIC >>>
 import { PLUGIN_ID as ELEVENLABS_PLUGIN_ID, SERVER_NAME } from "../constants.js"
-import { ALL_TOOLS, classify, mustPrice } from "../elevenlabs-tools.js"
+import { ALL_TOOLS, classify, mustPrice, spends } from "../elevenlabs-tools.js"
 import {
+  capped,
   costLine,
   costValue,
   estimatePrice,
   isEstimate,
+  isEstimateResult,
   Ledger,
   quoteCallSync,
   RESERVATION_MS,
   settlementOf,
   SpendRefused,
+  UNPRICED,
   type Caps,
   type Price,
 } from "../billing.js"
@@ -159,8 +162,8 @@ export function shapeResult(method: string, result: McpResult, call: ShapeCall):
  */
 export function shapersFor(runtime: ToolRuntime): LocationShapers {
   /**
-   * One in-flight priced call per session and method. A second shapeInput, estimate or not, waits until this call's
-   * shapeResult has run. An estimate must not share a flag with a paid hold: the paid result would be settled at the
+   * While a cap is on, one in-flight priced call per session and method. A second shapeInput, estimate or not, waits
+   * until this call's shapeResult has run. An estimate must not share a flag with a paid hold: the paid result would be settled at the
    * estimate. Pairing the two by call id needs that id on ShapeCall, which is shared and is not added here.
    */
   interface Flight {
@@ -192,11 +195,32 @@ export function shapersFor(runtime: ToolRuntime): LocationShapers {
   const lowerIgnored = (reported: number, reserved: number) =>
     `the result reported ${reported.toLocaleString("en-US")} credits, which this path cannot tell apart from another call's, so the ${reserved.toLocaleString("en-US")} reserved stands`
 
+  /**
+   * A result with no cap set. Nothing was priced, held or queued, so nothing pairs it with a call: a result that is an
+   * `estimate_only` answer is left as it is, and a paid one is reported and recorded at the figure it reports itself, or
+   * as not reported. A call that threw leaves nothing behind for a later result to be read against.
+   */
+  const uncappedResult = (result: McpResult, call: ShapeCall): McpResult => {
+    if (isEstimateResult(result)) return result
+    const caps = runtime.caps()
+    const reported = settlementOf(result, 0, null)
+    const price: Price = reported.credits > 0 ? { credits: reported.credits, basis: "exact", parts: reported.note === undefined ? [] : [reported.note] } : UNPRICED
+    const spend = price.credits > 0 ? runtime.ledger.record(call.sessionID, price.credits) : runtime.ledger.spend(call.sessionID)
+    const line = costLine(price, spend, caps)
+    const value = costValue(price, spend, caps)
+    const output = result.output !== null && typeof result.output === "object" && !Array.isArray(result.output)
+      ? { ...(result.output as Record<string, unknown>), cost: value }
+      : { cost: value }
+    return { ...result, output, text: result.text === "" ? line : `${result.text}\n${line}` }
+  }
+
   return {
     input(method, input, call) {
       const args = (typeof input === "object" && input !== null ? input : {}) as Record<string, unknown>
       if (!mustPrice(method)) return input
       const slot = key(call, method)
+      // No cap: nothing is priced, refused, clamped, held or serialised, and nothing is remembered about this call.
+      if (!capped(runtime.caps())) return input
       // Prune first, so a hold that outlasted ten minutes is already a charge and no longer a reservation.
       runtime.ledger.spend(call.sessionID)
       const flight = flights.get(slot)
@@ -230,6 +254,7 @@ export function shapersFor(runtime: ToolRuntime): LocationShapers {
     result(method, result, call) {
       if (!mustPrice(method)) return result
       const slot = key(call, method)
+      if (!capped(runtime.caps())) return spends(method) ? uncappedResult(result, call) : result
       const flight = flights.get(slot)
       // No priced call is in flight. Do not record a stray figure: an estimate result must not settle a paid hold.
       if (!flight) return result

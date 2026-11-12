@@ -21,8 +21,8 @@ The declaration holds:
 - `rpc` and `views`: empty. `contributes`: empty lists.
 
 **A tool ElevenLabs adds later is not asked about in Jelly.** It is not declared, so Jelly knows nothing about it, and
-under the default rules it runs: a spending or deleting tool included. The only way to bound it is the `access` option
-or a rule in the agent's own permissions.
+under the default rules it runs: a spending or deleting tool included. The way to bound it is the `access` option or a
+rule in the agent's own permissions; a credit cap, which is opt-in, refuses it unpriced while one is set.
 
 Jelly drops a key it does not know rather than refusing the plugin, so a typo in this section is silent. That is why
 `test/unit/jelly.test.ts` checks the declaration against the plugin's own rules.

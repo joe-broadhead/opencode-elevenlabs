@@ -256,7 +256,8 @@ export function settlementOf(
 function raiseTo(reported: number, reserved: number, dailyCap: CreditCap): { readonly credits: number; readonly note?: string } {
   const ceiling = Math.ceil(reported)
   const credits = Math.max(reserved, dailyCap === null ? ceiling : Math.min(ceiling, dailyCap))
-  if (ceiling <= reserved * RAISE_NOTE_RATIO) return { credits }
+  // With nothing reserved — no cap, so nothing was priced first — the figure is the only one there is, and not a raise.
+  if (reserved <= 0 || ceiling <= reserved * RAISE_NOTE_RATIO) return { credits }
   const capped = credits < ceiling ? `, charged at the day's cap of ${count(credits)}` : ""
   return { credits, note: `the result reported ${count(ceiling)} against ${count(reserved)} reserved${capped}, more than ten times the reserved price` }
 }
@@ -962,6 +963,8 @@ export function costLine(price: Price, spend: Spend, caps: Caps) {
   const exact = price.basis === "exact" ? "" : "at most "
   const basis = price.parts.length ? ` (${price.parts.join(", ")})` : ""
   const today = caps.dailyCreditCap === null ? `${count(spend.dailyCredits)} credits today` : `${count(spend.dailyCredits)} of ${count(caps.dailyCreditCap)} credits today`
+  // A call nothing priced and whose result reported nothing: say so, rather than print a figure of zero as a bound.
+  if (!(price.credits > 0)) return `Credits: not reported${basis}; ${today}.`
   return `Credits: ${exact}${count(price.credits)}${basis}; ${today}.`
 }
 
@@ -1048,9 +1051,37 @@ interface GuardInput {
 }
 
 interface Quote {
+  /**
+   * What the call is priced at before it runs. With no cap set it may be unpriced — credits 0, nothing to go on — and
+   * the call runs all the same; the cost line then reports what the result says, or that the cost was not reported.
+   */
   readonly price: Price
-  /** False when both caps are off, so nothing was reserved and nothing will be charged. */
+  /** True when a cap is on and the price was reserved in the ledger. False with no cap: nothing was held or refused. */
   readonly tracked: boolean
+}
+
+/** True when the owner set either credit cap. Every refusal, clamp, hold and in-flight rule here applies only then. */
+export const capped = (caps: Caps) => caps.sessionCreditCap !== null || caps.dailyCreditCap !== null
+
+/**
+ * The price a call runs at with no cap set. Nothing prices it first — no estimate is sent, so no flow or node is left in
+ * the workspace and the paid call raises no permission prompt of this plugin's — and its cost line reports only what
+ * its result says, or `Credits: not reported`. It refuses nothing.
+ */
+export const UNPRICED: Price = { credits: 0, basis: "at-most", parts: [] }
+
+/**
+ * True when a result is an `estimate_only` answer, read from its own shape: ElevenLabs states the figure under
+ * `estimate` (LIVE-RECONCILE-1). The script path has no call id to pair a result with the call that asked for it, so with
+ * no cap this is how a free estimate is kept from being reported, or recorded, as a charge.
+ */
+export function isEstimateResult(result: { readonly output?: unknown; readonly text?: string; readonly content?: unknown }): boolean {
+  for (const value of [result.output, ...textsOf(result).map((text) => parseJson(text))]) {
+    if (value === null || typeof value !== "object" || Array.isArray(value)) continue
+    const estimate = (value as Record<string, unknown>).estimate
+    if (estimate !== null && typeof estimate === "object" && !Array.isArray(estimate)) return true
+  }
+  return false
 }
 
 /**
@@ -1127,9 +1158,8 @@ async function quote(context: GuardInput, tool: string, args: Record<string, unk
   const free = unpriced(context, tool, args)
   if (free !== undefined) return free
   const caps = context.caps()
-  if (caps.sessionCreditCap === null && caps.dailyCreditCap === null) {
-    return { price: { credits: 0, basis: "at-most", parts: ["cost not tracked: both caps are off"] }, tracked: false }
-  }
+  // No cap: no estimate is sent and nothing is refused, clamped or reserved. The result alone sets the cost line.
+  if (!capped(caps)) return { price: UNPRICED, tracked: false }
   // An argument no allowlist has is refused before the estimate is asked for, not after: the estimate answers for the
   // arguments it is sent, so an argument the server's own schema does not have would be priced around rather than
   // priced. It is also one fewer flow created in the workspace for a call that is going to be refused.
@@ -1161,9 +1191,7 @@ function quoteSync(context: Omit<GuardInput, "estimate">, tool: string, args: Re
   const free = unpriced(context, tool, args)
   if (free !== undefined) return free
   const caps = context.caps()
-  if (caps.sessionCreditCap === null && caps.dailyCreditCap === null) {
-    return { price: { credits: 0, basis: "at-most", parts: ["cost not tracked: both caps are off"] }, tracked: false }
-  }
+  if (!capped(caps)) return { price: UNPRICED, tracked: false }
   const obstacle = priceObstacle(tool, args)
   if (obstacle !== undefined) throw unknownPrice(tool, priced(tool), obstacle)
   // This path cannot await, so it cannot ask ElevenLabs for an estimate: the only price it has is one a call on this

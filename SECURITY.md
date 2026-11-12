@@ -45,14 +45,16 @@ Report privately through GitHub's private vulnerability reporting on
   against your money rather than for it. An image or
   video call returns **four variations by default** and speech returns **two takes**, so one call can be four billable
   generations, and asking for a retry starts and charges another. **Transcription bills too**, and it is a *change*,
-  not a read: `access: "read-only"` denies it along with every other tool that can spend. The plugin prices each call
-  before sending it by asking ElevenLabs for an estimate of that exact call, reserves the figure, and prints a cost
-  line; the caps (`sessionCreditCap`, `dailyCreditCap`) are the only bound, and they bound this plugin, not your
-  account. Five of the twelve have no estimate — `creative_design_voice`, `agents_run_tests`,
+  not a read: `access: "read-only"` denies it along with every other tool that can spend. Every paid result carries a
+  cost line with the figure the result reported, or `Credits: not reported`. **No credit cap is set by default**, and
+  then no estimate is sent before a paid call: the bounds are the workspace's balance at ElevenLabs and the permission rules (`ask-changes` asks
+  for every paid call, `read-only` denies it, and a script's `ask` is refused). The caps (`sessionCreditCap`,
+  `dailyCreditCap`) are opt-in; once set, the plugin asks ElevenLabs for an estimate of each paid call, reserves it
+  before the call and bounds this plugin, not your account. Five of the twelve have no estimate — `creative_design_voice`, `agents_run_tests`,
   `agents_compute_kb_rag_index`, `agents_query_knowledge_base_rag` and `creative_create_brand_kit_from_website` — so
-  while a cap is on they are refused rather than run unpriced.
-- **An estimate is a call of its own.** It costs nothing — measured against a real workspace, two of them moved the
-  balance by zero — but each one creates a flow and a node in the workspace. The plugin asks for one per set of
+  they run unpriced, and while a cap you set is on they are refused instead.
+- **An estimate is a call of its own.** Without a cap the plugin sends none; one the model or a script asks for is theirs. It costs nothing — measured against a real workspace, two of them moved the
+  balance by zero — but each one creates a flow and a node in the workspace. Under a cap, the plugin asks for one per set of
   arguments, keeps it for ten minutes, and sends it only where the paid call is permitted: the permission it asks for
   is the generation's own, never one of its own, and under `read-only` nothing is estimated because nothing may be
   generated. That permission is raised twice for one paid call — before the estimate and again for the generation — so
@@ -93,10 +95,10 @@ Report privately through GitHub's private vulnerability reporting on
   argument, `capability`, and ElevenLabs uses it to decide which tools get built next. It is the one tool that carries
   a sentence the model composed out of the workspace. It carries no workspace data, returns no tool and adds nothing at
   run time, but under `access: "all"` it goes out without a prompt. `ask-changes` asks for it; `read-only` denies it.
-- **Use a tool ElevenLabs adds later.** The `elevenlabs_*` rule allows it, and status names it as unknown. While either
-  credit cap is on it cannot spend unpriced: a name this release does not classify is refused `PRICE_UNKNOWN` before it
-  is sent, whatever it is called — the money gate is the tool table, not a name prefix. With **both caps set to
-  `null`** that gate is off, and a new tool runs unpriced. A new deleting tool still runs until it is classified,
+- **Use a tool ElevenLabs adds later.** The `elevenlabs_*` rule allows it, and status names it as unknown. With no
+  credit cap, the default, it runs unpriced. While a cap you set is on it cannot spend unpriced: a name this release
+  does not classify is refused `PRICE_UNKNOWN` before it is sent, whatever it is called — the money gate is the tool
+  table, not a name prefix. A new deleting tool still runs until it is classified,
   because permission is a separate axis from money: `ask-changes` and `read-only` are what bound it.
 
 One line restricts all of it: set `"access": "ask-changes"` (reads run, everything else asks) or `"access": "read-only"`

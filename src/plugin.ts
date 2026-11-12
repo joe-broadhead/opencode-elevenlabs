@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { Plugin, type Mcp } from "@opencode/plugin"
 import { readBalance, readKey, registerBalanceIntegration } from "./balance.js"
-import { appendLine, costLine, costValue, estimatePrice, isEstimate, Ledger, LEDGER_REFRESH_MS, quoteCall, settlementOf, type Caps, type Price } from "./billing.js"
+import { appendLine, capped, costLine, costValue, estimatePrice, isEstimate, Ledger, LEDGER_REFRESH_MS, quoteCall, settlementOf, type Caps, type Price } from "./billing.js"
 import {
   DISPLAY_NAME,
   errorText,
@@ -17,7 +17,7 @@ import { checkHost } from "./host-version.js"
 import { registerToolsRpc, setToolRuntime, shapersFor, METHODS, type ToolRuntime } from "./host/tools-rpc.js"
 import { watchIntegration } from "./integration.js"
 import { addSaveTool } from "./media/tool.js"
-import { mustPrice } from "./elevenlabs-tools.js"
+import { mustPrice, spends } from "./elevenlabs-tools.js"
 import { parseOptions, type ParsedOptions } from "./options.js"
 import { reasonOf } from "./redact.js"
 import { defaultRules, registerDefaultRules } from "./permissions.js"
@@ -330,27 +330,32 @@ export function createElevenlabsPlugin(seam: ElevenlabsSeam = {}) {
       // The spending guard, on both paths. `execute.before` can change an MCP call's arguments and refuse it before it
       // is sent; `execute.after` charges the ledger and adds the cost line. Scripts go through the block's shapers.
       const estimate = estimatorFor(ctx)
-      const pending = new Map<string, Price>()
+      const pending = new Map<string, { readonly price: Price; readonly tracked: boolean }>()
       const stopBefore = await ctx.tool.hook("execute.before", async (event) => {
         const tool = toolOf(event.tool)
         if (!guarded() || tool === undefined) return
         const args = (typeof event.input === "object" && event.input !== null ? event.input : {}) as Record<string, unknown>
         if (isEstimate(tool, args) || !mustPrice(tool)) return
-        // Price, clamp, and reserve before dispatch: a call that starts at the same time sees this reservation.
-        const { price, tracked } = await quoteCall({ ledger, caps, estimate }, tool, args, {
+        // With no cap, a name the table does not classify runs as it is: nothing says it spends, so it gets no price
+        // and no cost line. With a cap it is refused below, because nothing can price it.
+        if (!capped(caps()) && !spends(tool)) return
+        // With a cap: price, clamp, and reserve before dispatch, so a call that starts at the same time sees this
+        // reservation. With none: no estimate is sent, nothing is refused, and the result alone sets the cost line.
+        const quoted = await quoteCall({ ledger, caps, estimate }, tool, args, {
           sessionID: event.sessionID,
           agent: event.agent,
           messageID: event.messageID,
           id: event.id,
         })
-        if (tracked) pending.set(event.id, price)
+        pending.set(event.id, quoted)
       })
       const stopAfter = await ctx.tool.hook("execute.after", async (event) => {
         const tool = toolOf(event.tool)
         if (!guarded() || tool === undefined) return
         const args = (typeof event.input === "object" && event.input !== null ? event.input : {}) as Record<string, unknown>
-        const before = pending.get(event.id)
+        const quoted = pending.get(event.id)
         pending.delete(event.id)
+        const before = quoted?.price
         // An estimate is free and is not a charge: remember it, so the paid call that follows can be priced.
         if (isEstimate(tool, args)) {
           if (event.status === "completed") {
@@ -360,9 +365,13 @@ export function createElevenlabsPlugin(seam: ElevenlabsSeam = {}) {
           return
         }
         if (!mustPrice(tool)) return
+        // An unclassified name with no cap was never priced, and nothing says it spent.
+        if (quoted === undefined && !spends(tool) && ledger.recorded(event.id) === undefined) return
         // A failure is settled at the reserved price. The plugin cannot tell a free failure from a billed one, and
-        // over-counting is the safe side. A missing result must not free the budget.
+        // over-counting is the safe side for a cap. A missing result must not free the budget. With no cap nothing
+        // was reserved, and a failure records nothing.
         if (event.status !== "completed") {
+          if (quoted !== undefined && !quoted.tracked) return
           const reserved = ledger.reservation(event.id)?.credits ?? before?.credits
           if (reserved !== undefined && reserved > 0) ledger.settle(event.id, event.sessionID, reserved)
           return
@@ -376,7 +385,7 @@ export function createElevenlabsPlugin(seam: ElevenlabsSeam = {}) {
         // A figure the plugin would not settle on, and one it settled on but had to flag, both say so in the cost
         // line: the owner sees why the reservation stands, or that a raise was far above what was reserved.
         const parts = settled.credits === floor
-          ? [...(before?.parts ?? ["cost not reported"]), ...(settled.note === undefined ? [] : [settled.note])]
+          ? [...(before?.parts ?? []), ...(settled.note === undefined ? [] : [settled.note])]
           : settled.note === undefined
             ? []
             : [settled.note]

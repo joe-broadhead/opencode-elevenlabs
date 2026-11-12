@@ -90,11 +90,14 @@ const lines = async (context: DoctorContext, facts: DoctorFacts): Promise<Line[]
     [true, `permissions: ${facts.access}; ${unguarded} agent(s) with a base allow (status names any that lack the block)`],
     [true, `conversations: ${facts.conversations}`],
     [true, `media: ${root} (created on the first save, files up to ${cap(facts.maxMediaBytes)} bytes)`],
-    [true, `spend: ${count(spend.dailyCredits)} credits in the last 24 hours of ${cap(spend.dailyCap)}; a session is capped at ${cap(spend.sessionCap)}`],
+    [
+      true,
+      `spend: ${count(spend.dailyCredits)} credits in the last 24 hours${spend.dailyCap === null ? ", with no daily cap" : ` of ${count(spend.dailyCap)}`}; ${spend.sessionCap === null ? "no session cap" : `a session is capped at ${count(spend.sessionCap)}`}`,
+    ],
     [
       facts.balance !== undefined || spend.balance === undefined,
       spend.balance === undefined
-        ? "balance: no API key added, so the caps count this plugin's own calls only"
+        ? "balance: no API key added, so the spend counts this plugin's own calls only"
         : `balance: ${count(Math.max(0, spend.balance.limit - spend.balance.used))} of ${count(spend.balance.limit)} credits left this period`,
     ],
     [facts.problems.length === 0, `problems: ${facts.problems.length === 0 ? "none" : facts.problems.join(" ")}`],

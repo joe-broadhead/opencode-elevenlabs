@@ -168,7 +168,7 @@ describe(`the plugin's own server on OpenCode ${HOST_VERSION}`, () => {
     const text = await status(host, await session(host))
     expect(text).toContain(`- Connection: connected (${host.fake.url}, registered by this plugin)`)
     expect(text).toContain("- Region: global (https://api.elevenlabs.io/v1/mcp)")
-    expect(text).toContain("- Spend: 0 credits spent in the last 24 hours of 10,000; a session is capped at 2,000")
+    expect(text).toContain("- Spend: 0 credits spent in the last 24 hours, with no daily cap; no session cap")
     expect(text).toContain("- Conversations: full: the transcript tools run, and they carry other people's calls")
     expect(text).toContain("- Skills: the plugin's own\n")
     expect(text).toContain(`- Tools: ${SERVED.length} available, 1 unknown: ${NEW} (new tools run too)\n`)
