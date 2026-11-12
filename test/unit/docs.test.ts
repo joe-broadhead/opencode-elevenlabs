@@ -38,7 +38,7 @@ describe("docs", () => {
   // The release itself is the one exception: the README's install spec names its tag, and CONTRIBUTING's Release steps name
   // the version. Everything else names no version and no pre-release state.
   test.each(["README.md", "CONTRIBUTING.md", ...DOCS, ...SKILLS])("%s names no version of the plugin and no pre-release state, but the release", (file) => {
-    const body = flat(file).replace(/opencode-elevenlabs#v0\.0\.0/g, "").replace(/## Releasing .*?(?= ## |$)/, "")
+    const body = flat(file).replace(/opencode-elevenlabs#v\d+\.\d+\.\d+/g, "").replace(/## Releasing .*?(?= ## |$)/, "")
     expect(body).not.toMatch(/opencode-elevenlabs@\d|\bv?\d+\.\d+\.\d+-|\bv?0\.0\.\d\b|not (yet )?published|"private"/i)
   })
 
@@ -59,7 +59,7 @@ describe("docs", () => {
     const uninstall = /## Uninstall(.*?)## Links/.exec(flat("README.md"))?.[1] ?? ""
     const logout = uninstall.indexOf("opencode mcp logout elevenlabs")
     const check = uninstall.indexOf("opencode auth list")
-    const remove = uninstall.indexOf("opencode plugin remove github:joe-broadhead/opencode-elevenlabs#v0.0.0")
+    const remove = uninstall.indexOf("opencode plugin remove github:joe-broadhead/opencode-elevenlabs#v0.0.1")
     expect(logout).toBeGreaterThanOrEqual(0)
     expect(check).toBeGreaterThan(logout)
     expect(remove).toBeGreaterThan(check)

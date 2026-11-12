@@ -16,7 +16,7 @@ ElevenLabs is a trademark of Eleven Labs Inc. The icon is ElevenLabs' "11" symbo
 ## Install
 
 ```sh
-opencode plugin add github:joe-broadhead/opencode-elevenlabs#v0.0.0
+opencode plugin add github:joe-broadhead/opencode-elevenlabs#v0.0.1
 ```
 
 Run `opencode reload`, or restart OpenCode, then run `/elevenlabs-status`.
@@ -26,7 +26,7 @@ Each release has its own tag, and a Git install does not update by itself. To mo
 Or add the plugin to `opencode.json` instead, with the same spec:
 
 ```json
-{ "plugins": [{ "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.0" }] }
+{ "plugins": [{ "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.1" }] }
 ```
 
 The install takes the GitHub release tag. Its commit carries the built `dist/`, so the install runs no build.
@@ -194,7 +194,7 @@ spend your credits without asking, and so can a tool ElevenLabs adds later. Rest
    | `"read-only"` | the read tools | nothing: everything else is **denied**, generations included |
 
    ```json
-   { "plugins": [{ "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.0", "options": { "access": "read-only" } }] }
+   { "plugins": [{ "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.1", "options": { "access": "read-only" } }] }
    ```
 
 2. **An agent that is read-only or asks**, with rules of its own, later than the plugin's:
@@ -441,7 +441,7 @@ Options, the permission rules and every error code are in
 [docs/configuration.md](https://github.com/joe-broadhead/opencode-elevenlabs/blob/HEAD/docs/configuration.md).
 
 ```json
-{ "plugins": [{ "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.0", "options": {
+{ "plugins": [{ "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.1", "options": {
   "access": "all",
   "region": "global",
   "sessionCreditCap": 2000,
@@ -460,7 +460,7 @@ Pre-set the region and the caps in the system config, so every member only press
 ```json
 {
   "plugins": [{
-    "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.0",
+    "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.1",
     "options": { "region": "eu", "dailyCreditCap": 5000, "access": "ask-changes" }
   }]
 }
@@ -529,7 +529,7 @@ Sign out first, so the stored credential goes with the plugin:
 ```sh
 opencode mcp logout elevenlabs
 opencode auth list
-opencode plugin remove github:joe-broadhead/opencode-elevenlabs#v0.0.0
+opencode plugin remove github:joe-broadhead/opencode-elevenlabs#v0.0.1
 ```
 
 Files already saved under `mediaRoot` stay. Remove them yourself if you no longer want them.
