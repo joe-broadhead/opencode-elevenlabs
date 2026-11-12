@@ -35,16 +35,16 @@ Twelve tools bill the workspace: `creative_generate_speech`, `creative_generate_
   ten minutes and will not ask ElevenLabs again. An estimate charges nothing, but it does create a flow and a node in
   the workspace, so ask for one per set of arguments, not per attempt.
 - **The figure is for the whole batch**, not for one generation, and it can be fractional. A paid result carries a cost
-  line such as `Credits: 762; 762 of 10,000 credits today.`
+  line such as `Credits: 762; 762 credits today.` Repeat that figure to the user.
 - `generations_count` defaults to **4** for image, video and image editing, and to **2** for speech. Pass `1` unless the
   user asked for options.
-- `creative_design_voice` and `agents_run_tests` take no `estimate_only`, so while a credit cap is on they are refused
-  with `PRICE_UNKNOWN`. Tell the user to turn both caps off if they want to run one.
+- `creative_design_voice` and `agents_run_tests` take no `estimate_only`, so nothing prices them before they run. Say
+  so before calling one, and report the cost line their result carries.
 - **Never call a generating tool twice to "retry".** A retry starts and charges a second generation. Poll
   `creative_get_flow_run_status` with the `flow_id` until it reports `all_completed` or `has_failures`.
-- The plugin caps this too: a call over the remaining budget is refused before it is sent, the generation count is cut
-  to what fits, and the price is held against the budget before the call goes out. The caps bound this plugin, not the
-  account.
+- The workspace's own credit balance at ElevenLabs is the limit. If the user set a credit cap in this plugin's options,
+  a call over it is refused with `SPEND_CAP_REACHED` or `PRICE_UNKNOWN`; pass the refusal's next step on rather than
+  working around it.
 
 ## Speech
 

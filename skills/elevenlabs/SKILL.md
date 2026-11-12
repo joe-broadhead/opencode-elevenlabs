@@ -43,7 +43,7 @@ Add with `agents_create_kb_url` (a page that can keep syncing) or `agents_create
 
 Create a test with `agents_create_test`; inspect past runs with `agents_list_test_runs` and `agents_get_test_run`.
 `agents_run_tests` **spends credits**: it makes the agent hold conversations, and ElevenLabs offers no estimate for it,
-so while a credit cap is on the plugin refuses it with `PRICE_UNKNOWN`. A deployment moves live traffic:
+so say so before running it and report the cost line its result carries. A deployment moves live traffic:
 `agents_create_deployment` after a merge, not before.
 
 ## Cost
