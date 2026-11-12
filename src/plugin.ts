@@ -340,7 +340,7 @@ export function createElevenlabsPlugin(seam: ElevenlabsSeam = {}) {
         // and no cost line. With a cap it is refused below, because nothing can price it.
         if (!capped(caps()) && !spends(tool)) return
         // With a cap: price, clamp, and reserve before dispatch, so a call that starts at the same time sees this
-        // reservation. With none: price it for the cost line, and refuse nothing.
+        // reservation. With none: no estimate is sent, nothing is refused, and the result alone sets the cost line.
         const quoted = await quoteCall({ ledger, caps, estimate }, tool, args, {
           sessionID: event.sessionID,
           agent: event.agent,

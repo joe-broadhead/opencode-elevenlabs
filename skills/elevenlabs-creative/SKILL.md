@@ -18,10 +18,10 @@ Twelve tools bill the workspace: `creative_generate_speech`, `creative_generate_
 `creative_design_voice`, `agents_run_tests`, `agents_compute_kb_rag_index`, `agents_query_knowledge_base_rag` and
 `creative_create_brand_kit_from_website`. Everything else on a flow is free to call.
 
-## Price it before you spend
+## Pricing
 
-- **ElevenLabs is the only source of a price.** There is no rate card to work from. Send the same call with
-  `estimate_only: true` and read the figure that comes back:
+- **Price first only when the user asks what something will cost.** ElevenLabs is the only source of a price; there
+  is no rate card to work from. Send the same call with `estimate_only: true` and read the figure that comes back:
 
   ```json
   { "prompt": "a ceramic mug on marble, morning light", "model_id": "gpt-image-2", "generations_count": 1, "estimate_only": true, "context": "price the mug shot" }
@@ -31,15 +31,17 @@ Twelve tools bill the workspace: `creative_generate_speech`, `creative_generate_
   const priced = await tools.elevenlabs.creative_generate_image({ prompt, model_id: "gpt-image-2", generations_count: 1, estimate_only: true, context: "price the mug shot" })
   ```
 
-  Say the price and what it buys, then make the paid call with the same arguments: the plugin remembers the figure for
-  ten minutes and will not ask ElevenLabs again. An estimate charges nothing, but it does create a flow and a node in
-  the workspace, so ask for one per set of arguments, not per attempt.
-- **The figure is for the whole batch**, not for one generation, and it can be fractional. A paid result carries a cost
-  line such as `Credits: 762; 762 credits today.` Repeat that figure to the user.
+  Say the price and what it buys, then make the paid call with the same arguments. An estimate charges nothing, but it
+  does create a flow and a node in the workspace, so do not price a call the user did not ask to have priced, and ask
+  for one estimate per set of arguments, not per attempt.
+- **The figure is for the whole batch**, not for one generation, and it can be fractional.
+- **Every paid result carries a cost line.** It states what the result itself reported, such as
+  `Credits: 762; 762 credits today.`, or `Credits: not reported; …` when the result reported nothing. Repeat it as it
+  is; never turn an estimate or a guess into a charge.
 - `generations_count` defaults to **4** for image, video and image editing, and to **2** for speech. Pass `1` unless the
   user asked for options.
-- `creative_design_voice` and `agents_run_tests` take no `estimate_only`, so nothing prices them before they run. Say
-  so before calling one, and report the cost line their result carries.
+- `creative_design_voice` and `agents_run_tests` take no `estimate_only`, so nothing can price them, even on request.
+  Say so before calling one, and report the cost line their result carries.
 - **Never call a generating tool twice to "retry".** A retry starts and charges a second generation. Poll
   `creative_get_flow_run_status` with the `flow_id` until it reports `all_completed` or `has_failures`.
 - The workspace's own credit balance at ElevenLabs is the limit. If the user set a credit cap in this plugin's options,

@@ -29,9 +29,8 @@ for no cap.
 Twelve tools can bill the workspace: `creative_generate_speech`, `creative_generate_image`, `creative_generate_video`,
 `creative_edit_image`, `creative_generate_in_flow`, `creative_run_flow_nodes`, `creative_transcribe_audio`,
 `creative_design_voice`, `agents_run_tests`, `agents_compute_kb_rag_index`, `agents_query_knowledge_base_rag` and
-`creative_create_brand_kit_from_website`. Each one that takes `estimate_only` is priced before it runs, from ElevenLabs'
-own figure: the plugin sends the same call with `estimate_only: true` and uses what comes back. There is no rate table
-in this plugin. Every paid result carries a cost line, with or without a cap.
+`creative_create_brand_kit_from_website`. A price is ElevenLabs' own figure: the same call with `estimate_only: true`.
+There is no rate table in this plugin. Every paid result carries a cost line, with or without a cap.
 
 The first seven take `estimate_only`. The other five do not, so with no cap they run unpriced, and while a cap you set
 is on they are refused (`PRICE_UNKNOWN`). The last three are counted as
@@ -39,9 +38,12 @@ spending because ElevenLabs' catalogue says neither way about them and they desc
 bills — embedding a knowledge-base document, running a RAG query, reading a public website — and the plugin counts
 silence against the owner's money rather than for it.
 
-With no cap, a paid call runs at whatever size it asks for, calls of one method run side by side, and each is recorded
-when its result arrives at its estimate or at the higher figure its result reports. A call nothing priced says
-`Credits: not reported` in its cost line.
+With no cap, no estimate is sent before a paid call: no flow or node is left in the workspace for it, and the call
+raises no permission prompt beyond its own. It runs at whatever size it asks for, calls of one method run side by side,
+and each is recorded at the figure its result reports, or its cost line says `Credits: not reported`. An explicit
+`estimate_only` call still answers with ElevenLabs' figure, and is never reported as a charge.
+
+While a cap you set is on, the plugin sends the estimate itself before each paid call.
 
 While a cap you set is on, a priced call is clamped to the number of generations the caps afford, **reserved** in the
 ledger before it is sent, and settled into a charge when its result arrives, so two calls that start together cannot
@@ -53,7 +55,7 @@ missing estimate, an argument ElevenLabs' own schema for that tool does not have
 know, and the five spending tools ElevenLabs offers no estimate for — `creative_design_voice`, `agents_run_tests`,
 `agents_compute_kb_rag_index`, `agents_query_knowledge_base_rag` and `creative_create_brand_kit_from_website`.
 
-The estimate is sent only where the paid call could run, because it is a call of its own: it costs nothing, but it
+Under a cap, the estimate is sent only where the paid call could run, because it is a call of its own: it costs nothing, but it
 creates a flow and a node in the workspace. Under `access: "ask-changes"` the permission you answer is the generation's
 own, and nothing is estimated if you refuse. That permission is asked twice for one paid call — once before the
 estimate, once for the generation — so you may see two prompts for it; whether OpenCode folds them into one is

@@ -90,10 +90,10 @@ holds the twelve that can spend. A spending tool with no estimate — `creative_
 price at all: with no cap it runs unpriced, and while a cap the owner set is on it is refused (`PRICE_UNKNOWN`).
 
 **Caps are opt-in.** `sessionCreditCap` and `dailyCreditCap` default to `null`. With neither set, `quote` and
-`quoteSync` price a call only for its cost line — the remembered estimate, or a fresh one on the model path — and refuse,
-clamp and reserve nothing; the model path records the settled figure when the result arrives, and the script path
-queues its calls per session and method so each result is paired with the price it ran at, in order, rather than
-serialising them. Everything below about refusals, clamps, holds and the one-in-flight rule applies only while a cap is
+`quoteSync` send no estimate and refuse, clamp and reserve nothing. Each path records the figure the result itself
+reports, or reports `Credits: not reported`. The script path keeps nothing between calls: with no call id on
+`ShapeCall` it could not pair a result with its call, so it does not try, and it tells an `estimate_only` answer from a
+paid result by the answer's own `estimate` object (`isEstimateResult`). Everything below about refusals, clamps, holds and the one-in-flight rule applies only while a cap is
 set. The bounds without one are ElevenLabs' own balance check and the permission rules.
 
 **The figure is read strictly.** `estimatedCreditsOf` reads `estimate.credits` first, because that is the field the
@@ -113,8 +113,8 @@ no default of its own — `creative_generate_in_flow`, `creative_run_flow_nodes`
 the total.
 
 **An estimate is free but not harmless.** Live reconcile 1 measured two of them against the workspace balance and saw
-no movement and no new billable request, and each one created a flow and a node in the owner's workspace. So the guard
-asks for one estimate per set of arguments, remembers the figure for ten minutes (`RESERVATION_MS`), and reuses it for
+no movement and no new billable request, and each one created a flow and a node in the owner's workspace. So with no
+cap the guard sends none at all, and under a cap it asks for one estimate per set of arguments, remembers the figure for ten minutes (`RESERVATION_MS`), and reuses it for
 the paid call rather than creating a second flow. Different arguments are a different call and get their own estimate.
 
 **The estimate is asked for only where the paid call could run.** `estimatorFor` asserts the paid tool's own permission

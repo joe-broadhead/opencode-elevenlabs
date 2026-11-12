@@ -237,19 +237,10 @@ describe("the asserts raised for one priced call are counted, so the docs' promi
     await refused.cleanup()
   })
 
-  test("with both caps off the call is still priced for its cost line, under the same one assert", async () => {
+  test("with both caps off nothing is priced, so no assert of this plugin's is raised at all", async () => {
     const { run, asserts, estimates, cleanup } = await counted({ sessionCreditCap: null, dailyCreditCap: null })
     await run("c1")
-    expect({ asserts: asserts.length, estimates: estimates.length }).toEqual({ asserts: 1, estimates: 1 })
+    expect({ asserts: asserts.length, estimates: estimates.length }).toEqual({ asserts: 0, estimates: 0 })
     await cleanup()
-  })
-
-  test("with both caps off a refused assert sends no estimate and refuses nothing of this plugin's", async () => {
-    const refused = await counted({ sessionCreditCap: null, dailyCreditCap: null }, () => {
-      throw new Error("denied")
-    })
-    await refused.run("c1")
-    expect({ asserts: refused.asserts.length, estimates: refused.estimates.length }).toEqual({ asserts: 1, estimates: 0 })
-    await refused.cleanup()
   })
 })

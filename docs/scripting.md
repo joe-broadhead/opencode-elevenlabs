@@ -118,17 +118,17 @@ opencode api post /api/rpc/elevenlabs.tools/describe -H "x-opencode-directory:$P
 A script's calls count against the same rolling 24-hour ledger the model's do. Twelve methods can spend, and every one
 of them is a change: under `access: "read-only"` all twelve are denied, `creative_transcribe_audio` included.
 
-- **The price is ElevenLabs'.** Before a billed call the plugin sends the same call with `estimate_only: true` and uses
-  that figure. Seven of the twelve take `estimate_only`; `creative_design_voice`, `agents_run_tests`,
+- **The price is ElevenLabs'.** It is the answer to the same call with `estimate_only: true`, which a script sends
+  itself; under a cap the plugin needs one before each paid call. Seven of the twelve take `estimate_only`; `creative_design_voice`, `agents_run_tests`,
   `agents_compute_kb_rag_index`, `agents_query_knowledge_base_rag` and `creative_create_brand_kit_from_website` do not,
   so they run unpriced, and while a cap you set is on they are refused with `PRICE_UNKNOWN`.
-- **No cap is set by default.** A script's paid call is then refused, cut and queued for nothing: it runs at the size it
-  asks for, two calls of one method run side by side, and each result carries its cost line, priced from the estimate
-  this ledger remembers for exactly its arguments, or `Credits: not reported` when there is none. Results of one method
-  are paired with their calls in the order the calls were sent. Everything below about refusals, cuts, holds and
-  in-flight calls applies only while a cap you set is on.
-- **A script can ask for the estimate itself**, once, then call again with the same arguments: the plugin remembers the
-  figure for ten minutes and does not create a second flow. An estimate costs nothing and returns no `cost` object, but
+- **No cap is set by default.** A script's paid call is then priced, refused, cut and queued for nothing: it runs at
+  the size it asks for, two calls of one method run side by side, and each result's cost line states only the figure
+  that result reports, or `Credits: not reported`. Nothing is kept between calls, so a call that failed leaves nothing a
+  later result could be read against. An `estimate_only` answer is passed back as it is, with no cost line and no
+  charge. Everything below about refusals, cuts, holds and in-flight calls applies only while a cap you set is on.
+- **A script can ask for the estimate itself**, once, then call again with the same arguments. Under a cap, the plugin
+  remembers the figure for ten minutes, prices the paid call with it, and does not create a second flow. An estimate costs nothing and returns no `cost` object, but
   it does create a flow and a node in the workspace.
 - **The figure covers the whole batch.** It is for every generation the call asks for, not for one, it can be
   fractional, and it is rounded up to whole credits. Under a cap, a batch that does not fit is cut to what the budget

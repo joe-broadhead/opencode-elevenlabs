@@ -45,16 +45,16 @@ Report privately through GitHub's private vulnerability reporting on
   against your money rather than for it. An image or
   video call returns **four variations by default** and speech returns **two takes**, so one call can be four billable
   generations, and asking for a retry starts and charges another. **Transcription bills too**, and it is a *change*,
-  not a read: `access: "read-only"` denies it along with every other tool that can spend. The plugin prices each call
-  before sending it by asking ElevenLabs for an estimate of that exact call and prints a cost line. **No credit cap is
-  set by default**: the bounds are the workspace's balance at ElevenLabs and the permission rules (`ask-changes` asks
+  not a read: `access: "read-only"` denies it along with every other tool that can spend. Every paid result carries a
+  cost line with the figure the result reported, or `Credits: not reported`. **No credit cap is set by default**, and
+  then no estimate is sent before a paid call: the bounds are the workspace's balance at ElevenLabs and the permission rules (`ask-changes` asks
   for every paid call, `read-only` denies it, and a script's `ask` is refused). The caps (`sessionCreditCap`,
-  `dailyCreditCap`) are opt-in; once set they reserve each price before the call and bound this plugin, not your
-  account. Five of the twelve have no estimate — `creative_design_voice`, `agents_run_tests`,
+  `dailyCreditCap`) are opt-in; once set, the plugin asks ElevenLabs for an estimate of each paid call, reserves it
+  before the call and bounds this plugin, not your account. Five of the twelve have no estimate — `creative_design_voice`, `agents_run_tests`,
   `agents_compute_kb_rag_index`, `agents_query_knowledge_base_rag` and `creative_create_brand_kit_from_website` — so
   they run unpriced, and while a cap you set is on they are refused instead.
-- **An estimate is a call of its own.** It costs nothing — measured against a real workspace, two of them moved the
-  balance by zero — but each one creates a flow and a node in the workspace. The plugin asks for one per set of
+- **An estimate is a call of its own.** Without a cap the plugin sends none; one the model or a script asks for is theirs. It costs nothing — measured against a real workspace, two of them moved the
+  balance by zero — but each one creates a flow and a node in the workspace. Under a cap, the plugin asks for one per set of
   arguments, keeps it for ten minutes, and sends it only where the paid call is permitted: the permission it asks for
   is the generation's own, never one of its own, and under `read-only` nothing is estimated because nothing may be
   generated. That permission is raised twice for one paid call — before the estimate and again for the generation — so
