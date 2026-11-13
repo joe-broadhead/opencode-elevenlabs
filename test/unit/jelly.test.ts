@@ -4,7 +4,7 @@ import { ALL_TOOLS, EXPORT_TOOLS, OWN_TOOLS, READ_TOOLS, SPEND_TOOLS, WRITE_TOOL
 import { DEFAULT_MEDIA_BYTES, parseOptions } from "../../src/options.js"
 import { defaultRules, evaluate, type Rule } from "../../src/permissions.js"
 import { type Declaration, type DeclaredTool, declarationProblems, docProblems, readPackage } from "../support/jelly-kit.js"
-import { ACCESS_CHOICES, closedSet, type Setting, settingsProblems, settingValueIssue } from "../support/jelly-settings.js"
+import { ACCESS_CHOICES, settingChoices, type PluginSetting, settingsProblems, settingValueIssue } from "../support/jelly-settings.js"
 
 /**
  * The `jelly` section of package.json, which Jelly reads without loading the plugin. Jelly writes each declared effect
@@ -15,7 +15,7 @@ import { ACCESS_CHOICES, closedSet, type Setting, settingsProblems, settingValue
 
 const ROOT = new URL("../../", import.meta.url)
 const pkg = readPackage(ROOT)
-const jelly = pkg.jelly as Declaration & { title: string; tools: DeclaredTool[]; rpc: unknown[]; views: unknown[]; contributes: { homeFeeds: unknown[]; homeWidgets: unknown[]; workKinds: unknown[]; settings: Setting[] } }
+const jelly = pkg.jelly as Declaration & { title: string; tools: DeclaredTool[]; rpc: unknown[]; views: unknown[]; contributes: { homeFeeds: unknown[]; homeWidgets: unknown[]; workKinds: unknown[]; settings: PluginSetting[] } }
 const { settings } = jelly.contributes
 const byPermission = new Map(jelly.tools.map((tool) => [tool.permission, tool]))
 const BASE_ALLOW: Rule = { action: "*", resource: "*", effect: "allow" }
@@ -45,7 +45,7 @@ describe("the jelly declaration", () => {
 
 describe("the jelly settings", () => {
   const byKey = new Map(settings.map((setting) => [setting.key, setting]))
-  const bare = (setting: Setting) => ({ ...setting, description: undefined })
+  const bare = (setting: PluginSetting) => ({ ...setting, description: undefined })
 
   test("follow Jelly's rules for a declared setting", () => {
     expect(settingsProblems(settings)).toEqual([])
@@ -86,13 +86,13 @@ describe("the jelly settings", () => {
       { key: "maxMediaBytes", label: "Largest saved file (bytes)", type: "number", description: undefined, integer: true, min: 1024, default: DEFAULT_MEDIA_BYTES },
     ])
     for (const setting of settings) expect(setting.description.length).toBeGreaterThan(0)
-    expect((closedSet(byKey.get("region")!) ?? []).map((choice) => choice.value)).toEqual([...REGION_VALUES])
+    expect((settingChoices(byKey.get("region")!) ?? []).map((choice) => choice.value)).toEqual([...REGION_VALUES])
   })
 
   test("each declared choice is one the options parser takes, the default its own, and a value outside them is refused", () => {
     for (const key of ["access", "region", "conversations"] as const) {
       const setting = byKey.get(key)!
-      for (const { value } of closedSet(setting) ?? []) expect<unknown>(parseOptions({ [key]: value })[key]).toBe(value)
+      for (const { value } of settingChoices(setting) ?? []) expect<unknown>(parseOptions({ [key]: value })[key]).toBe(value)
       expect<unknown>(parseOptions({})[key]).toBe(setting.default)
       expect(settingValueIssue(setting, "other")).not.toBeNull()
       expect(() => parseOptions({ [key]: "other" })).toThrow("OPTIONS_INVALID")
