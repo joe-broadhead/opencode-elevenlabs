@@ -1,6 +1,6 @@
 {
   "name": "@joe-broadhead/opencode-elevenlabs",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Unofficial OpenCode plugin for ElevenLabs: manage voice and chat agents, review their calls, and generate speech, images and video through ElevenLabs' official MCP server, with a spending guard and files saved to disk",
   "keywords": [
     "opencode",

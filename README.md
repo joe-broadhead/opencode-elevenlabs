@@ -16,17 +16,17 @@ ElevenLabs is a trademark of Eleven Labs Inc. The icon is ElevenLabs' "11" symbo
 ## Install
 
 ```sh
-opencode plugin add github:joe-broadhead/opencode-elevenlabs#v0.0.2
+opencode plugin add github:joe-broadhead/opencode-elevenlabs#v0.0.3
 ```
 
 Run `opencode reload`, or restart OpenCode, then run `/elevenlabs-status`.
 
-Each release has its own tag, and a Git install does not update by itself. To move to a newer release, remove the old entry with `opencode plugin remove github:joe-broadhead/opencode-elevenlabs#v0.0.1`, then add the new tag with `opencode plugin add github:joe-broadhead/opencode-elevenlabs#v<version>`.
+Each release has its own tag, and a Git install does not update by itself. To move to a newer release, remove the old entry with `opencode plugin remove github:joe-broadhead/opencode-elevenlabs#v0.0.2`, then add the new tag with `opencode plugin add github:joe-broadhead/opencode-elevenlabs#v<version>`.
 
 Or add the plugin to `opencode.json` instead, with the same spec:
 
 ```json
-{ "plugins": [{ "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.2" }] }
+{ "plugins": [{ "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.3" }] }
 ```
 
 The install takes the GitHub release tag. Its commit carries the built `dist/`, so the install runs no build.
@@ -204,7 +204,7 @@ spend your credits without asking, and so can a tool ElevenLabs adds later. Rest
    | `"read-only"` | the read tools | nothing: everything else is **denied**, generations included |
 
    ```json
-   { "plugins": [{ "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.2", "options": { "access": "read-only" } }] }
+   { "plugins": [{ "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.3", "options": { "access": "read-only" } }] }
    ```
 
 2. **An agent that is read-only or asks**, with rules of its own, later than the plugin's:
@@ -451,7 +451,7 @@ Options, the permission rules and every error code are in
 [docs/configuration.md](https://github.com/joe-broadhead/opencode-elevenlabs/blob/HEAD/docs/configuration.md).
 
 ```json
-{ "plugins": [{ "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.2", "options": {
+{ "plugins": [{ "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.3", "options": {
   "access": "all",
   "region": "global",
   "sessionCreditCap": null,
@@ -470,7 +470,7 @@ Pre-set the region, and a cap if you want one, in the system config, so every me
 ```json
 {
   "plugins": [{
-    "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.2",
+    "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.3",
     "options": { "region": "eu", "dailyCreditCap": 5000, "access": "ask-changes" }
   }]
 }
@@ -532,6 +532,8 @@ in your config shadows the plugin's. **Rename or move** that file, then restart 
   chunk, states two durations, and real decoders disagree about which counts, so it is treated as stating none. No
   price reads any of this.
 
+- In Jelly, the settings are drawn as choices and bounded numbers, which needs a Jelly that reads them: an older Jelly
+  refuses the plugin's whole declaration. Jelly saves no `null`, so a credit cap there is no cap by being left unset.
 - Updates are not automatic for a Git install, and `opencode plugin update` and `opencode plugin check` do not work on one: to move to a newer release, remove the old entry and add the new tag.
 
 ## Uninstall
@@ -541,7 +543,7 @@ Sign out first, so the stored credential goes with the plugin:
 ```sh
 opencode mcp logout elevenlabs
 opencode auth list
-opencode plugin remove github:joe-broadhead/opencode-elevenlabs#v0.0.2
+opencode plugin remove github:joe-broadhead/opencode-elevenlabs#v0.0.3
 ```
 
 Files already saved under `mediaRoot` stay. Remove them yourself if you no longer want them.
