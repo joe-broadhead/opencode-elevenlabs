@@ -24,6 +24,9 @@ workspace's balance cannot pay for, and the permission rules decide whether a pa
 either cap, because a typo in a cap you set must not be read as some other bound; leave the option out, or write `null`,
 for no cap.
 
+In Jelly, every option above except `mediaRoot` and `allowUntestedHost` is a setting, drawn with these values and
+bounds. Jelly saves no `null`, so a cap there is no cap by being left unset.
+
 ## Spending
 
 Twelve tools can bill the workspace: `creative_generate_speech`, `creative_generate_image`, `creative_generate_video`,

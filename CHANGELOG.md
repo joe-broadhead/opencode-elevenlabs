@@ -3,6 +3,15 @@
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project follows
 [Semantic Versioning](https://semver.org).
 
+## [Unreleased]
+
+### Added
+
+- The `jelly` settings declare their choices: `access` is drawn as Allowed, Ask before changes or Read only, with
+  Jelly's own line for each, and `region`, `conversations`, `sessionCreditCap`, `dailyCreditCap` and `maxMediaBytes`
+  are now settings too, with the options parser's own values and bounds (needs a jelly that includes app#1301). A cap
+  is no cap in Jelly by being left unset.
+
 ## [0.0.2] - 2026-11-12
 
 ### Changed

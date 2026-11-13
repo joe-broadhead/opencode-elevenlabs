@@ -18,7 +18,20 @@ The declaration holds:
   true exactly for the reads. `elevenlabs_save_media` is not read-only: it writes a file.
 - `skills`: `elevenlabs`, `elevenlabs-creative`, `elevenlabs-calls`.
 - `signIns`: one, `elevenlabs`, on the `elevenlabs` server.
-- `rpc` and `views`: empty. `contributes`: empty lists.
+- `rpc` and `views`: empty. `contributes`: no Home feed, widget or work kind, and six settings, each a top-level option
+  of the same name with the parser's own values and bounds:
+  - `access`: a choice of **Allowed** (`all`, the default), **Ask before changes** (`ask-changes`) and **Read only**
+    (`read-only`), with Jelly's own line for each.
+  - `region`: a choice of the five regions, `global` by default. Changing it needs a new sign-in.
+  - `conversations`: a choice of `full` (the default), `summary` and `off`.
+  - `sessionCreditCap` and `dailyCreditCap`: whole numbers from 1 to 10,000,000. Jelly saves no `null`, so a cap is no
+    cap by being left unset, and neither declares a default.
+  - `maxMediaBytes`: a whole number of at least 1024, 200 MB by default. The parser sets no ceiling, so neither does
+    the declaration.
+
+  Jelly draws each choice as a choice and each number with its bounds, and saves nothing outside them. A Jelly that
+  does not know declared choices or bounds yet refuses the whole declaration. `mediaRoot` and `allowUntestedHost` are
+  not declared: they are set in `opencode.json`.
 
 **A tool ElevenLabs adds later is not asked about in Jelly.** It is not declared, so Jelly knows nothing about it, and
 under the default rules it runs: a spending or deleting tool included. The way to bound it is the `access` option or a
