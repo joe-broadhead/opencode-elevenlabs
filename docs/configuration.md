@@ -3,7 +3,7 @@
 Every option is optional. The plugin reads them from `opencode.json`:
 
 ```json
-{ "plugins": [{ "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.2", "options": { "access": "all" } }] }
+{ "plugins": [{ "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.3", "options": { "access": "all" } }] }
 ```
 
 ## Options
@@ -23,6 +23,9 @@ Caps are opt-in. With neither set, the plugin refuses, cuts and queues nothing f
 workspace's balance cannot pay for, and the permission rules decide whether a paid call runs at all. `0` is refused for
 either cap, because a typo in a cap you set must not be read as some other bound; leave the option out, or write `null`,
 for no cap.
+
+In Jelly, every option above except `mediaRoot` and `allowUntestedHost` is a setting, drawn with these values and
+bounds. Jelly saves no `null`, so a cap there is no cap by being left unset.
 
 ## Spending
 

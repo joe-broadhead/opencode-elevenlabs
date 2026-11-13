@@ -1,6 +1,6 @@
 {
   "name": "@joe-broadhead/opencode-elevenlabs",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Unofficial OpenCode plugin for ElevenLabs: manage voice and chat agents, review their calls, and generate speech, images and video through ElevenLabs' official MCP server, with a spending guard and files saved to disk",
   "keywords": [
     "opencode",
@@ -1240,8 +1240,110 @@
           "key": "access",
           "label": "Access",
           "type": "string",
-          "default": "all",
-          "description": "all, ask-changes or read-only. Generates default rules for agents with a base allow rule."
+          "description": "How much the plugin's tools may do. Generates default rules for agents with a base allow rule.",
+          "choices": [
+            {
+              "value": "all",
+              "label": "Allowed",
+              "description": "Every tool runs without asking, reads and changes alike."
+            },
+            {
+              "value": "ask-changes",
+              "label": "Ask before changes",
+              "description": "Reads run without asking. Each change asks you first."
+            },
+            {
+              "value": "read-only",
+              "label": "Read only",
+              "description": "Reads run. Changes never run."
+            }
+          ],
+          "default": "all"
+        },
+        {
+          "key": "region",
+          "label": "Region",
+          "type": "string",
+          "description": "Which ElevenLabs environment's MCP server the plugin registers and signs in to. An isolated environment is a separate workspace with a separate account. Changing it needs a new sign-in.",
+          "choices": [
+            {
+              "value": "global",
+              "label": "Global",
+              "description": "api.elevenlabs.io, ElevenLabs' default."
+            },
+            {
+              "value": "us",
+              "label": "United States",
+              "description": "api.us.elevenlabs.io"
+            },
+            {
+              "value": "eu",
+              "label": "European Union",
+              "description": "api.eu.residency.elevenlabs.io"
+            },
+            {
+              "value": "in",
+              "label": "India",
+              "description": "api.in.residency.elevenlabs.io"
+            },
+            {
+              "value": "sg",
+              "label": "Singapore",
+              "description": "api.sg.residency.elevenlabs.io"
+            }
+          ],
+          "default": "global"
+        },
+        {
+          "key": "conversations",
+          "label": "Call transcripts",
+          "type": "string",
+          "description": "How much of a call's history the conversation tools may return. A transcript holds another person's words and no redaction is applied.",
+          "choices": [
+            {
+              "value": "full",
+              "label": "Full",
+              "description": "The conversation tools return calls, their summaries and their transcripts."
+            },
+            {
+              "value": "summary",
+              "label": "Metadata only",
+              "description": "Calls can be listed and counted. Their transcripts, summaries, messages and recordings are denied."
+            },
+            {
+              "value": "off",
+              "label": "Off",
+              "description": "Every conversation tool is denied, listing and counting included."
+            }
+          ],
+          "default": "full"
+        },
+        {
+          "key": "sessionCreditCap",
+          "label": "Credit cap per session",
+          "type": "number",
+          "description": "The most credits one session may spend, as a whole number. Leave it unset for no cap, the default.",
+          "integer": true,
+          "min": 1,
+          "max": 10000000
+        },
+        {
+          "key": "dailyCreditCap",
+          "label": "Daily credit cap",
+          "type": "number",
+          "description": "The most credits the plugin may spend in a rolling 24 hours in this data directory, across sessions, scripts and restarts, as a whole number. Leave it unset for no cap, the default.",
+          "integer": true,
+          "min": 1,
+          "max": 10000000
+        },
+        {
+          "key": "maxMediaBytes",
+          "label": "Largest saved file (bytes)",
+          "type": "number",
+          "description": "The largest file the save tool writes, in bytes: at least 1024. The default is 200 MB.",
+          "integer": true,
+          "min": 1024,
+          "default": 209715200
         }
       ]
     }

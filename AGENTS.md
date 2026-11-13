@@ -28,7 +28,8 @@ Checked by `scripts/check-forbidden.mjs` across `src/`, `test/`, `scripts/` and 
 ## House rules
 
 - `src/host/tools-rpc.ts` is a copy of a module several plugins share. Edit only between its `PLUGIN-SPECIFIC` markers;
-  `npm run check` fails the copies stage otherwise. The same goes for `test/support/jelly-kit.ts`.
+  `npm run check` fails the copies stage otherwise. The same goes for `test/support/jelly-kit.ts` and
+  `test/support/jelly-settings.ts`.
 - The tool table is `src/elevenlabs-tools.ts` and nothing else: the default rules, the tools RPC, status, the spending
   guard, the Jelly declaration and the tests all derive from it.
 - Every error the plugin raises has a code from `PLUGIN_CODES`, and the README's and the configuration guide's tables
