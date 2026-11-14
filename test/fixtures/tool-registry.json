@@ -1,0 +1,19 @@
+{
+  "own": [
+    "save_media"
+  ],
+  "tools": {
+    "agents_query_knowledge_base_rag": {
+      "readOnlyOverride": {
+        "value": false,
+        "reason": "A RAG query embeds the query, work ElevenLabs plausibly bills, so this plugin counts it as spending; read-only access promises to deny every tool that can spend, and a read-only helper is never given one."
+      }
+    },
+    "get_more_tools": {
+      "readOnlyOverride": {
+        "value": false,
+        "reason": "It sends the model's own free-text description of a missing capability to ElevenLabs, to decide which tools get built next. That is a message out of the workspace, not a read of it, so it is not given to a read-only helper and read-only access denies it."
+      }
+    }
+  }
+}
