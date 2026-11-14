@@ -38,7 +38,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and thi
   is on a priced call that carries it is refused as an argument the schema lacks.
 - `conversations: "summary"` also denies a call's recording link, and `"off"` also denies the batch calls and the
   workspace's call counts.
-- `package.json` is `"private": true`; the plugin installs from its GitHub tag as before.
 
 ## [0.0.3] - 2026-11-13
 
