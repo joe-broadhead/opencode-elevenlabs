@@ -62,7 +62,8 @@
     "vendor": {
       "id": "elevenlabs",
       "name": "ElevenLabs",
-      "domain": "elevenlabs.io"
+      "domain": "elevenlabs.io",
+      "mark": true
     }
   },
   "jelly": {

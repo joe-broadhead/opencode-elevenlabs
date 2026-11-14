@@ -42,10 +42,10 @@ Checked by `scripts/check-forbidden.mjs` across `src/`, `test/`, `scripts/` and 
   fractional. One fact is still unverified, and the README's Known limits is the one place that says so: whether a paid
   result reports what it really cost, and in which field. Do not state that as settled, and do not call the tool table
   provisional.
-- The icon `assets/icon.svg` (and the two PNGs rendered from it) is ElevenLabs' "11" symbol from https://elevenlabs.io/brand,
-  used under those guidelines: the symbol unmodified (black, only scaled, its path data pre-scaled to the family's 48 grid)
-  on a neutral holding shape whose height is three times the symbol's. Do not recolour, redraw or combine it, and keep the
-  README's trademark line.
+- The icon `assets/icon.svg` (and the two PNGs rendered from it) is ElevenLabs' own "11" symbol, the published
+  `elevenlabs-symbol.svg` from https://elevenlabs.io/brand in its own 876 canvas: the two black bars exactly as published,
+  on a white holding square three times their height, as the brand page asks. `opencode.vendor.mark` is `true`. Do not
+  recolour, redraw or combine it, and keep the README's trademark line.
 - Releases come only from `.github/workflows/release.yml` ("Releasing" in [CONTRIBUTING.md](CONTRIBUTING.md)). A
   release-prep PR sets `version` in `package.json` and the install specs and runs `node scripts/changelog.mjs release`;
   once it is on `master` and CI passed, start the release with
