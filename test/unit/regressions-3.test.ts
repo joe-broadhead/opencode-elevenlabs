@@ -49,10 +49,10 @@ const paths = Object.fromEntries(Object.entries(WAV_FIXTURES).map(([name, build]
 const caps = (session: number | null = 100_000, daily: number | null = 100_000) => ({ sessionCreditCap: session, dailyCreditCap: daily })
 
 /** A transcription call in the live schema's own argument names: the audio is a node in a flow, never a local file. */
-const transcribeArgs = () => ({ model_id: "model_example", context: "a test", flow_id: "flow_example" })
+const transcribeArgs = () => ({ model_id: "model_example", flow_id: "flow_example" })
 
 /** A speech call in the live schema's own names. The spoken words go in `prompt`; there is no `text` argument. */
-const speechArgs = (prompt: string) => ({ prompt, voice_id: "voice_example", model_id: "model_example", context: "a test" })
+const speechArgs = (prompt: string) => ({ prompt, voice_id: "voice_example", model_id: "model_example" })
 
 /**
  * A speech call of `credits` credits, with ElevenLabs' figure for exactly those arguments already on this ledger —
@@ -78,7 +78,7 @@ const refusal = (tool: string, input: Record<string, unknown>) => {
 
 describe("the decoder's reading is the only duration, and no duration is a price", () => {
   // This block used to assert a price per measured minute: a WAV read 60 seconds and cost 330 credits. Live,
-  // `creative_transcribe_audio` takes `{connect_from, context, estimate_only, flow_id, model_id, view_state_id}` and
+  // `creative_transcribe_audio` takes `{connect_from, estimate_only, flow_id, model_id, view_state_id}` and
   // no file at all, so nothing on this machine prices anything. What the reproductions won is kept exactly where it
   // still matters: `durationOf` is what the save tool prints, and it reads a container the way a decoder does.
 
@@ -165,7 +165,7 @@ describe("an argument the price does not cover is PRICE_UNKNOWN", () => {
     }
     // The six the schema does declare price from the server's own figure, with no complaint about any of them.
     const ledger = new Ledger()
-    const args = { connect_from: "node_example", context: "a test", flow_id: "flow_example", model_id: "model_example", view_state_id: "view_example" }
+    const args = { connect_from: "node_example", flow_id: "flow_example", model_id: "model_example", view_state_id: "view_example" }
     ledger.rememberPrice("creative_transcribe_audio", args, { credits: 6, basis: "exact", parts: [] })
     expect(quoteCallSync({ ledger, caps: () => caps() }, "creative_transcribe_audio", args, { sessionID: "ses_a", agent: "build", messageID: "m1", id: "t2" }).price.credits).toBe(6)
   })
@@ -173,7 +173,7 @@ describe("an argument the price does not cover is PRICE_UNKNOWN", () => {
   test("a link in any priced tool's arguments refuses it, not just a transcription's", () => {
     for (const [tool, args] of [
       ["creative_generate_speech", { ...speechArgs("hello"), voice_url: "https://example.test/voice.wav" }],
-      ["creative_generate_image", { prompt: "a cat", model_id: "model_example", context: "a test", reference_image_url: "https://example.test/ref.png" }],
+      ["creative_generate_image", { prompt: "a cat", model_id: "model_example", reference_image_url: "https://example.test/ref.png" }],
     ] as const) {
       expect({ tool, code: refusal(tool, { ...args })?.code }).toEqual({ tool, code: "PRICE_UNKNOWN" })
     }
@@ -187,7 +187,7 @@ describe("an argument the price does not cover is PRICE_UNKNOWN", () => {
     // `creative_design_voice` renders three previews and `agents_run_tests` holds conversations; neither accepts
     // `estimate_only`, so there is no figure to ask for and the next step is the cap, not a probe.
     for (const tool of ["creative_design_voice", "agents_run_tests"]) {
-      const refused = refusal(tool, { context: "a test" })
+      const refused = refusal(tool, {})
       expect({ tool, code: refused?.code }).toEqual({ tool, code: "PRICE_UNKNOWN" })
       expect(refused?.message).toContain('does not accept "estimate_only"')
       expect(refused?.nextStep).not.toContain("estimate_only")
@@ -282,7 +282,7 @@ describe("a number a call states is read as the number it spells", () => {
     expect({ credits: priced?.credits, perGeneration: priced?.perGeneration }).toEqual({ credits: 100, perGeneration: 50 })
     expect(priced?.parts).toContain("2 generations by default")
     // A tool whose schema names no default has no batch size to divide by, so nothing is divided and nothing clamped.
-    const flow = estimatePrice("creative_run_flow_nodes", { flow_id: "flow_example", context: "a test" }, { output: { credits: 100 } })
+    const flow = estimatePrice("creative_run_flow_nodes", { flow_id: "flow_example" }, { output: { credits: 100 } })
     expect({ credits: flow?.credits, perGeneration: flow?.perGeneration }).toEqual({ credits: 100, perGeneration: undefined })
   })
 })
@@ -430,8 +430,8 @@ describe("every priced tool has an argument allowlist, taken from its own live s
   /** One priced call per family, each carrying one argument its live schema does not declare. */
   const UNKNOWN_ARGUMENT_CALLS = [
     ["creative_generate_speech", { ...speechArgs("hello"), pronunciation_dictionary_locators: ["x"] }],
-    ["creative_generate_image", { prompt: "a cat", model_id: "model_example", context: "a test", reference_image_url_count: 2 }],
-    ["creative_generate_video", { prompt: "a cat", model_id: "model_example", context: "a test", loop_count: 4 }],
+    ["creative_generate_image", { prompt: "a cat", model_id: "model_example", reference_image_url_count: 2 }],
+    ["creative_generate_video", { prompt: "a cat", model_id: "model_example", loop_count: 4 }],
   ] as const
 
   test("an argument the schema does not declare refuses the call while a cap is on", () => {
@@ -455,7 +455,7 @@ describe("every priced tool has an argument allowlist, taken from its own live s
     const refused = await quoteCall(
       { ledger, caps: () => caps(), estimate },
       "creative_generate_image",
-      { prompt: "a cat", model_id: "model_example", context: "a test", reference_image_url_count: 2 },
+      { prompt: "a cat", model_id: "model_example", reference_image_url_count: 2 },
       call,
     ).then(
       () => undefined,
@@ -463,9 +463,9 @@ describe("every priced tool has an argument allowlist, taken from its own live s
     )
     expect({ code: refused?.code, asked }).toEqual({ code: "PRICE_UNKNOWN", asked: 0 })
     // Without it the estimate prices the call, once, and the figure is remembered for the paid call that follows.
-    const quoted = await quoteCall({ ledger, caps: () => caps(), estimate }, "creative_generate_image", { prompt: "a cat", model_id: "model_example", context: "a test" }, { ...call, id: "c4" })
+    const quoted = await quoteCall({ ledger, caps: () => caps(), estimate }, "creative_generate_image", { prompt: "a cat", model_id: "model_example" }, { ...call, id: "c4" })
     expect({ credits: quoted.price.credits, asked }).toEqual({ credits: 60, asked: 1 })
-    const again = await quoteCall({ ledger, caps: () => caps(), estimate }, "creative_generate_image", { prompt: "a cat", model_id: "model_example", context: "a test" }, { ...call, id: "c5" })
+    const again = await quoteCall({ ledger, caps: () => caps(), estimate }, "creative_generate_image", { prompt: "a cat", model_id: "model_example" }, { ...call, id: "c5" })
     expect({ credits: again.price.credits, asked }).toEqual({ credits: 60, asked: 1 })
   })
 

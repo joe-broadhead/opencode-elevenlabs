@@ -59,7 +59,7 @@ describe("docs", () => {
     const uninstall = /## Uninstall(.*?)## Links/.exec(flat("README.md"))?.[1] ?? ""
     const logout = uninstall.indexOf("opencode mcp logout elevenlabs")
     const check = uninstall.indexOf("opencode auth list")
-    const remove = uninstall.indexOf("opencode plugin remove github:joe-broadhead/opencode-elevenlabs#v0.0.3")
+    const remove = uninstall.indexOf("opencode plugin remove github:joe-broadhead/opencode-elevenlabs#v0.0.4")
     expect(logout).toBeGreaterThanOrEqual(0)
     expect(check).toBeGreaterThan(logout)
     expect(remove).toBeGreaterThan(check)
@@ -272,7 +272,7 @@ describe("the priced-argument allowlists", () => {
   // This used to expect `estimateOnly` beside `estimate_only`: the live schemas have only the snake_case name, so the
   // camelCase spelling is gone from every allowlist and from the prose.
   test("the prose states the arguments every priced tool allows, and no more", () => {
-    expect([...common].sort()).toEqual(["context", "estimate_only", "flow_id"])
+    expect([...common].sort()).toEqual(["estimate_only", "flow_id"])
     const sentence = /Every priced call may carry ([^.]*)\./.exec(section.replace(/\s+/g, " "))?.[1] ?? ""
     expect(names(sentence).sort()).toEqual([...common].sort())
   })

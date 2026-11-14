@@ -1,0 +1,27 @@
+{
+  "captures": [
+    {
+      "fixture": "live-tools.json",
+      "evidence": "live-observed",
+      "listedAt": "2026-11-14",
+      "server": "elevenlabs",
+      "endpoint": "https://api.elevenlabs.io/v1/mcp",
+      "source": "scripts/capture-tools.mjs, signed in",
+      "host": "2.2.6",
+      "protocol": "2025-06-18",
+      "count": 237,
+      "annotations": "every tool",
+      "schemas": "recorded",
+      "digest": {
+        "algorithm": "sha256",
+        "of": "canonical JSON of the recorded tools, sorted by name",
+        "value": "864f58dd0738288284f93d8a28ea105bd747683b6227e1d79c327e4b80a60f33"
+      }
+    }
+  ],
+  "live": {
+    "fixture": "live-tools.json",
+    "listedAt": "2026-11-14"
+  },
+  "note": "Digests are for drift detection, not a security signature. live names the newest live-observed capture, which the release gate requires to be at most 14 days old."
+}

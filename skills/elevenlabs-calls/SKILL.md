@@ -22,6 +22,11 @@ someone who did not choose to talk to a model.
   not which call it was.
 - `agents_get_conversation_summary` gives the post-call summary alone, which is often enough and carries less of the
   caller's own words.
+- `agents_get_conversation_audio_url` returns a link to a call's recording that works for 15 minutes. Give the link to
+  the user; never fetch it, and never pass it to another tool.
+- `agents_query_workspace_conversations` counts calls, minutes and credits across agents, without anyone's words.
+- `agents_list_batch_calls` and `agents_get_batch_call` show outbound batches: each recipient's status and the
+  `conversation_id` of each call made.
 
 ## Reporting
 
@@ -34,12 +39,13 @@ someone who did not choose to talk to a model.
 
 ## The `conversations` option
 
-The plugin can deny these reads without denying the metadata ones. `conversations: "summary"` denies the four tools
-that return a caller's words — `agents_get_conversation`, `agents_get_conversation_summary`,
-`agents_search_conversation_messages` and `agents_semantic_search_conversation_messages` — and keeps the counts and the
-listings. `"off"` denies those and every other conversation read, `agents_list_conversations`, `agents_list_memories`
-and the triage tickets included. If a call is refused, the option or a rule stopped it - say so and name the option, and
-do not try another route to the same words.
+The plugin can deny these reads without denying the metadata ones. `conversations: "summary"` denies the five tools
+that return a caller's words or voice — `agents_get_conversation`, `agents_get_conversation_summary`,
+`agents_search_conversation_messages`, `agents_semantic_search_conversation_messages` and
+`agents_get_conversation_audio_url` — and keeps the counts and the listings. `"off"` denies those and every other
+conversation read, `agents_list_conversations`, `agents_list_memories`, the triage tickets and the batch calls
+included. If a call is refused, the option or a rule stopped it - say so and name the option, and do not try another
+route to the same words.
 
 ## Cost
 

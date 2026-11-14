@@ -41,30 +41,28 @@ const refusal = async (run: Promise<unknown> | (() => unknown)) => {
 const effectOf = (tool: string, access: "all" | "ask-changes" | "read-only") =>
   defaultRules(access).find((rule) => rule.action === `elevenlabs_${tool}`)?.effect
 
-describe("a tool that renders a view is classed by what it does, not by what it returns", () => {
-  // At e07ebfc `creative_show_flow_results` was in READ_TOOLS, so `access: "read-only"` allowed it: a session that
-  // denied every other change could still push a view into the user's workspace. The catalogue draws the line itself.
+describe("a tool that renders a view is classed as ElevenLabs marks it", () => {
+  // At e07ebfc `creative_show_flow_results` was in READ_TOOLS; it was then moved to the writes because its description
+  // is an effect, rendering a run's generations to the user. The live capture of 2026-11-14 records ElevenLabs' own
+  // readOnlyHint, true, and it changes nothing in the workspace, so it is a read again: Jelly enforces the declared
+  // readOnly, and the declaration follows the server unless a reason is written down (docs/jelly.md).
 
-  test("showing a run's results is a write, and reading the same run's status is still a read", () => {
-    expect(classify("creative_show_flow_results")).toBe("write")
-    expect(WRITE_TOOLS).toContain("creative_show_flow_results")
-    expect(READ_TOOLS).not.toContain("creative_show_flow_results")
-    // Its sibling returns the same data and renders nothing, which is what a read is.
+  test("showing a run's results is a read, like reading the same run's status", () => {
+    expect(classify("creative_show_flow_results")).toBe("read")
+    expect(READ_TOOLS).toContain("creative_show_flow_results")
+    expect(WRITE_TOOLS).not.toContain("creative_show_flow_results")
     expect(classify("creative_get_flow_run_status")).toBe("read")
   })
 
-  test("`read-only` denies it and `ask-changes` asks, as for any other effect on the workspace", () => {
-    expect(effectOf("creative_show_flow_results", "read-only")).toBe("deny")
-    expect(effectOf("creative_show_flow_results", "ask-changes")).toBe("ask")
-    expect(effectOf("creative_show_flow_results", "all")).toBe("allow")
-    // The read it was grouped with is allowed at every access, which is the difference the class now records.
+  test("it is allowed at every access, as every read is", () => {
     for (const access of ["all", "ask-changes", "read-only"] as const) {
+      expect({ access, effect: effectOf("creative_show_flow_results", access) }).toEqual({ access, effect: "allow" })
       expect({ access, effect: effectOf("creative_get_flow_run_status", access) }).toEqual({ access, effect: "allow" })
     }
   })
 
   test("it is still priced by nothing: the class says what it may do, not what it costs", async () => {
-    // It generates nothing, so no cap touches it; moving it out of the reads must not have made it a money question.
+    // It generates nothing, so no cap touches it.
     const quote = await quoteCall({ ledger: new Ledger(), caps: () => caps() }, "creative_show_flow_results", { flow_id: "flow_example" }, call())
     expect(quote).toEqual({ price: { credits: 0, basis: "exact", parts: [] }, tracked: false })
   })
@@ -175,7 +173,7 @@ describe("the asserts raised for one priced call are counted, so the docs' promi
   // have been invisible to the suite while four documents promised the user is "asked once". What is decidable here
   // is what *this plugin* raises. The generation's own assert is OpenCode's, raised when the tool runs, and whether a
   // host folds the two into one prompt needs a host — live pass 2 counts the prompts.
-  const speech = { prompt: "x".repeat(750), voice_id: "voice_example", model_id: "model_example", context: "a test" }
+  const speech = { prompt: "x".repeat(750), voice_id: "voice_example", model_id: "model_example" }
 
   /** The pricing hook, with every `permission.assert` the plugin raises recorded, and ElevenLabs answering estimates. */
   async function counted(caps: { sessionCreditCap: number | null; dailyCreditCap: number | null } = { sessionCreditCap: 1_000_000, dailyCreditCap: 1_000_000 }, assert?: () => void) {

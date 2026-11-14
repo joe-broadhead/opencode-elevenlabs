@@ -1,17 +1,24 @@
 # Fixtures
 
-## `live-tools.json`
+## `live-tools.json`, `provenance.json` and `tool-registry.json`
 
-**Captured from a live account.** It is one raw MCP `tools/list` response, exactly as ElevenLabs' hosted server sent
-it: `{ "tools": [ { name, description, inputSchema } ] }`, 190 tools, with their real descriptions, argument names,
-defaults and enums. The only edits are redactions: an id-like string inside a description or an example is replaced
-with `<prefix>_example`, and nothing but the input schemas is kept.
+**Captured from a live account on 14 November 2026.** `live-tools.json` is ElevenLabs' hosted server's own
+`tools/list`, every page, recorded by the family's capture script (schema `opencode-family/live-tools@1`): 237 tools,
+each with its name, title, ElevenLabs' own `readOnlyHint`, `destructiveHint` and other annotations, its input schema in
+full, and its description in full with its sha256 and length. No tool was called, and no token, header, account id,
+server instructions or result text is recorded. The ids in schema examples are the ones ElevenLabs' public API
+reference prints. `provenance.json` records where, when and how it was taken, and a digest of the tools.
 
-The host exposes no MCP `annotations` — none of the 190 carries one — so a tool's class cannot be confirmed from the
-server and is decided by `classify()` in `src/elevenlabs-tools.ts` from the name, the description and the schema.
+Every tool carries a `readOnlyHint`, so a tool's read-only class is confirmed by the server: `test/unit/live-tools.test.ts`
+fails when `package.json`'s `jelly.tools` and this capture disagree — a served tool left undeclared, a declared tool no
+longer served, or a `readOnly` that differs from the hint — unless `tool-registry.json` gives the reason. It gives two,
+both stricter than the server (`agents_query_knowledge_base_rag` and `get_more_tools`), and names the plugin's own tool,
+`save_media`. The same file is in the shape the family's shared drift check reads.
 
-`npm run drift` compares the plugin's table with this file: it names every tool the file has and the table does not,
-every tool the table has and the file does not, and every class an annotation would contradict if one existed.
+`npm run drift` compares the plugin's table with this file and prints any difference.
+
+Earlier captures (2026-11-09, 190 tools) carried no annotations and had every tool take a `context` argument. The
+server takes `context` on no tool now.
 
 ## What live reconcile 1 measured
 
@@ -21,7 +28,7 @@ read or an estimate.
 - **The catalogue**: 190 tools (144 `agents_*`, 45 `creative_*`, and `get_more_tools`). `creative_generate_music`,
   `creative_compose_music` and `creative_generate_sound_effect` are not among them. Exactly 7 tools accept
   `estimate_only`.
-- **Every tool requires `context`**, a short line naming the reason for the call.
+- **Every tool required `context`** then, a short line naming the reason for the call. None does since.
 - **An estimate looked free.** Two `estimate_only: true` calls, with the workspace balance read before and after each
   (`GET /v1/user/subscription`), moved it by nothing, and no new billable request appeared.
 - **An estimate is not free of effects**: each one created a flow and a node in the workspace. That is why the guard
@@ -30,7 +37,7 @@ read or an estimate.
   answered `761.5151418103446` credits — about 190 an image — beside `price_cents`, `generations_count`, `currency`,
   `estimated_runtime_seconds`, `flow_id`, `flow_created`, `node_id` and `url`.
 - **`creative_transcribe_audio` takes no file and no path.** Its arguments are `connect_from`, `flow_id`, `model_id`,
-  `view_state_id`, `context` and `estimate_only`: it transcribes a node on a flow, so no local file can be part of a
+  `view_state_id`, `context` and `estimate_only` then (no `context` now): it transcribes a node on a flow, so no local file can be part of a
   price.
 
 ## The live checklist for reconcile 2
@@ -96,13 +103,11 @@ was deciding from an assumption.
    whether either has gained an `estimate_only` argument since pass 1. If not, measure the cheapest run each allows by
    balance movement: three voice previews, one agent test. Both are refused today while a cap is on, because neither
    can be priced before it runs. If either does not bill, the table over-refuses it and should say so.
-7. **Whether `creative_show_flow_results` has any billable or workspace effect at all — 50 credits.** It was moved
-   from read to write this round because its own description is an effect — it renders a run's generations back to the
-   user — while its sibling `creative_get_flow_run_status` returns the same data and says it shows nothing. Call it on
-   a flow from step 2 and look for both: a balance movement, and any new flow, node or asset in the workspace. If it
-   is purely visual, `write` is still right for a tool that puts something in front of the user, and the note in
-   `docs/architecture.md` gains a measurement.
-8. **The catalogue count and the full name list again — 0 credits.** Re-capture `live-tools.json` by the form below
+7. **Whether `creative_show_flow_results` has any billable or workspace effect at all — 50 credits.** It is a read,
+   as ElevenLabs marks it: it renders a run's generations back to the user and says it changes nothing. Call it on a
+   flow from step 2 and look for both: a balance movement, and any new flow, node or asset in the workspace. If either
+   moves, it is not a read, and the table and the declaration keep it stricter with that measurement as the reason.
+8. **The catalogue count and the full name list again — 0 credits.** Re-capture `live-tools.json` as Reconciling says
    and run `npm run drift`. Two things to look for: whether ElevenLabs has added a tool since pass 1, and in
    particular whether any new spending tool sits outside the `creative_` prefix. That prefix is no longer a rule here
    — any name the table does not know is refused while a cap is on — so this exercises the residual rather than
@@ -118,23 +123,15 @@ was deciding from an assumption.
 10. **`external_directory` — 0 credits.** Whether OpenCode asks for it on a plugin tool that writes with `node:fs`;
     the plugin asserts it either way.
 
-## Reconciling (the one drop-in form)
+## Reconciling
 
-1. Save the raw response, replacing this file entirely:
+1. Capture the list again with the family's capture script against a signed-in OpenCode (`initialize` and
+   `tools/list` only), writing `live-tools.json` and `provenance.json` here.
+2. `npm run drift` names every tool the plugin does not classify, every tool the list no longer has, and every
+   read-only mark that disagrees with a class.
+3. Update `src/elevenlabs-tools.ts` (classes, transcript lists, spend lists, `READ_ONLY_OVERRIDES`), then
+   `package.json`'s `jelly.tools`, `tool-registry.json`, the README's Permissions block and the three rule blocks in
+   `docs/configuration.md`. `npm run check` fails until they agree.
 
-   ```sh
-   curl -sS -X POST https://api.elevenlabs.io/v1/mcp \
-     -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-     -H 'Accept: application/json, text/event-stream' \
-     -d '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' \
-     | node -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{const line=s.split("\n").find((l)=>l.startsWith("data: "))??s;console.log(JSON.stringify(JSON.parse(line.replace(/^data: /,"")).result,null,2))})' \
-     > test/fixtures/live-tools.json
-   ```
-
-2. `npm run drift` — it names every tool the plugin does not classify and every tool the list no longer has.
-3. Update `src/elevenlabs-tools.ts` (classes, transcript lists, spend lists), then `package.json`'s `jelly.tools`, then
-   the README's Permissions section and the three rule blocks in `docs/configuration.md`. `npm run check` fails until
-   they agree.
-
-No test pins this file as final: a test asserts it matches the plugin's table, so a re-captured fixture and a table that
-still holds the old names fail loudly rather than silently.
+No test pins this file as final: tests assert it matches the plugin's table and declaration, so a re-captured fixture
+and a table that still holds the old names fail loudly rather than silently.

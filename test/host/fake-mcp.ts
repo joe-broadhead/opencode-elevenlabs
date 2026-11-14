@@ -15,7 +15,7 @@ export const NEW_TOOL = { name: "agents_shiny_new_tool", description: "A tool ad
 export const READ = "agents_list"
 export const WRITE = "agents_update"
 export const DELETE = "agents_delete"
-export const LINK = "agents_get_link"
+export const LINK = "agents_get_signed_url"
 export const SPEECH = "creative_generate_speech"
 export const IMAGE = "creative_generate_image"
 export const TRANSCRIPT = "agents_get_conversation"
@@ -27,7 +27,6 @@ export const IMAGE_CREDITS = 500
 const schema = {
   type: "object",
   properties: {
-    context: { type: "string" },
     text: { type: "string" },
     prompt: { type: "string" },
     model_id: { type: "string" },

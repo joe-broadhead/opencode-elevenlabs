@@ -37,9 +37,9 @@ const file = (name: string, bytes: Buffer) => {
   return path
 }
 /** A speech call in the live schema's own names. The spoken words go in `prompt`; there is no `text` argument. */
-const speechArgs = (prompt: string) => ({ prompt, voice_id: "voice_example", model_id: "model_example", context: "a test" })
+const speechArgs = (prompt: string) => ({ prompt, voice_id: "voice_example", model_id: "model_example" })
 /** A transcription call in the live schema's own names. It names a node to read, never a file on this machine. */
-const transcribeArgs = () => ({ flow_id: "flow_example", connect_from: "node_example", model_id: "model_example", context: "a test" })
+const transcribeArgs = () => ({ flow_id: "flow_example", connect_from: "node_example", model_id: "model_example" })
 
 describe("a WAV with more than one `fmt ` chunk is not measured", () => {
   // This block used to end in a price: the two-`fmt ` file was refused for want of a length, and the single-`fmt `
@@ -90,7 +90,7 @@ describe("a WAV with more than one `fmt ` chunk is not measured", () => {
       })
     }
     // The live schema for the tool names no file argument of any spelling: it transcribes a node in a flow.
-    expect([...PRICED_ARGUMENTS.get("creative_transcribe_audio")!].sort()).toEqual(["connect_from", "context", "estimate_only", "flow_id", "model_id", "view_state_id"])
+    expect([...PRICED_ARGUMENTS.get("creative_transcribe_audio")!].sort()).toEqual(["connect_from", "estimate_only", "flow_id", "model_id", "view_state_id"])
   })
 })
 
@@ -116,7 +116,7 @@ describe("one list decides what is priced", () => {
     for (const tool of PRICED) {
       expect({ tool, gated: mustPrice(tool) }).toEqual({ tool, gated: true })
       // Nothing has been estimated, so a cap refuses every one of them rather than letting any through untracked.
-      expect({ tool, ...outcome(tool, { context: "a test" }) }).toEqual({ tool, refused: "PRICE_UNKNOWN" })
+      expect({ tool, ...outcome(tool, {}) }).toEqual({ tool, refused: "PRICE_UNKNOWN" })
     }
   })
 
@@ -129,10 +129,16 @@ describe("one list decides what is priced", () => {
     // them outright, because there is no figure to check one against before they run.
     expect(ALL_TOOLS.filter(mustPrice).filter((tool) => !PRICED_ARGUMENTS.has(tool)).sort()).toEqual([
       "agents_compute_kb_rag_index",
+      "agents_generate",
+      "agents_generate_test_from_conversation",
       "agents_query_knowledge_base_rag",
+      "agents_retry_batch_call",
+      "agents_run_attached_tests",
       "agents_run_tests",
+      "agents_submit_batch_call",
       "creative_create_brand_kit_from_website",
       "creative_design_voice",
+      "creative_execute_sandbox",
     ])
     expect(outcome("creative_design_voice", { voice_description: "a warm narrator" })).toEqual({ refused: "PRICE_UNKNOWN" })
   })
@@ -299,7 +305,7 @@ describe("an argument is read once, and that one reading is the one that is pric
   /** An arguments object whose `prompt` answers differently each time it is read. */
   const flipping = () => {
     const reads = { count: 0 }
-    const args: Record<string, unknown> = { voice_id: "voice_example", model_id: "model_example", context: "a test" }
+    const args: Record<string, unknown> = { voice_id: "voice_example", model_id: "model_example" }
     Object.defineProperty(args, "prompt", {
       get: () => {
         reads.count++
@@ -427,7 +433,7 @@ describe("a line states what it counted, in the unit it is really in", () => {
   test("a fractional figure is rounded up, and the line says what it was rounded from", () => {
     // ElevenLabs' own estimates come back fractional — 761.5151418103446 for four images. The ledger holds whole
     // credits, so the figure rounds up and the line carries the server's own number for anyone reconciling a bill.
-    const priced = estimatePrice("creative_generate_image", { prompt: "a mug", model_id: "model_example", context: "a test" }, { output: { credits: 761.5151418103446 } })
+    const priced = estimatePrice("creative_generate_image", { prompt: "a mug", model_id: "model_example" }, { output: { credits: 761.5151418103446 } })
     expect(priced?.credits).toBe(762)
     expect(priced?.parts.join(", ")).toBe("4 generations by default, estimated by ElevenLabs, rounded up from 761.5151418103446")
   })
@@ -435,7 +441,7 @@ describe("a line states what it counted, in the unit it is really in", () => {
   test("a batch size nothing says is left out of the line rather than guessed at", () => {
     // Two live tools declare the count with no default, so a call that names none gives nothing to divide by. The
     // line reports the server's figure and claims no unit for it.
-    const priced = estimatePrice("creative_run_flow_nodes", { flow_id: "flow_example", context: "a test" }, { output: { credits: 500 } })
+    const priced = estimatePrice("creative_run_flow_nodes", { flow_id: "flow_example" }, { output: { credits: 500 } })
     expect({ credits: priced?.credits, perGeneration: priced?.perGeneration }).toEqual({ credits: 500, perGeneration: undefined })
     expect(priced?.parts.join(", ")).toBe("estimated by ElevenLabs")
   })

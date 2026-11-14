@@ -1,7 +1,7 @@
-// The saved tool list, test/fixtures/live-tools.json, as a test reads it. The file is one raw MCP `tools/list` response,
-// captured from a live account: the 190 tools ElevenLabs' hosted MCP server serves, with their own descriptions and
-// input schemas (test/fixtures/README.md says how it was captured and what was redacted). No runtime import, so the
-// drift script can load this file too.
+// The saved tool list, test/fixtures/live-tools.json, as a test reads it. The file is a live capture of ElevenLabs'
+// hosted MCP server's own `tools/list` (schema `opencode-family/live-tools@1`): the 237 tools it serves, with their own
+// descriptions, input schemas and annotations (test/fixtures/README.md and provenance.json say how and when). A raw
+// `tools/list` response, whose descriptions are plain strings, reads the same way. No runtime import.
 import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 
@@ -18,6 +18,7 @@ export interface LiveTool {
 
 interface RawTool {
   readonly name?: unknown
+  /** A raw response's string, or the capture's `{ sha256, length, text }`. */
   readonly description?: unknown
   readonly inputSchema?: { readonly properties?: Record<string, unknown>; readonly required?: unknown }
   readonly annotations?: { readonly readOnlyHint?: unknown; readonly destructiveHint?: unknown }
@@ -33,7 +34,7 @@ export function readToolList(path?: string): readonly LiveTool[] {
     const properties = tool.inputSchema?.properties
     return [{
       name: tool.name,
-      description: typeof tool.description === "string" ? tool.description : "",
+      description: descriptionOf(tool.description),
       params: properties && typeof properties === "object" ? Object.keys(properties).sort() : [],
       required: Array.isArray(tool.inputSchema?.required) ? tool.inputSchema.required.filter((item): item is string => typeof item === "string") : [],
       defaults: defaultsOf(properties),
@@ -41,6 +42,13 @@ export function readToolList(path?: string): readonly LiveTool[] {
       ...(typeof tool.annotations?.destructiveHint === "boolean" ? { destructiveHint: tool.annotations.destructiveHint } : {}),
     }]
   })
+}
+
+/** The description's text, whether the file holds it as a string or as the capture's record. */
+function descriptionOf(value: unknown): string {
+  if (typeof value === "string") return value
+  if (value && typeof value === "object" && typeof (value as { text?: unknown }).text === "string") return (value as { text: string }).text
+  return ""
 }
 
 /** The `default` each property declares, for the properties that declare one. */

@@ -159,7 +159,7 @@ describe("setup", () => {
       get: () => undefined,
       list: () => [],
     } as never)
-    expect(integrations.some((entry) => entry.name === "ElevenLabs API key (optional)")).toBe(true)
+    expect(integrations.some((entry) => entry.name === "ElevenLabs API key (optional, balance only)")).toBe(true)
     expect(integrations.some((entry) => entry.methods.includes("key"))).toBe(true)
     expect(rpc).toEqual(["elevenlabs", "elevenlabs.tools"])
     // The tools RPC's one hook, and the spending guard's two.
@@ -173,7 +173,7 @@ describe("setup", () => {
   test("the namespace text says what the default does: spending, live updates, expiring links, personal data", () => {
     for (const rule of [
       "Read the elevenlabs skill before the first call",
-      "Twelve tools spend the workspace's credits",
+      "Eighteen tools spend the workspace's credits",
       "a retry is a second charge",
       "each paid call prints its cost",
       "ElevenLabs is the only source of a price",
@@ -272,7 +272,7 @@ describe("setup", () => {
         return { output: { credits: 1_500 } }
       },
     })
-    const args = { prompt: "hello", voice_id: "voice_example", model_id: "model_example", context: "a test" }
+    const args = { prompt: "hello", voice_id: "voice_example", model_id: "model_example" }
     await before(event("c1", "creative_generate_speech", args) as never)
     expect(estimates).toEqual([{ ...args, estimate_only: true }])
     await after({ ...event("c1", "creative_generate_speech", args), status: "error", result: {} } as never)

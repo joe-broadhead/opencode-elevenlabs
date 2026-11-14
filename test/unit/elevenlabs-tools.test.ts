@@ -11,6 +11,7 @@ import {
   mustPrice,
   OWN_TOOLS,
   priced,
+  READ_ONLY_OVERRIDES,
   READ_TOOLS,
   SPEND_TOOLS,
   spends,
@@ -82,26 +83,32 @@ describe("the tool table", () => {
   })
 
   test("the README sentence counts the spending tools from the predicate itself", () => {
-    expect(creativeGuardSentence()).toContain(`each of the ${SPEND_TOOLS.length} tools that can spend`)
+    expect(creativeGuardSentence()).toContain(`each of the ${ALL_TOOLS.filter(spends).length} tools that can spend`)
     expect(creativeGuardSentence()).toContain("any name this table does not classify, whatever it starts with")
   })
 
   test("the saved annotations agree with the classes where the fixture records them", () => {
+    // readOnly is what Jelly enforces: a read is exactly a tool ElevenLabs marks read-only, except where the table
+    // records why it is stricter. ElevenLabs' destructiveHint also marks updates that replace a value, which are
+    // writes here; every delete is destructive, and ElevenLabs marks each of them so.
     for (const tool of LIVE_TOOLS) {
       const live = LIVE.get(tool)!
       const cls = classify(tool)
-      if (live.destructiveHint === true) expect({ tool, cls }).toEqual({ tool, cls: "destructive" })
-      if (live.readOnlyHint === true) expect({ tool, cls }).toEqual({ tool, cls: "read" })
+      expect({ tool, hint: live.readOnlyHint }).toEqual({ tool, hint: expect.any(Boolean) })
+      if (live.readOnlyHint === true && !(tool in READ_ONLY_OVERRIDES)) expect({ tool, cls }).toEqual({ tool, cls: "read" })
+      if (live.readOnlyHint === false || tool in READ_ONLY_OVERRIDES) expect({ tool, read: cls === "read" }).toEqual({ tool, read: false })
     }
+    for (const tool of DESTRUCTIVE_TOOLS) expect({ tool, hint: LIVE.get(tool)!.destructiveHint }).toEqual({ tool, hint: true })
   })
 
   test("the conversation lists are reads, and every transcript tool is inside them", () => {
     for (const tool of CONVERSATION_TOOLS) expect(classify(tool)).toBe("read")
     expect([...CONVERSATION_TOOLS]).toEqual([...CONVERSATION_TOOLS, ...TRANSCRIPT_TOOLS.filter((tool) => !CONVERSATION_TOOLS.includes(tool))])
     // Every tool that can return what a caller said, so the README's and SECURITY's sentence about transcripts covers
-    // all four: two read one conversation, two search the messages inside them.
+    // all five: two read one conversation, one links its recording, two search the messages inside them.
     expect([...TRANSCRIPT_TOOLS].sort()).toEqual([
       "agents_get_conversation",
+      "agents_get_conversation_audio_url",
       "agents_get_conversation_summary",
       "agents_search_conversation_messages",
       "agents_semantic_search_conversation_messages",

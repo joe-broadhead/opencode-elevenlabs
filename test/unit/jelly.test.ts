@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import { BALANCE_NAME } from "../../src/balance.js"
 import { DISPLAY_NAME, REGION_VALUES, SERVER_NAME } from "../../src/constants.js"
 import { ALL_TOOLS, EXPORT_TOOLS, OWN_TOOLS, READ_TOOLS, SPEND_TOOLS, WRITE_TOOLS, DESTRUCTIVE_TOOLS } from "../../src/elevenlabs-tools.js"
 import { DEFAULT_MEDIA_BYTES, parseOptions } from "../../src/options.js"
@@ -33,12 +34,23 @@ describe("the jelly declaration", () => {
     expect(jelly.tools.map((tool) => tool.permission)).toEqual([...READ_TOOLS, ...ALL_TOOLS.filter((tool) => !READ_TOOLS.includes(tool)), ...OWN_TOOLS].map((tool) => `elevenlabs_${tool}`))
   })
 
-  test("has no views, RPC or Home contributions, and one sign-in: the elevenlabs server", () => {
+  test("has no views, RPC or Home contributions, and two sign-ins: the elevenlabs server, and the optional balance key", () => {
     expect(jelly.title).toBe(DISPLAY_NAME)
     expect(jelly.rpc).toEqual([])
     expect(jelly.views).toEqual([])
     expect(jelly.contributes).toEqual({ homeFeeds: [], homeWidgets: [], workKinds: [], settings: expect.any(Array) })
-    expect(jelly.signIns).toEqual([{ id: SERVER_NAME, label: DISPLAY_NAME, server: SERVER_NAME }])
+    expect(jelly.signIns as unknown[]).toEqual([
+      // ElevenLabs registers no clients and takes a client metadata document as the client id, so a browser tab can
+      // finish the sign-in through Jelly's relay.
+      { id: SERVER_NAME, label: DISPLAY_NAME, server: SERVER_NAME, relay: {} },
+      {
+        id: "balance",
+        label: BALANCE_NAME,
+        integration: "elevenlabs-balance",
+        required: false,
+        help: { url: "https://elevenlabs.io/app/developers/api-keys", label: "Create an ElevenLabs API key" },
+      },
+    ])
     expect(jelly.skills).toEqual(["elevenlabs", "elevenlabs-creative", "elevenlabs-calls"])
   })
 })

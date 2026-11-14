@@ -62,7 +62,7 @@ describe("skills", () => {
 
   test("the agents skill covers reading first, live updates, branches and deletes", () => {
     const text = read("elevenlabs")
-    for (const rule of ["agents_list", "agents_get", "publishes to the live branch immediately", "agents_merge_branch_preview", "agents_duplicate", "cannot be undone", "context"]) {
+    for (const rule of ["agents_list", "agents_get", "publishes to the live branch immediately", "agents_merge_branch_preview", "agents_duplicate", "cannot be undone", "places real phone calls", "agents_publish_draft"]) {
       expect(text.replace(/\s+/g, " ")).toContain(rule)
     }
   })

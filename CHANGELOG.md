@@ -3,6 +3,42 @@
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project follows
 [Semantic Versioning](https://semver.org).
 
+## [0.0.4] - 2026-11-14
+
+### Added
+
+- 47 ElevenLabs tools the server now serves are classified and declared to Jelly: 16 reads (account usage, batch calls,
+  settings, webhooks, WhatsApp numbers, a call's recording link, workspace call counts and more), 24 writes (workflow
+  nodes, attachments, secrets, phone numbers, simulation tests, publishing a draft), 6 that can spend
+  (`agents_submit_batch_call`, `agents_retry_batch_call`, `agents_run_attached_tests`, `agents_generate`,
+  `agents_generate_test_from_conversation` and `creative_execute_sandbox`), and one export, `agents_get_signed_url`.
+  Every one that can spend is in the spending table, so while a credit cap is on it is refused unpriced (none takes
+  `estimate_only`); caps stay off by default. The declaration now has 238 tools, 100 of them read-only.
+- Five tools that reach people are named in the docs, the skills and SECURITY.md: the two batch-call tools place real
+  phone calls, `agents_publish_draft` makes staged changes live, `agents_update_whatsapp_account` changes a WhatsApp
+  number's answers, and `agents_request_merge_proposal_review` notifies members. Each is a change: `ask-changes` asks,
+  a script's call is then refused, and `read-only` denies it.
+- `test/fixtures/live-tools.json` is the live capture of 14 November 2026 with ElevenLabs' own read-only marks, beside
+  `provenance.json` and `tool-registry.json`. `test/unit/live-tools.test.ts` fails when the Jelly declaration and the
+  capture disagree, and when a skill or doc calls a tool or passes an argument the server does not serve.
+- Jelly: a second sign-in, **ElevenLabs API key (optional, balance only)**, on the plugin's own `elevenlabs-balance`
+  integration, not required; `/connect` uses the same name for it. The server's sign-in declares `relay: {}`, so Jelly
+  can offer its relay to a browser tab; that path has not yet been checked with ElevenLabs.
+- A sign-in an earlier `region` left stored is listed in `/connect` as "ElevenLabs, old `<region>` sign-in (not in use)",
+  and status names it with the `opencode auth logout` command that removes it. A plugin cannot delete a stored
+  credential itself.
+
+### Changed
+
+- Each tool's `readOnly`, in OpenCode's rules and in Jelly, now follows ElevenLabs' own mark. `agents_get_link`,
+  `creative_get_generations` and `creative_show_flow_results` are reads, so `read-only` allows them.
+  `agents_query_knowledge_base_rag` (it can spend) and `get_more_tools` (it sends the model's words to ElevenLabs) stay
+  changes on purpose; `docs/jelly.md` gives the reasons. `agents_get_signed_url` is the one export.
+- ElevenLabs no longer takes a `context` argument on any tool. The skills and docs no longer pass it, and while a cap
+  is on a priced call that carries it is refused as an argument the schema lacks.
+- `conversations: "summary"` also denies a call's recording link, and `"off"` also denies the batch calls and the
+  workspace's call counts.
+
 ## [0.0.3] - 2026-11-13
 
 ### Added

@@ -8,8 +8,7 @@ If no `elevenlabs_*` tools are in this session, no one is signed in: run `/conne
 
 # ElevenLabs agents
 
-Read this before the first `agents_*` call. Every tool takes a `context` parameter: pass one short line naming the user's
-goal, with no caller's name, number or words in it.
+Read this before the first `agents_*` call. Pass only the arguments a tool's own schema lists.
 
 ## Start by reading
 
@@ -17,8 +16,8 @@ goal, with no caller's name, number or words in it.
 user; never guess or rebuild one. `agents_get` is a read and runs freely:
 
 ```js
-const found = await tools.elevenlabs.agents_list({ context: "find the checkout agent" })
-const agent = await tools.elevenlabs.agents_get({ agent_id: found[0].agent_id, context: "read the checkout agent" })
+const found = await tools.elevenlabs.agents_list({ search: "checkout" })
+const agent = await tools.elevenlabs.agents_get({ agent_id: found[0].agent_id })
 ```
 
 ## Changing an agent
@@ -33,6 +32,23 @@ undo it. So:
 
 `agents_duplicate` is usually better than rebuilding a configuration by hand.
 
+Workflow, attachment and test edits (`agents_add_workflow_node`, `agents_attach_tool`, `agents_duplicate_test` and the
+like) are staged in your own draft of a branch, not live. `agents_publish_draft` **makes every staged change live to
+callers at once**: say what goes live and on which branch, in one sentence, before calling it.
+
+## Calls, numbers and people
+
+These reach people outside this conversation. Confirm with the user first, every time, and make the one call:
+
+- `agents_submit_batch_call` **places real phone calls** to every recipient in the list, now or at the scheduled time,
+  and spends credits. Read the recipients back to the user and get a yes before calling it. `agents_retry_batch_call`
+  calls the failed and unanswered recipients again, and spends again. `agents_cancel_batch_call` stops the recipients
+  not yet called. `agents_list_batch_calls` and `agents_get_batch_call` report what happened.
+- `agents_update_whatsapp_account` changes how an agent answers a WhatsApp number's users.
+- `agents_request_merge_proposal_review` notifies the workspace members named.
+- `agents_create_phone_number`, `agents_create_secret` and `agents_update_secret` store credentials that are never
+  returned. Take a value only from the user, and never repeat it.
+
 ## Knowledge base
 
 Add with `agents_create_kb_url` (a page that can keep syncing) or `agents_create_kb_text`; organise with
@@ -42,8 +58,9 @@ Add with `agents_create_kb_url` (a page that can keep syncing) or `agents_create
 ## Tests and deployment
 
 Create a test with `agents_create_test`; inspect past runs with `agents_list_test_runs` and `agents_get_test_run`.
-`agents_run_tests` **spends credits**: it makes the agent hold conversations, and ElevenLabs offers no estimate for it,
-so say so before running it and report the cost line its result carries. A deployment moves live traffic:
+`agents_run_tests` and `agents_run_attached_tests` **spend credits**: they make the agent hold conversations, and
+ElevenLabs offers no estimate for them, so say so before running one and report the cost line its result carries.
+`agents_generate` (an LLM writes a whole agent) and `agents_generate_test_from_conversation` are counted as spending too. A deployment moves live traffic:
 `agents_create_deployment` after a merge, not before.
 
 ## Cost

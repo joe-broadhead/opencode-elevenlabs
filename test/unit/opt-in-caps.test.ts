@@ -19,7 +19,7 @@ afterAll(() => rmSync(skillsDir, { recursive: true, force: true }))
 const seam = { endpoint: ENDPOINT, skillsDir }
 type Hook = (event: never) => Promise<void>
 
-const image = { prompt: "a ceramic mug", generations_count: 4, model_id: "model_example", context: "make it" }
+const image = { prompt: "a ceramic mug", generations_count: 4, model_id: "model_example" }
 const event = (id: string, tool: string, input: Record<string, unknown>) => ({ tool: `elevenlabs_${tool}`, input, id, sessionID: "ses_test", agent: "build", messageID: "m1" })
 const textOf = (result: { content?: unknown }) => (Array.isArray(result.content) ? result.content.map((part: { text?: string }) => part.text ?? "").join("\n") : String(result.content ?? ""))
 const done = (text: string, output: Record<string, unknown> = {}) => ({ output, content: [{ type: "text", text }] })
@@ -90,9 +90,9 @@ describe("with the default options there is no credit cap and no estimate", () =
   test("the tools with no estimate run, and their rules still ask under ask-changes and deny under read-only", async () => {
     const { before, after, cleanup } = await modelPath({})
     for (const tool of ["creative_design_voice", "agents_run_tests"]) {
-      await before(event(`x-${tool}`, tool, { context: "run it" }) as never)
+      await before(event(`x-${tool}`, tool, {}) as never)
       const result = done("done")
-      await after({ ...event(`x-${tool}`, tool, { context: "run it" }), status: "completed", result } as never)
+      await after({ ...event(`x-${tool}`, tool, {}), status: "completed", result } as never)
       expect(textOf(result)).toContain("Credits: not reported")
       const effect = (access: "all" | "ask-changes" | "read-only") => defaultRules(access).find((rule) => rule.action === `elevenlabs_${tool}`)?.effect
       expect([effect("ask-changes"), effect("read-only")]).toEqual(["ask", "deny"])
@@ -119,8 +119,8 @@ describe("with the default options there is no credit cap and no estimate", () =
     expect(first.generations_count).toBe(4)
     expect(shapers.result("creative_generate_image", { output: { flow_id: "f1", credits_charged: 300 }, text: "one" }, call).text).toContain("Credits: 300")
     expect(shapers.result("creative_generate_image", { output: { flow_id: "f2" }, text: "two" }, call).text).toContain("Credits: not reported; 300 credits today.")
-    expect(() => shapers.input("creative_design_voice", { context: "x" }, script("creative_design_voice"))).not.toThrow()
-    expect(() => shapers.input("agents_run_tests", { context: "x" }, script("agents_run_tests"))).not.toThrow()
+    expect(() => shapers.input("creative_design_voice", {}, script("creative_design_voice"))).not.toThrow()
+    expect(() => shapers.input("agents_run_tests", {}, script("agents_run_tests"))).not.toThrow()
   })
 
   test("a script call that threw leaves nothing behind: the next call of that method never reports the earlier price", () => {
@@ -147,8 +147,8 @@ describe("a cap the owner sets prices first and still refuses", () => {
     expect(estimates).toHaveLength(1)
     expect(estimates[0]).toMatchObject({ estimate_only: true })
     expect(asserts).toEqual(["elevenlabs_creative_generate_image"])
-    await expect(before(event("c2", "creative_design_voice", { context: "x" }) as never)).rejects.toMatchObject({ code: "PRICE_UNKNOWN" })
-    await expect(before(event("c3", "agents_run_tests", { context: "x" }) as never)).rejects.toMatchObject({ code: "PRICE_UNKNOWN" })
+    await expect(before(event("c2", "creative_design_voice", {}) as never)).rejects.toMatchObject({ code: "PRICE_UNKNOWN" })
+    await expect(before(event("c3", "agents_run_tests", {}) as never)).rejects.toMatchObject({ code: "PRICE_UNKNOWN" })
     await expect(before(event("c4", "creative_upscale", {}) as never)).rejects.toBeInstanceOf(SpendRefused)
     await cleanup()
   })

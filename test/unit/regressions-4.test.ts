@@ -38,10 +38,10 @@ type Hook = (event: never) => Promise<void>
 type Cost = { credits: number; basis: string; dailySpent: number }
 
 /** A speech call in the live schema's own names. The spoken words go in `prompt`; there is no `text` argument. */
-const speechArgs = (prompt: string) => ({ prompt, voice_id: "voice_example", model_id: "model_example", context: "a test" })
+const speechArgs = (prompt: string) => ({ prompt, voice_id: "voice_example", model_id: "model_example" })
 
 /** A transcription call in the live schema's own argument names: the audio is a node in a flow, never a local file. */
-const transcribeArgs = () => ({ model_id: "model_example", context: "a test", flow_id: "flow_example" })
+const transcribeArgs = () => ({ model_id: "model_example", flow_id: "flow_example" })
 
 /**
  * The two spending hooks, on a context with the caps this test needs, and an ElevenLabs that answers an
@@ -209,9 +209,9 @@ describe("a count multiplies the price, for every priced tool", () => {
     // is this plugin's arithmetic and not the server's word.
     const ledger = new Ledger()
     const { estimate } = estimator(4_000)
-    const args: Record<string, unknown> = { prompt: "a mug", model_id: "model_example", context: "a test", generations_count: 4 }
+    const args: Record<string, unknown> = { prompt: "a mug", model_id: "model_example", generations_count: 4 }
     const { price } = await quoteCall({ ledger, caps: () => ({ sessionCreditCap: 3_000, dailyCreditCap: 50_000 }), estimate }, "creative_generate_image", args, call())
-    expect(args).toEqual({ prompt: "a mug", model_id: "model_example", context: "a test", generations_count: 3 })
+    expect(args).toEqual({ prompt: "a mug", model_id: "model_example", generations_count: 3 })
     expect({ credits: price.credits, basis: price.basis }).toEqual({ credits: 3_000, basis: "at-most" })
     expect(price.parts.join(", ")).toContain("3 generations, at ElevenLabs' estimate")
   })
@@ -292,7 +292,7 @@ describe("a WAV with more than one `data` chunk is not measured", () => {
 describe("a price holds only while it is still this call's price", () => {
   // This block used to swap a file under the guard between the measurement and the hold: a one-second WAV priced at
   // 6 credits, replaced by sixty seconds before the reservation landed. The live `creative_transcribe_audio` takes
-  // `{connect_from, context, estimate_only, flow_id, model_id, view_state_id}` and no file at all, so there is no
+  // `{connect_from, estimate_only, flow_id, model_id, view_state_id}` and no file at all, so there is no
   // file to swap and the stamping it needed is gone. What remains is the same rule in the place it now lives: a
   // remembered figure is ElevenLabs' answer for exactly these arguments, minutes old at most.
   const caps = { sessionCreditCap: 100_000, dailyCreditCap: 100_000 }
@@ -444,7 +444,7 @@ describe("a refusal names what it can and claims nothing it cannot", () => {
       ["creative_generate_speech", { ...speechArgs("hello"), generations: "many" }, '"generations" is an argument ElevenLabs\' own schema for this tool does not have, so its effect on the bill is unknown'],
       ["creative_generate_speech", { ...speechArgs("hello"), generations_count: "many" }, '"generations_count" states a generation count no number can be read out of'],
       ["creative_transcribe_audio", { ...transcribeArgs(), path: "a.wav" }, '"path" is an argument ElevenLabs\' own schema for this tool does not have, so its effect on the bill is unknown'],
-      ["creative_run_flow_nodes", { flow_id: "flow_example", context: "a test", num_outputs: "three" }, '"num_outputs" is an argument ElevenLabs\' own schema for this tool does not have, so its effect on the bill is unknown'],
+      ["creative_run_flow_nodes", { flow_id: "flow_example", num_outputs: "three" }, '"num_outputs" is an argument ElevenLabs\' own schema for this tool does not have, so its effect on the bill is unknown'],
     ]
     for (const [tool, input, obstacle] of obstacles) {
       const error = refused(tool, input)
@@ -468,7 +468,7 @@ describe("a refusal names what it can and claims nothing it cannot", () => {
 
   test("the estimate route is offered to every tool that has one, and to no tool that does not", () => {
     for (const tool of SPEND_TOOLS.filter(mustPrice)) {
-      const error = refused(tool, { context: "a test" })
+      const error = refused(tool, {})
       expect({ tool, code: error?.code }).toEqual({ tool, code: "PRICE_UNKNOWN" })
       if (ESTIMATE_TOOLS.includes(tool)) {
         expect(`${tool}: ${error?.message}`).toContain("could not be priced from ElevenLabs' own estimate")

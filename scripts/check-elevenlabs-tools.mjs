@@ -3,9 +3,9 @@
 //   npm run drift            compare the plugin's table with test/fixtures/live-tools.json
 //   npm run drift -- <tools.json> [--strict]
 //
-// <tools.json> is a saved MCP `tools/list` response: an object whose `tools` array holds each tool's `name`, its
-// `description` and `inputSchema`, plus `annotations` when the source has them. test/fixtures/README.md says how to save
-// one. The script reads that file only: it never reads a credential and never calls ElevenLabs. It prints tool names,
+// <tools.json> is a saved tool list: an object whose `tools` array holds each tool's `name`, its `description` (a string,
+// or the capture's `{ sha256, length, text }`) and `inputSchema`, plus `annotations` when the source has them.
+// test/fixtures/README.md says how to save one. The script reads that file only: it never reads a credential and never calls ElevenLabs. It prints tool names,
 // parameter names and ElevenLabs' readOnlyHint and destructiveHint annotations, and nothing else.
 //
 // test/fixtures/live-tools.json is the catalogue a live account returned, so the default run compares the table with
@@ -25,6 +25,9 @@ const CHANGE_WORDS = /\b(creates?|updates?|deletes?|removes?|edits?|modif(?:y|ie
 const WORDING_REVIEWED = new Map([
   ["agents_get_conversation_summary", "reports whether the agent updated anything; reads one conversation"],
   ["creative_get_available_assets", "lists assets already uploaded; uploads nothing"],
+  ["agents_get_settings", "names the post-call webhook it reports; posts nothing"],
+  ["agents_get_subagent_dependents", "says deleting the agent removes it from these; removes nothing"],
+  ["creative_get_generations", "says it spends no credits; shows renders"],
 ])
 const LIVE = fileURLToPath(new URL("../test/fixtures/live-tools.json", import.meta.url))
 
@@ -48,20 +51,22 @@ const added = [...names].filter((name) => !known.has(name)).sort()
 const removed = [...known].filter((name) => !names.has(name)).sort()
 const held = [...unclassified].filter((name) => names.has(name)).sort()
 const annotated = live.some((tool) => tool.annotations !== undefined)
+// readOnly is what Jelly enforces, so it is the one hint checked: a read is exactly a tool ElevenLabs marks read-only,
+// except where READ_ONLY_OVERRIDES records why the table is stricter. ElevenLabs' destructiveHint also marks updates
+// that replace a value, which this table classes as writes; only deletes are `destructive` here.
 const reclassified = live
   .filter((tool) => {
     const cls = tools.classify(tool.name)
     const hints = tool.annotations ?? {}
-    if (hints.destructiveHint === true) return cls !== "destructive"
-    if (hints.readOnlyHint === true) return cls !== "read"
+    if (hints.readOnlyHint === true) return cls !== "read" && !(tool.name in tools.READ_ONLY_OVERRIDES)
     if (hints.readOnlyHint === false) return cls === "read"
     return false
   })
   .map((tool) => tool.name)
   .sort()
 const changeWording = live
-  .filter((tool) => tools.classify(tool.name) === "read" && CHANGE_WORDS.test(tool.description) && !WORDING_REVIEWED.has(tool.name))
-  .map((tool) => `${tool.name}  (${tool.description.match(CHANGE_WORDS)?.[0]})`)
+  .filter((tool) => tools.classify(tool.name) === "read" && CHANGE_WORDS.test(textOf(tool.description)) && !WORDING_REVIEWED.has(tool.name))
+  .map((tool) => `${tool.name}  (${textOf(tool.description).match(CHANGE_WORDS)?.[0]})`)
   .sort()
 
 console.log(`${path === LIVE ? "Live catalogue: " : ""}${live.length} tools`)
@@ -74,6 +79,10 @@ for (const name of held) console.log(`= ${name}  left unclassified on purpose: t
 const drift = added.length + removed.length + reclassified.length
 if (drift === 0) console.log("No drift: the table matches the saved list.")
 process.exit(drift > 0 && strict ? 1 : 0)
+
+function textOf(description) {
+  return typeof description === "string" ? description : typeof description?.text === "string" ? description.text : ""
+}
 
 function readToolList(file) {
   let body

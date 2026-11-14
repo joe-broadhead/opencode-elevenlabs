@@ -13,7 +13,7 @@ known tools through a tools RPC. It adds one tool of its own and has no runtime 
 | `src/plugin.ts` | Setup: the server, the namespace, the rules, the guard's hooks, the commands, the tools RPC |
 | `src/constants.ts` | Ids, the region table, the scope pin, the media host, the host range, `TESTED_HOSTS` and the codes |
 | `src/options.ts` | Option parsing and validation |
-| `src/elevenlabs-tools.ts` | The one tool table: all 190 live tools — reads, export, writes, spending tools, deletes — the transcript lists and `classify()` |
+| `src/elevenlabs-tools.ts` | The one tool table: all 237 live tools — reads, export, writes, spending tools, deletes — the transcript lists, the tools that reach people, the read-only overrides and `classify()` |
 | `src/permissions.ts` | The generated default rules, their placement, and the agents that need them |
 | `src/billing.ts` | ElevenLabs' estimate as the only price, the argument allowlists, the rolling ledger, the pre-call refusal, the cost line, the RPC `cost` object |
 | `src/media/policy.ts` | The export-root path policy and the file write |
@@ -23,6 +23,7 @@ known tools through a tools RPC. It adds one tool of its own and has no runtime 
 | `src/status.ts` | The status model, `/elevenlabs-status`, and the status RPC |
 | `src/doctor.ts` | `/elevenlabs-doctor`: the live checks |
 | `src/integration.ts` | The `/connect` entry's name and the "Sign in required" mark |
+| `src/old-sign-ins.ts` | The sign-ins an earlier `region` left stored: found, listed in `/connect` under a clear name, and named by status |
 | `src/tui.ts` | The terminal UI part and the `/elevenlabs` dialog |
 | `src/host/tools-rpc.ts` | The tools RPC, `elevenlabs.tools`; a copy of a module shared by several plugins |
 | `src/skills.ts`, `src/redact.ts`, `src/host-version.ts`, `src/version.ts` | Skills, redaction, the host check, the version |
@@ -75,7 +76,10 @@ succeeds.
 - **A plugin tool's declared permission only hides it on a deny.** Every plugin-owned tool that writes asserts its own
   action inside `execute`; `elevenlabs_save_media` does, on both paths.
 - **Changing a server's URL changes its integration id** (`mcp_` + `sha1(name\0url)`), so a region change needs a new
-  sign-in and leaves the old credential behind. Status detects that and gives one next step.
+  sign-in and leaves the old credential behind. A plugin cannot delete a stored credential (`ctx.credential` offers
+  `activate` only), so `src/old-sign-ins.ts` computes the other regions' ids, asks `integration.connection.active` for
+  each, registers any it finds in `/connect` as "ElevenLabs, old `<region>` sign-in (not in use)" so it can be signed
+  out of there or with `opencode auth logout`, and status names it with that command.
 - **`dist/tui.js` carries no zod and no host contract**: the RPC contract is plain JSON Schema, written with
   `Rpc.define`.
 
@@ -85,9 +89,8 @@ succeeds.
 or per minute, and no measurement of a local file. A call that can spend is priced by sending ElevenLabs the same call
 with `estimate_only: true` and the same arguments, and reading the figure out of its answer (`estimatePrice` in
 `src/billing.ts`). `ESTIMATE_TOOLS` holds the seven tools whose live schema declares `estimate_only`; `SPEND_TOOLS`
-holds the twelve that can spend. A spending tool with no estimate — `creative_design_voice`, `agents_run_tests`,
-`agents_compute_kb_rag_index`, `agents_query_knowledge_base_rag` and `creative_create_brand_kit_from_website` — has no
-price at all: with no cap it runs unpriced, and while a cap the owner set is on it is refused (`PRICE_UNKNOWN`).
+holds the eighteen that can spend. A spending tool with no estimate — the eleven that are not in `ESTIMATE_TOOLS`,
+from `creative_design_voice` and the batch calls to `creative_create_brand_kit_from_website` — has no price at all: with no cap it runs unpriced, and while a cap the owner set is on it is refused (`PRICE_UNKNOWN`).
 
 **Caps are opt-in.** `sessionCreditCap` and `dailyCreditCap` default to `null`. With neither set, `quote` and
 `quoteSync` send no estimate and refuse, clamp and reserve nothing. Each path records the figure the result itself
@@ -196,7 +199,7 @@ that is going to be refused. With both caps off nothing is priced and the same c
 the lists are checked again, by the step that says to confirm each priced tool's real argument names in
 `test/fixtures/README.md`.
 
-Every priced call may carry `estimate_only`, `context` and `flow_id`. Every priced call **except a transcription** may also carry
+Every priced call may carry `estimate_only` and `flow_id`. Every priced call **except a transcription** may also carry
 the count key `generations_count`, which is the only batch-size name in the live catalogue — it appears on six tools,
 and a count under any other name is an argument the live schema does not have. A transcription takes none: it
 transcribes the node it is connected to, once.
@@ -213,16 +216,37 @@ transcribes the node it is connected to, once.
 not a file on this machine. `creative_transcribe_audio` has no file or path argument at all — its audio comes from the
 node it is connected to, and the server never sees anything on this disk.
 
-The five spending tools with no list are `creative_design_voice`, `agents_run_tests`, `agents_compute_kb_rag_index`,
+The eleven spending tools with no list are `creative_design_voice`, `creative_execute_sandbox`,
+`agents_submit_batch_call`, `agents_retry_batch_call`, `agents_run_tests`, `agents_run_attached_tests`,
+`agents_generate`, `agents_generate_test_from_conversation`, `agents_compute_kb_rag_index`,
 `agents_query_knowledge_base_rag` and `creative_create_brand_kit_from_website`, because their live schemas declare no
 `estimate_only` and nothing here can price them; a cap refuses them outright, so a list of arguments would decide
 nothing.
 
+ElevenLabs no longer takes a `context` argument on any tool. Until the capture of 14 November 2026 every live tool
+required one, and every list held it; now none does, so a priced call that carries it is refused under a cap like any
+other argument the schema lacks.
+
 ### What each tool is allowed to do
 
-`classify()` puts each of the 190 live tools in one class, from its own name, description and schema: 81 reads, 2
-exports, 81 writes, 12 that can spend and 14 destructive. Nothing is left unclassified. The class is the worst thing a
-tool can do; it never decides whether a call runs, only what the generated default rules give it.
+`classify()` puts each of the 237 live tools in one class: 100 reads, 1 export, 104 writes, 18 that can spend and 14
+destructive. Nothing is left unclassified. The class is the worst thing a tool can do; it never decides whether a call
+runs, only what the generated default rules give it.
+
+**A read is exactly a tool ElevenLabs marks read-only.** The capture of 14 November 2026 records each tool's
+`readOnlyHint`, and Jelly enforces the declared `readOnly` without loading the plugin, so the table follows the server,
+with two exceptions kept stricter on purpose and named in `READ_ONLY_OVERRIDES`: `agents_query_knowledge_base_rag`,
+which this plugin counts as spending (below), and `get_more_tools`, which sends the model's words to ElevenLabs.
+`test/unit/live-tools.test.ts` fails on any other disagreement. ElevenLabs' `destructiveHint` is broader than this
+table's `destructive` class: it also marks updates that replace a value (`agents_update`, `agents_update_settings`,
+`agents_publish_draft` and others), which stay writes here; every delete is destructive, and ElevenLabs marks each one so.
+
+**Five tools reach people outside the conversation** (`REACH_TOOLS`): `agents_submit_batch_call` and
+`agents_retry_batch_call` place real phone calls, `agents_publish_draft` makes staged changes live to callers,
+`agents_update_whatsapp_account` changes how an agent answers a WhatsApp number, and
+`agents_request_merge_proposal_review` notifies workspace members. None is a read, so `ask-changes` asks before each,
+a script's call is refused there because a script cannot answer, and `read-only` denies them. At the default `all`
+they run, like every other tool; the two batch-call tools are also spending tools, so a cap refuses them.
 
 Some of them are judgement calls, recorded here because nothing in the catalogue settles them. **One rule decides every
 tool the catalogue is silent about:** a tool whose own description says it does server-side work ElevenLabs plausibly
@@ -231,31 +255,36 @@ unprompted — `creative_upload_flow_reference` ends *"This starts no generation
 `creative_update_node`, `creative_update_flow_nodes` and `creative_duplicate_flow_nodes` each end *"This never starts a
 generation"*, `creative_get_voice_design_previews` says it reads previews *"without spending credits"* — so silence
 beside billable work is the signal, and a cost line on a call that turns out free is better than a charge nobody
-reported. Four tools are classed as spending on that rule and nothing else; none of the four declares `estimate_only`,
+reported. These tools are classed as spending on that rule and nothing else; none of them declares `estimate_only`,
 so each runs unpriced, or is refused while a cap is set, and live pass 2 measures whether they bill:
 
-- **`agents_run_tests`.** A test run makes the agent hold conversations, which bills the agent's own LLM usage.
-  `agents_create_test` and the other test tools only describe a test, and are ordinary writes.
+- **`agents_run_tests` and `agents_run_attached_tests`.** A test run makes the agent hold conversations, which bills
+  the agent's own LLM usage. `agents_create_test`, `agents_create_simulation_test` and the other test tools only
+  describe a test, and are ordinary writes.
+- **`agents_generate` and `agents_generate_test_from_conversation`.** An LLM writes a whole agent, or a test from a
+  real conversation, each taking up to two minutes.
 - **`agents_compute_kb_rag_index`.** It starts RAG indexing of a knowledge-base document for an embedding model:
   embedding a whole document is server-side work with a unit ElevenLabs could bill.
-- **`agents_query_knowledge_base_rag`.** A RAG query embeds the query and searches the index. It was classed a read
-  until this release, which made the table hold two standards for the same silence: this is the read whose own
-  description names the same kind of work `agents_compute_kb_rag_index` does.
+- **`agents_query_knowledge_base_rag`.** A RAG query embeds the query and searches the index: the same kind of work
+  `agents_compute_kb_rag_index` does. ElevenLabs marks it read-only; it is kept a change, because `access:
+  "read-only"` promises to deny every tool that can spend.
 - **`creative_create_brand_kit_from_website`.** It fetches a public website and extracts its logo, colours,
   typography and tone — *"best-effort and takes a while"*, which is the shape of a billed extraction.
 - **`creative_design_voice` is counted as spending** and `creative_save_designed_voice` is a write: designing previews
   is the part that generates audio.
+- **Three say they spend outright.** `creative_execute_sandbox` *"costs credits for each second the command runs"*,
+  and `agents_submit_batch_call` and `agents_retry_batch_call` place real phone calls. `creative_get_sandbox_run`,
+  which waits for a sandbox run already started, is a write that starts nothing.
 - **`creative_create_asset_upload` is a write, not an export.** It opens an upload into the workspace; nothing leaves
-  it. The two exports are `agents_get_link`, which mints a link usable outside the workspace, and
-  `creative_get_generations`, which returns the signed links a flow's generations can be downloaded from.
-- **`creative_show_flow_results` is a write, not a read.** It returns a run's generations, but what it *does* is
-  *"put a run's generations back in front of the user, rendering the same view a run starts with"*. The catalogue
-  draws the line itself: `creative_get_flow_run_status` returns the same data and says *"without showing anything to
-  the user — this never renders a view"*. Rendering something to the user is an effect, so the class follows what the
-  call does rather than what it returns, and `read-only` no longer lets a session push a view into the workspace.
-  It spends nothing and is not priced.
+  it. The one export is `agents_get_signed_url`, which mints a signed URL that starts a conversation with a private
+  agent and which ElevenLabs says to treat as a credential. `agents_get_link`, the agent's existing shareable link, and
+  `creative_get_generations`, a render's signed link, were exports until the capture recorded ElevenLabs marking both
+  read-only; they mint nothing, and they are reads now.
+- **`creative_show_flow_results` is a read.** It puts a run's generations back in front of the user and changes nothing
+  in the workspace, and ElevenLabs marks it read-only. An earlier release made it a write because rendering a view is
+  an effect; the declaration now follows the server. It spends nothing and is not priced.
 
-- **`get_more_tools` is a write.** It is not a catalogue pager and it returns no tool definitions. Its live schema has
+- **`get_more_tools` is a write, stricter than ElevenLabs' mark.** It is not a catalogue pager and it returns no tool definitions. Its live schema has
   one required argument, a free-text string named `capability`, and its description says what the server does with it:
   *"Call this when the user's request cannot be completed with any of the available tools. Describe the capability you
   were looking for, so it can inform which tools get built next."* So it changes what ElevenLabs will offer, which is a
@@ -276,7 +305,7 @@ price comes from one.
 
 It used to. Until live reconcile 1 the guard priced a transcription by measuring the local WAV it was given, at a
 per-minute rate written down here. The live catalogue ended that: `creative_transcribe_audio` takes no file and no
-path — its arguments are `connect_from`, `flow_id`, `model_id`, `view_state_id`, `context` and `estimate_only` — so
+path — its arguments are now `connect_from`, `flow_id`, `model_id`, `view_state_id` and `estimate_only` — so
 the audio it bills for is a node on a flow in the workspace, and the server never opens anything on this disk. A
 duration measured here would have answered for a file ElevenLabs was not charging for. Transcription is now priced
 the way every other spending call is, from ElevenLabs' own estimate, and the whole of the measuring apparatus the old
