@@ -16,17 +16,17 @@ ElevenLabs is a trademark of Eleven Labs Inc. The icon is ElevenLabs' "11" symbo
 ## Install
 
 ```sh
-opencode plugin add github:joe-broadhead/opencode-elevenlabs#v0.0.3
+opencode plugin add github:joe-broadhead/opencode-elevenlabs#v0.0.4
 ```
 
 Run `opencode reload`, or restart OpenCode, then run `/elevenlabs-status`.
 
-Each release has its own tag, and a Git install does not update by itself. To move to a newer release, remove the old entry with `opencode plugin remove github:joe-broadhead/opencode-elevenlabs#v0.0.2`, then add the new tag with `opencode plugin add github:joe-broadhead/opencode-elevenlabs#v<version>`.
+Each release has its own tag, and a Git install does not update by itself. To move to a newer release, remove the old entry with `opencode plugin remove github:joe-broadhead/opencode-elevenlabs#v0.0.3`, then add the new tag with `opencode plugin add github:joe-broadhead/opencode-elevenlabs#v<version>`.
 
 Or add the plugin to `opencode.json` instead, with the same spec:
 
 ```json
-{ "plugins": [{ "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.3" }] }
+{ "plugins": [{ "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.4" }] }
 ```
 
 The install takes the GitHub release tag. Its commit carries the built `dist/`, so the install runs no build.
@@ -212,7 +212,7 @@ spend your credits without asking, and so can a tool ElevenLabs adds later. Rest
    | `"read-only"` | the read tools | nothing: everything else is **denied**, generations included |
 
    ```json
-   { "plugins": [{ "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.3", "options": { "access": "read-only" } }] }
+   { "plugins": [{ "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.4", "options": { "access": "read-only" } }] }
    ```
 
 2. **An agent that is read-only or asks**, with rules of its own, later than the plugin's:
@@ -507,7 +507,7 @@ Options, the permission rules and every error code are in
 [docs/configuration.md](https://github.com/joe-broadhead/opencode-elevenlabs/blob/HEAD/docs/configuration.md).
 
 ```json
-{ "plugins": [{ "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.3", "options": {
+{ "plugins": [{ "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.4", "options": {
   "access": "all",
   "region": "global",
   "sessionCreditCap": null,
@@ -526,7 +526,7 @@ Pre-set the region, and a cap if you want one, in the system config, so every me
 ```json
 {
   "plugins": [{
-    "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.3",
+    "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.4",
     "options": { "region": "eu", "dailyCreditCap": 5000, "access": "ask-changes" }
   }]
 }
@@ -589,8 +589,11 @@ in your config shadows the plugin's. **Rename or move** that file, then restart 
   chunk, states two durations, and real decoders disagree about which counts, so it is treated as stating none. No
   price reads any of this.
 
-- **Jelly's relay sign-in is not yet checked with ElevenLabs.** The declaration lets Jelly finish a browser tab's
-  sign-in through its relay, which relies on ElevenLabs accepting Jelly's client metadata document; no sign-in through
+- **A region change cannot remove the earlier region's sign-in.** A plugin cannot delete a stored credential, so it
+  stays in OpenCode until you sign out of it: `/connect` lists it as "ElevenLabs, old `<region>` sign-in (not in use)",
+  and `/elevenlabs-status` gives the `opencode auth logout` command.
+- **Jelly's relay sign-in is not yet checked with ElevenLabs.** The declaration lets Jelly offer a browser tab its
+  relay for the sign-in, which relies on ElevenLabs accepting Jelly's client metadata document; no sign-in through
   that path has been made yet. Signing in from OpenCode itself is unaffected.
 - In Jelly, the settings are drawn as choices and bounded numbers, which needs a Jelly that reads them: an older Jelly
   refuses the plugin's whole declaration. Jelly saves no `null`, so a credit cap there is no cap by being left unset.
@@ -604,7 +607,7 @@ earlier region, run the `opencode auth logout` command it gives as well:
 ```sh
 opencode mcp logout elevenlabs
 opencode auth list
-opencode plugin remove github:joe-broadhead/opencode-elevenlabs#v0.0.3
+opencode plugin remove github:joe-broadhead/opencode-elevenlabs#v0.0.4
 ```
 
 Files already saved under `mediaRoot` stay. Remove them yourself if you no longer want them.
