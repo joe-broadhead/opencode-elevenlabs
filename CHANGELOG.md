@@ -22,8 +22,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and thi
   `provenance.json` and `tool-registry.json`. `test/unit/live-tools.test.ts` fails when the Jelly declaration and the
   capture disagree, and when a skill or doc calls a tool or passes an argument the server does not serve.
 - Jelly: a second sign-in, **ElevenLabs API key (optional, balance only)**, on the plugin's own `elevenlabs-balance`
-  integration, not required; `/connect` uses the same name for it. The server's sign-in declares `relay: {}`, so a
-  browser tab can finish it through Jelly's relay.
+  integration, not required; `/connect` uses the same name for it. The server's sign-in declares `relay: {}`, so Jelly
+  can offer its relay to a browser tab; that path has not yet been checked with ElevenLabs.
 - A sign-in an earlier `region` left stored is listed in `/connect` as "ElevenLabs, old `<region>` sign-in (not in use)",
   and status names it with the `opencode auth logout` command that removes it. A plugin cannot delete a stored
   credential itself.

@@ -589,6 +589,9 @@ in your config shadows the plugin's. **Rename or move** that file, then restart 
   chunk, states two durations, and real decoders disagree about which counts, so it is treated as stating none. No
   price reads any of this.
 
+- **Jelly's relay sign-in is not yet checked with ElevenLabs.** The declaration lets Jelly finish a browser tab's
+  sign-in through its relay, which relies on ElevenLabs accepting Jelly's client metadata document; no sign-in through
+  that path has been made yet. Signing in from OpenCode itself is unaffected.
 - In Jelly, the settings are drawn as choices and bounded numbers, which needs a Jelly that reads them: an older Jelly
   refuses the plugin's whole declaration. Jelly saves no `null`, so a credit cap there is no cap by being left unset.
 - Updates are not automatic for a Git install, and `opencode plugin update` and `opencode plugin check` do not work on one: to move to a newer release, remove the old entry and add the new tag.
