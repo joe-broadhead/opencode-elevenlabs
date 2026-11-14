@@ -11,6 +11,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and thi
 
 - `package.json` is `"private": true`, so nothing can be published to npm; an install from the release tag is unaffected.
 
+### Fixed
+
+- The lockfile's root `name` is `@joe-broadhead/opencode-elevenlabs`; it was another plugin's name.
+
 ## [0.0.4] - 2026-11-14
 
 ### Added
