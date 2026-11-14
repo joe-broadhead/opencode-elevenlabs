@@ -5,7 +5,7 @@ images and video through ElevenLabs' official MCP server, from OpenCode.
 
 Unofficial; not affiliated with ElevenLabs.
 
-ElevenLabs is a trademark of Eleven Labs Inc. The icon is ElevenLabs' "11" symbol, unmodified, on a neutral holding shape three times its height, used under [ElevenLabs' brand guidelines](https://elevenlabs.io/brand) only to identify the service this plugin connects to.
+ElevenLabs is a trademark of Eleven Labs Inc.; this unofficial plugin is not endorsed by them.
 
 ## Requirements
 
