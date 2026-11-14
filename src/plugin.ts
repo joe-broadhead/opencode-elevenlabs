@@ -17,6 +17,7 @@ import { checkHost } from "./host-version.js"
 import { registerToolsRpc, setToolRuntime, shapersFor, METHODS, type ToolRuntime } from "./host/tools-rpc.js"
 import { watchIntegration } from "./integration.js"
 import { addSaveTool } from "./media/tool.js"
+import { findOldSignIns, registerOldSignIns } from "./old-sign-ins.js"
 import { mustPrice, spends } from "./elevenlabs-tools.js"
 import { parseOptions, type ParsedOptions } from "./options.js"
 import { reasonOf } from "./redact.js"
@@ -255,6 +256,9 @@ export function createElevenlabsPlugin(seam: ElevenlabsSeam = {}) {
       })
       await registerDefaultRules(ctx.agent, defaultRules(options.access, options.conversations), report("rules"))
       await registerBalanceIntegration(ctx.integration)
+      // A region change leaves the earlier region's sign-in stored and unlisted. The plugin cannot delete it, so it lists
+      // it in /connect under a name that says what it is, where it can be signed out of, and status gives the command.
+      await registerOldSignIns(ctx.integration, await findOldSignIns(ctx.integration, options.region).catch(() => []))
 
       // The balance is read only when the user added a key, and a failure is a problem for status, never a failed status.
       let balance: SpendFacts["balance"]
@@ -280,6 +284,7 @@ export function createElevenlabsPlugin(seam: ElevenlabsSeam = {}) {
           access: options.access,
           conversations: options.conversations,
           region: options.region,
+          oldSignIns: () => findOldSignIns(ctx.integration, options.region),
           mediaRoot: options.mediaRoot,
           spend: readSpend,
           ...(source ? { source } : {}),

@@ -150,7 +150,7 @@ Generations are billed in **credits** against the workspace you signed in with.
 - **A cap bounds this plugin, not your account.** Someone generating in the ElevenLabs app spends from the same pool,
   and so does a second MCP entry pointing at ElevenLabs under another name: its tools carry that name's prefix, which
   this plugin's guard never sees. `/elevenlabs-status` names such an entry when it finds one.
-- **The balance is only visible with an API key.** Add one through `/connect` → **ElevenLabs API key (optional)** and
+- **The balance is only visible with an API key.** Add one through `/connect` → **ElevenLabs API key (optional, balance only)** and
   status shows the workspace balance and its reset date. It is used for one read, the subscription, and never to
   generate. Without it the Spend row says the plugin counts its own calls only.
 - **A retry is a second charge.** The skills poll for a result instead of asking again.
@@ -190,8 +190,12 @@ ElevenLabs runs separate environments, and an isolated one is a separate workspa
 | `in` | `https://api.in.residency.elevenlabs.io/v1/mcp` |
 | `sg` | `https://api.sg.residency.elevenlabs.io/v1/mcp` |
 
-The server address is part of the stored credential's key, so **changing `region` needs a new sign-in**. The old entry
-stays in your config; `/elevenlabs-status` detects it and gives one next step.
+The server address is part of the stored credential's key, so **changing `region` needs a new sign-in**: run `/connect`
+and choose **ElevenLabs** again (in Jelly, the card shows **Sign in again**). The earlier region's sign-in stays stored
+in OpenCode, unused. A plugin cannot delete a stored credential, so this one does the rest: it lists the old sign-in in
+`/connect` as **ElevenLabs, old `<region>` sign-in (not in use)**, where you can sign out of it, and `/elevenlabs-status`
+names it with the command that removes it, `opencode auth logout <its id>`. If your own `mcp.servers.elevenlabs` entry
+still points at the old region, status says so and gives one next step.
 
 ## Permissions
 
@@ -591,7 +595,8 @@ in your config shadows the plugin's. **Rename or move** that file, then restart 
 
 ## Uninstall
 
-Sign out first, so the stored credential goes with the plugin:
+Sign out first, so the stored credential goes with the plugin. If `/elevenlabs-status` names a sign-in left from an
+earlier region, run the `opencode auth logout` command it gives as well:
 
 ```sh
 opencode mcp logout elevenlabs

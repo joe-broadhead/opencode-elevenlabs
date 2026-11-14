@@ -12,6 +12,7 @@ import * as z from "zod"
 import { defaultRules, type Rule } from "../../src/permissions.js"
 import { SKILL_NAMES } from "../../src/skills.js"
 import { OAUTH_SCOPES, SUPPORTED_HOST, TESTED_HOSTS } from "../../src/constants.js"
+import { serverIntegrationID } from "../../src/old-sign-ins.js"
 import { DELETE, IMAGE, IMAGE_CREDITS, LINK, NEW_TOOL, READ, SPEECH, WRITE } from "./fake-mcp.js"
 import { agentRules, attempt, cleanup, effect, HOST_VERSION, session, startHost, until, type Host } from "./harness.js"
 
@@ -448,6 +449,14 @@ describe("the /connect sign-in mark", () => {
   afterAll(() => host?.close())
 
   const SIGN_IN_AGAIN = "ElevenLabs needs a new sign-in. Choose this account to sign in again."
+
+  test("the host keys the server's sign-in under the integration id the plugin computes for an earlier region", async () => {
+    const id = await until("the server's integration", async () => {
+      const { data: servers } = await host.client.mcp.list({ location: host.location })
+      return servers.find((server) => server.name === "elevenlabs")?.integrationID
+    })
+    expect(id).toBe(serverIntegrationID("elevenlabs", host.fake.url))
+  })
 
   const connections = async () => {
     const { data: servers } = await host.client.mcp.list({ location: host.location })

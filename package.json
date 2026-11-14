@@ -1510,7 +1510,18 @@
       {
         "id": "elevenlabs",
         "label": "ElevenLabs",
-        "server": "elevenlabs"
+        "server": "elevenlabs",
+        "relay": {}
+      },
+      {
+        "id": "balance",
+        "label": "ElevenLabs API key (optional, balance only)",
+        "integration": "elevenlabs-balance",
+        "required": false,
+        "help": {
+          "url": "https://elevenlabs.io/app/developers/api-keys",
+          "label": "Create an ElevenLabs API key"
+        }
       }
     ],
     "contributes": {

@@ -23,6 +23,7 @@ known tools through a tools RPC. It adds one tool of its own and has no runtime 
 | `src/status.ts` | The status model, `/elevenlabs-status`, and the status RPC |
 | `src/doctor.ts` | `/elevenlabs-doctor`: the live checks |
 | `src/integration.ts` | The `/connect` entry's name and the "Sign in required" mark |
+| `src/old-sign-ins.ts` | The sign-ins an earlier `region` left stored: found, listed in `/connect` under a clear name, and named by status |
 | `src/tui.ts` | The terminal UI part and the `/elevenlabs` dialog |
 | `src/host/tools-rpc.ts` | The tools RPC, `elevenlabs.tools`; a copy of a module shared by several plugins |
 | `src/skills.ts`, `src/redact.ts`, `src/host-version.ts`, `src/version.ts` | Skills, redaction, the host check, the version |
@@ -75,7 +76,10 @@ succeeds.
 - **A plugin tool's declared permission only hides it on a deny.** Every plugin-owned tool that writes asserts its own
   action inside `execute`; `elevenlabs_save_media` does, on both paths.
 - **Changing a server's URL changes its integration id** (`mcp_` + `sha1(name\0url)`), so a region change needs a new
-  sign-in and leaves the old credential behind. Status detects that and gives one next step.
+  sign-in and leaves the old credential behind. A plugin cannot delete a stored credential (`ctx.credential` offers
+  `activate` only), so `src/old-sign-ins.ts` computes the other regions' ids, asks `integration.connection.active` for
+  each, registers any it finds in `/connect` as "ElevenLabs, old `<region>` sign-in (not in use)" so it can be signed
+  out of there or with `opencode auth logout`, and status names it with that command.
 - **`dist/tui.js` carries no zod and no host contract**: the RPC contract is plain JSON Schema, written with
   `Rpc.define`.
 

@@ -159,7 +159,7 @@ describe("setup", () => {
       get: () => undefined,
       list: () => [],
     } as never)
-    expect(integrations.some((entry) => entry.name === "ElevenLabs API key (optional)")).toBe(true)
+    expect(integrations.some((entry) => entry.name === "ElevenLabs API key (optional, balance only)")).toBe(true)
     expect(integrations.some((entry) => entry.methods.includes("key"))).toBe(true)
     expect(rpc).toEqual(["elevenlabs", "elevenlabs.tools"])
     // The tools RPC's one hook, and the spending guard's two.

@@ -31,12 +31,20 @@ The declaration holds:
   `elevenlabs_agents_update_whatsapp_account` changes how an agent answers a WhatsApp number, and
   `elevenlabs_agents_request_merge_proposal_review` notifies workspace members.
 - `skills`: `elevenlabs`, `elevenlabs-creative`, `elevenlabs-calls`.
-- `signIns`: one, `elevenlabs`, on the `elevenlabs` server.
+- `signIns`: two.
+  - `elevenlabs`, on the `elevenlabs` server, with `relay: {}`: ElevenLabs registers no clients and takes a client
+    metadata document as the client id, so a browser tab can finish the sign-in through Jelly's relay.
+  - `balance`, labelled **ElevenLabs API key (optional, balance only)**, on the plugin's own `elevenlabs-balance`
+    integration, not required. It is the key `/connect` offers under the same name, used for one read, the workspace's
+    credit balance in status, and never to generate.
 - `rpc` and `views`: empty. `contributes`: no Home feed, widget or work kind, and six settings, each a top-level option
   of the same name with the parser's own values and bounds:
   - `access`: a choice of **Allowed** (`all`, the default), **Ask before changes** (`ask-changes`) and **Read only**
     (`read-only`), with Jelly's own line for each.
-  - `region`: a choice of the five regions, `global` by default. Changing it needs a new sign-in.
+  - `region`: a choice of the five regions, `global` by default. Changing it needs a new sign-in: OpenCode keys the
+    server's sign-in by its name and URL, so the card shows **Sign in again**. The earlier region's sign-in stays stored
+    in OpenCode, because a plugin cannot delete one; the plugin lists it in `/connect` as "ElevenLabs, old `<region>`
+    sign-in (not in use)" and status names it with the command that removes it.
   - `conversations`: a choice of `full` (the default), `summary` and `off`.
   - `sessionCreditCap` and `dailyCreditCap`: whole numbers from 1 to 10,000,000. Jelly saves no `null`, so a cap is no
     cap by being left unset, and neither declares a default.

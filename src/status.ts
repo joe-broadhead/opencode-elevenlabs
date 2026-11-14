@@ -1,10 +1,11 @@
 import type { Plugin, Rpc } from "@opencode/plugin"
-import type { Balance } from "./balance.js"
-import { DISPLAY_NAME, PLUGIN_ID, REGIONS, SERVER_NAME, TESTED_HOSTS, type Region } from "./constants.js"
+import { BALANCE_NAME, type Balance } from "./balance.js"
+import { DISPLAY_NAME, oldSignInName, PLUGIN_ID, REGIONS, SERVER_NAME, TESTED_HOSTS, type Region } from "./constants.js"
 import { classify, OWN_TOOLS, TRANSCRIPT_TOOLS } from "./elevenlabs-tools.js"
 import { isSupportedHost, type HostCheck } from "./host-version.js"
 import type { Access, Conversations, CreditCap } from "./options.js"
 import { defaultRules, unguardedAgents, type Rule } from "./permissions.js"
+import type { OldSignIn } from "./old-sign-ins.js"
 import { shortReason } from "./redact.js"
 import { VERSION } from "./version.js"
 
@@ -46,6 +47,8 @@ export interface StatusFacts {
   readonly access?: Access
   readonly conversations?: Conversations
   readonly region?: Region
+  /** Sign-ins OpenCode still stores for other regions, which this plugin no longer uses. */
+  readonly oldSignIns?: readonly OldSignIn[]
   readonly spend?: SpendFacts
   /** Other `mcp.servers` entries that point at ElevenLabs: outside this plugin's hooks, and outside its caps. */
   readonly otherServers?: readonly string[]
@@ -78,6 +81,11 @@ export interface Status {
   /** The region whose server is registered, and the URL it resolves to. */
   readonly region: Region
   readonly endpoint: string
+  /**
+   * Sign-ins OpenCode still stores for another region's server, unused since `region` changed. Present only when
+   * there is one. A plugin cannot delete a credential, so status names each with the command that removes it.
+   */
+  readonly oldSignIns?: readonly OldSignIn[]
   /** How many ElevenLabs tools OpenCode lists. */
   readonly tools: number
   /** How many of them the plugin does not know. */
@@ -157,6 +165,7 @@ export function buildStatus(facts: StatusFacts): Status {
     conversations: facts.conversations ?? "full",
     region: facts.region ?? "global",
     endpoint: REGIONS[facts.region ?? "global"],
+    ...(facts.oldSignIns?.length ? { oldSignIns: facts.oldSignIns } : {}),
     tools: facts.tools?.length ?? 0,
     unknownCount: unknown.length,
     unknownTools: unknown.filter((name) => SAFE_NAME.test(name)).slice(0, LISTED_UNKNOWN),
@@ -218,6 +227,7 @@ function nextStepOf(status: Omit<Status, "nextStep">): string {
   const problem = stepOf(status.problems[0])
   if (problem) return problem
   if (status.shadowedSkills.length) return shadowedFix(status.shadowedSkills)
+  if (status.oldSignIns?.length) return oldSignInsFix(status.oldSignIns)
   // A second entry at ElevenLabs' address is only worth a next step while a cap is on: with no cap there is nothing
   // for it to be outside of. It is the owner's entry, so removing it is offered, never done.
   const capped = status.spend.sessionCap !== null || status.spend.dailyCap !== null
@@ -260,6 +270,20 @@ function toolsText({ state, tools, unknownCount, unknownTools, access }: Status)
   return `${tools} available, ${unknownCount} unknown${names} (${posture})`
 }
 
+/** Remove the sign-ins a region change left behind: the plugin cannot, so it gives the commands. */
+function oldSignInsFix(signIns: readonly OldSignIn[]) {
+  const commands = listed(signIns.map((signIn) => `opencode auth logout ${signIn.integrationID}`))
+  const names = listed(signIns.map((signIn) => `"${oldSignInName(signIn.region)}"`))
+  return `Remove the ${listed(signIns.map((signIn) => signIn.region))} sign-in${signIns.length > 1 ? "s" : ""} left from an earlier region: run ${commands}, or sign out of ${names} in /connect.`
+}
+
+/** The Region row: the region and its server, then any sign-in an earlier region left stored. */
+function regionText({ region, endpoint, oldSignIns }: Status) {
+  if (!oldSignIns?.length) return `${region} (${endpoint})`
+  const old = listed(oldSignIns.map((signIn) => signIn.region))
+  return `${region} (${endpoint}); a sign-in for ${old} is still stored and unused`
+}
+
 /** `a`, `a and b`, `a, b and c`. */
 const listed = (items: readonly string[]) => (items.length > 1 ? `${items.slice(0, -1).join(", ")} and ${items.at(-1)}` : items[0]!)
 
@@ -284,7 +308,7 @@ function spendText({ spend, region, otherServers }: Status) {
     const overage = extension === "unlimited" ? ", overage unlimited" : extension === undefined || extension === 0 ? "" : `, overage up to ${count(extension)} more`
     parts.push(`workspace balance ${count(left)} of ${count(limit)} credits left${reset}${overage}`)
   } else {
-    parts.push(`workspace balance unknown: add a key in /connect as "${"ElevenLabs API key (optional)"}" (${REGIONS[region]} charges the workspace)`)
+    parts.push(`workspace balance unknown: add a key in /connect as "${BALANCE_NAME}" (${REGIONS[region]} charges the workspace)`)
   }
   if (otherServers.length) parts.push(otherServersText(otherServers))
   return parts.join("; ")
@@ -315,7 +339,7 @@ export function formatStatus(status: Status) {
     `- Connection: ${STATE_TEXT[status.state]}${details ? ` (${details})` : ""}`,
     `- Account: ${status.account ?? `account name not reported by ${DISPLAY_NAME}'s MCP`}`,
     `- Access: ${accessText(status.access)}`,
-    `- Region: ${status.region} (${status.endpoint})`,
+    `- Region: ${regionText(status)}`,
     `- Spend: ${spendText(status)}`,
     `- Conversations: ${conversationsText(status)}`,
     `- Media: ${status.mediaRoot}`,
@@ -341,6 +365,8 @@ interface SetupFacts {
   readonly conversations: Conversations
   readonly region: Region
   readonly mediaRoot: string
+  /** Sign-ins stored for other regions' servers, looked up when status is read. */
+  readonly oldSignIns?: () => Promise<readonly OldSignIn[]>
   readonly spend: () => SpendFacts | Promise<SpendFacts>
   readonly source?: ServerSource
   /** Other `mcp.servers` entries pointing at ElevenLabs, read beside this plugin's own at registration. */
@@ -361,10 +387,12 @@ export async function readStatus(ctx: StatusContext, facts: SetupFacts) {
   ])
   const server = servers.data.find((entry) => entry.name === SERVER_NAME)
   const connection = server?.integrationID ? await ctx.integration.connection.active(server.integrationID).catch(() => undefined) : undefined
+  const oldSignIns = await facts.oldSignIns?.().catch(() => undefined)
   return buildStatus({
     access: facts.access,
     conversations: facts.conversations,
     region: facts.region,
+    ...(oldSignIns?.length ? { oldSignIns } : {}),
     mediaRoot: facts.mediaRoot,
     spend: await facts.spend(),
     otherServers: facts.otherServers ?? [],
@@ -432,6 +460,14 @@ export const StatusRpc = {
           conversations: { enum: ["full", "summary", "off"] },
           region: { enum: ["global", "us", "eu", "in", "sg"] },
           endpoint: { type: "string" },
+          oldSignIns: {
+            type: "array",
+            items: {
+              type: "object",
+              required: ["region", "integrationID"],
+              properties: { region: { enum: ["global", "us", "eu", "in", "sg"] }, integrationID: { type: "string" } },
+            },
+          },
           source: {
             type: "object",
             required: ["type", "url"],

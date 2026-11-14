@@ -20,6 +20,11 @@ export const REGIONS = {
 export type Region = keyof typeof REGIONS
 export const REGION_VALUES = Object.keys(REGIONS) as readonly Region[]
 export const DEFAULT_REGION: Region = "global"
+/**
+ * What `/connect` calls a sign-in OpenCode still stores for a region this plugin no longer uses (src/old-sign-ins.ts).
+ * Status names it by the same words.
+ */
+export const oldSignInName = (region: Region) => `${DISPLAY_NAME}, old ${region} sign-in (not in use)`
 /** The default region's server. The plugin registers the selected region's URL; this is the one a fresh install uses. */
 export const ENDPOINT = REGIONS[DEFAULT_REGION]
 

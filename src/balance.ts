@@ -7,7 +7,7 @@ import { elevenlabsError, SUBSCRIPTION_URL } from "./constants.js"
  * API key through `/connect`, and it is used for exactly one read: the subscription.
  */
 const BALANCE_INTEGRATION_ID = "elevenlabs-balance"
-const BALANCE_NAME = "ElevenLabs API key (optional)"
+export const BALANCE_NAME = "ElevenLabs API key (optional, balance only)"
 
 type Context = Plugin.Context
 
@@ -24,7 +24,7 @@ export interface Balance {
   readonly tier?: string
 }
 
-/** Adds "ElevenLabs API key (optional)" to `/connect`, as a key method on the plugin's own integration. */
+/** Adds "ElevenLabs API key (optional, balance only)" to `/connect`, as a key method on the plugin's own integration. */
 export function registerBalanceIntegration(integration: Pick<Context["integration"], "transform">) {
   return integration.transform((editor) => {
     editor.update(BALANCE_INTEGRATION_ID, (draft) => {
@@ -88,7 +88,7 @@ export async function readBalance(key: string, url = SUBSCRIPTION_URL, send: typ
     throw elevenlabsError(
       "BALANCE_UNAVAILABLE",
       "ElevenLabs refused the stored API key.",
-      "Run /connect, choose ElevenLabs API key (optional), and add a key that is still valid.",
+      `Run /connect, choose ${BALANCE_NAME}, and add a key that is still valid.`,
     )
   }
   if (!response.ok) {

@@ -11,7 +11,7 @@ Every option is optional. The plugin reads them from `opencode.json`:
 | Option | Values | Default | What it does |
 | --- | --- | --- | --- |
 | `access` | `"all"`, `"ask-changes"`, `"read-only"` | `"all"` | The permission posture the generated default rules express. |
-| `region` | `"global"`, `"us"`, `"eu"`, `"in"`, `"sg"` | `"global"` | Which ElevenLabs environment's MCP server to register. Changing it needs a new sign-in. |
+| `region` | `"global"`, `"us"`, `"eu"`, `"in"`, `"sg"` | `"global"` | Which ElevenLabs environment's MCP server to register. Changing it needs a new sign-in; the earlier region's sign-in stays stored, and status names it with the command that removes it. |
 | `sessionCreditCap` | a whole number of credits, or `null` | `null` (no cap) | Opt-in: the most one session may spend. |
 | `dailyCreditCap` | a whole number of credits, or `null` | `null` (no cap) | Opt-in: the most this plugin may spend in a rolling 24 hours in this data directory, across sessions, scripts and restarts. Two machines do not share it. |
 | `mediaRoot` | a path, `~` for your home folder | `"~/Downloads/elevenlabs"` | Where `elevenlabs_save_media` writes. Created on first use with mode 0700. |
@@ -918,6 +918,11 @@ rule; the plugin's own refusal prints the exact path to paste.
 
 `/elevenlabs-status`, `/elevenlabs` and the status RPC print the same rows: `Connection`, `Account`, `Access`, `Region`,
 `Spend`, `Conversations`, `Media`, `Skills`, `Tools`, `Agents without default rules`, `OpenCode`, `Next step`.
+
+The `Region` row also names any sign-in OpenCode still stores for another region, which a change of `region` leaves
+behind. OpenCode keys a server's sign-in by its name and URL, and a plugin cannot delete one, so the plugin lists it in
+`/connect` as **ElevenLabs, old `<region>` sign-in (not in use)** and the status RPC reports it under `oldSignIns`, with
+its integration id; when nothing else needs doing, the next step is `opencode auth logout <that id>`.
 
 | State | Meaning |
 | --- | --- |
