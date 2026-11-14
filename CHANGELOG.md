@@ -3,11 +3,17 @@
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project follows
 [Semantic Versioning](https://semver.org).
 
-## [Unreleased]
+## [0.0.5] - 2026-11-14
 
 ### Changed
 
 - The icon is now ElevenLabs' own "11" symbol, the published `elevenlabs-symbol.svg` from [elevenlabs.io/brand](https://elevenlabs.io/brand) with its two bars unmodified on a white holding square three times their height, in place of the look-alike drawn on the family's 48 grid; `opencode.vendor.mark` is `true`.
+
+- `package.json` is `"private": true`, so nothing can be published to npm; an install from the release tag is unaffected.
+
+### Fixed
+
+- The lockfile's root `name` is `@joe-broadhead/opencode-elevenlabs`; it was another plugin's name.
 
 ## [0.0.4] - 2026-11-14
 
