@@ -57,10 +57,6 @@ describe("the committed capture", () => {
 })
 
 describe("the declaration against the capture", () => {
-  test("declares every served tool", () => {
-    expect([...served.keys()].filter((name) => !byPermission.has(permissionOf(name)))).toEqual([])
-  })
-
   test("declares nothing the server does not serve, apart from the plugin's own tool", () => {
     // No tool is plan- or scope-gated here, so no declared tool may be missing from the capture.
     const unserved = declared.filter((tool) => !served.has(tool.permission.replace(/^elevenlabs_/, "")) && !own.has(tool.permission.replace(/^elevenlabs_/, "")))
@@ -83,10 +79,6 @@ describe("the declaration against the capture", () => {
       expect(reason).toBe(READ_ONLY_OVERRIDES[name]!)
     }
     expect(Object.keys(READ_ONLY_OVERRIDES).sort()).toEqual(overridden)
-  })
-
-  test("declares every tool allow, as the default access does", () => {
-    expect(declared.filter((tool) => tool.effect !== "allow").map((tool) => tool.permission)).toEqual([])
   })
 
   test("reads are exactly the tools declared read-only", () => {

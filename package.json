@@ -1651,7 +1651,8 @@
     "test:host": "node scripts/check.mjs host",
     "test:pack": "node scripts/check.mjs pack",
     "lint": "node scripts/check.mjs forbidden",
-    "drift": "node scripts/check-elevenlabs-tools.mjs"
+    "drift": "node scripts/check-elevenlabs-tools.mjs",
+    "capture": "node scripts/capture-tools.mjs"
   },
   "devDependencies": {
     "@opencode/client": "2.2.3",
