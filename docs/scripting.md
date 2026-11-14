@@ -7,36 +7,43 @@ Every live tool is a method, in one of five classes. `/elevenlabs-status` and `d
 
 | Class | How many | What it covers |
 | --- | --- | --- |
-| read | 81 | reads the workspace and changes nothing |
-| write | 81 | creates or changes something, and spends nothing |
-| write (billed) | 12 | changes something **and** can spend credits: priced before it runs where ElevenLabs offers an estimate, and refused only under a cap you set |
-| export | 3 | sends something out of the workspace: `agents_get_link` mints a link usable outside it, `creative_get_generations` returns the signed links a flow's generations download from, and `elevenlabs_save_media` writes a file to this machine |
+| read | 100 | reads the workspace and changes nothing |
+| write | 104 | creates or changes something, and spends nothing |
+| write (billed) | 18 | changes something **and** can spend credits: priced before it runs where ElevenLabs offers an estimate, and refused only under a cap you set |
+| export | 2 | sends something out of the workspace: `agents_get_signed_url` mints a signed link that starts a conversation with a private agent, which ElevenLabs says to treat as a credential, and `elevenlabs_save_media` writes a file to this machine |
 | destructive | 14 | deletes something, often without an undo |
 | `describe` | — | not a tool: lists the methods, their classes and permission actions, whether OpenCode lists each tool now, each tool's input as JSON Schema, and — with a session — that session's permission for each |
 
-The 12 billed methods. Seven are priced from ElevenLabs' own `estimate_only` figure before they run; the other five
+The 18 billed methods. Seven are priced from ElevenLabs' own `estimate_only` figure before they run; the other eleven
 declare no such flag, so they run unpriced, and while a cap you set is on they are refused instead:
 
-`agents_compute_kb_rag_index`, `agents_query_knowledge_base_rag`, `agents_run_tests`, `creative_create_brand_kit_from_website`, `creative_design_voice`, `creative_edit_image`, `creative_generate_image`, `creative_generate_in_flow`, `creative_generate_speech`, `creative_generate_video`, `creative_run_flow_nodes`, `creative_transcribe_audio`
+`agents_compute_kb_rag_index`, `agents_generate`, `agents_generate_test_from_conversation`, `agents_query_knowledge_base_rag`, `agents_retry_batch_call`, `agents_run_attached_tests`, `agents_run_tests`, `agents_submit_batch_call`, `creative_create_brand_kit_from_website`, `creative_design_voice`, `creative_edit_image`, `creative_execute_sandbox`, `creative_generate_image`, `creative_generate_in_flow`, `creative_generate_speech`, `creative_generate_video`, `creative_run_flow_nodes`, `creative_transcribe_audio`
+
+Five methods reach people outside the conversation: `agents_publish_draft`, `agents_request_merge_proposal_review`,
+`agents_retry_batch_call`, `agents_submit_batch_call` and `agents_update_whatsapp_account`. The two batch-call methods
+place real phone calls and are billed; `agents_publish_draft` makes staged changes live to callers, `agents_update_whatsapp_account`
+changes how an agent answers a WhatsApp number, and `agents_request_merge_proposal_review` notifies workspace members.
+Like every change, each runs at `access: "all"`, asks under `"ask-changes"` — which refuses a script's call, because a
+script cannot answer — and is denied under `"read-only"`.
 
 <details>
-<summary>The 81 read methods</summary>
+<summary>The 100 read methods</summary>
 
-`agents_calculate_llm_usage`, `agents_count_conversations`, `agents_get`, `agents_get_alert`, `agents_get_branch`, `agents_get_branches_commit_status`, `agents_get_config_summary`, `agents_get_conversation`, `agents_get_conversation_summary`, `agents_get_insights_report`, `agents_get_kb_dependents`, `agents_get_kb_document`, `agents_get_kb_rag_indexes`, `agents_get_knowledge_size`, `agents_get_latest_bi_report`, `agents_get_mcp_server`, `agents_get_memory`, `agents_get_merge_conflicts`, `agents_get_merge_proposal`, `agents_get_phone_number`, `agents_get_procedure`, `agents_get_procedure_draft`, `agents_get_rebase_conflicts`, `agents_get_summaries`, `agents_get_test`, `agents_get_test_result_summary`, `agents_get_test_run`, `agents_get_test_run_failures`, `agents_get_test_run_summary`, `agents_get_tool`, `agents_get_tool_dependents`, `agents_get_tool_executions`, `agents_get_topics`, `agents_get_topics_summary`, `agents_get_triage_ticket`, `agents_get_triage_ticket_assignable_users`, `agents_get_version`, `agents_get_widget`, `agents_list`, `agents_list_alerts`, `agents_list_branches`, `agents_list_channels`, `agents_list_conversations`, `agents_list_deployments`, `agents_list_knowledge_base`, `agents_list_llms`, `agents_list_mcp_server_tools`, `agents_list_mcp_servers`, `agents_list_memories`, `agents_list_merge_proposals`, `agents_list_phone_numbers`, `agents_list_procedures`, `agents_list_secrets`, `agents_list_test_runs`, `agents_list_tests`, `agents_list_tools`, `agents_list_triage_tickets`, `agents_list_trigger_connections`, `agents_merge_branch_preview`, `agents_query_analytics`, `agents_read_string_field`, `agents_rebase_branch_preview`, `agents_resolve_conversation`, `agents_search_conversation_messages`, `agents_search_knowledge_base`, `agents_search_procedures`, `agents_semantic_search_conversation_messages`, `agents_suggest_merge_proposal_reviewers`, `creative_get_available_assets`, `creative_get_brand_kit`, `creative_get_flow`, `creative_get_flow_node`, `creative_get_flow_node_types`, `creative_get_flow_run_status`, `creative_get_model_guide`, `creative_get_model_schema`, `creative_get_view_state`, `creative_get_voice_design_previews`, `creative_list_brand_kits`, `creative_list_flows`, `creative_list_voices`
+`account_get_usage`, `agents_calculate_llm_usage`, `agents_count_conversations`, `agents_get`, `agents_get_alert`, `agents_get_batch_call`, `agents_get_branch`, `agents_get_branches_commit_status`, `agents_get_config_summary`, `agents_get_connection_dependents`, `agents_get_conversation`, `agents_get_conversation_audio_url`, `agents_get_conversation_summary`, `agents_get_insights_report`, `agents_get_kb_dependents`, `agents_get_kb_document`, `agents_get_kb_rag_indexes`, `agents_get_knowledge_size`, `agents_get_latest_bi_report`, `agents_get_link`, `agents_get_mcp_server`, `agents_get_memory`, `agents_get_merge_conflicts`, `agents_get_merge_proposal`, `agents_get_overview_dashboard`, `agents_get_phone_number`, `agents_get_procedure`, `agents_get_procedure_draft`, `agents_get_rebase_conflicts`, `agents_get_settings`, `agents_get_structured_procedure_schema`, `agents_get_subagent_dependents`, `agents_get_summaries`, `agents_get_test`, `agents_get_test_result`, `agents_get_test_result_summary`, `agents_get_test_run`, `agents_get_test_run_failures`, `agents_get_test_run_summary`, `agents_get_tool`, `agents_get_tool_dependents`, `agents_get_tool_executions`, `agents_get_topics`, `agents_get_topics_summary`, `agents_get_triage_ticket`, `agents_get_triage_ticket_assignable_users`, `agents_get_usage_limits`, `agents_get_version`, `agents_get_whatsapp_account`, `agents_get_widget`, `agents_list`, `agents_list_alerts`, `agents_list_batch_calls`, `agents_list_branches`, `agents_list_channels`, `agents_list_conversations`, `agents_list_deployments`, `agents_list_knowledge_base`, `agents_list_llms`, `agents_list_mcp_server_tools`, `agents_list_mcp_servers`, `agents_list_memories`, `agents_list_merge_proposals`, `agents_list_phone_numbers`, `agents_list_procedures`, `agents_list_pronunciation_dictionaries`, `agents_list_secrets`, `agents_list_test_runs`, `agents_list_tests`, `agents_list_tools`, `agents_list_triage_tickets`, `agents_list_trigger_connections`, `agents_list_webhooks`, `agents_list_whatsapp_accounts`, `agents_merge_branch_preview`, `agents_query_analytics`, `agents_query_workspace_conversations`, `agents_read_string_field`, `agents_rebase_branch_preview`, `agents_resolve_conversation`, `agents_search_conversation_messages`, `agents_search_knowledge_base`, `agents_search_procedures`, `agents_semantic_search_conversation_messages`, `agents_suggest_merge_proposal_reviewers`, `creative_get_available_assets`, `creative_get_brand_kit`, `creative_get_flow`, `creative_get_flow_node`, `creative_get_flow_node_types`, `creative_get_flow_run_status`, `creative_get_generations`, `creative_get_model_guide`, `creative_get_model_schema`, `creative_get_view_state`, `creative_get_voice_design_previews`, `creative_list_brand_kits`, `creative_list_flows`, `creative_list_voices`, `creative_show_flow_results`
 
 </details>
 
 <details>
-<summary>The 81 write methods</summary>
+<summary>The 104 write methods</summary>
 
-`agents_add_triage_ticket_comment`, `agents_add_triage_ticket_turn_comment`, `agents_append_to_string_field`, `agents_bulk_move_knowledge_base`, `agents_comment_on_merge_proposal`, `agents_create`, `agents_create_branch`, `agents_create_code_tool`, `agents_create_deployment`, `agents_create_draft`, `agents_create_kb_crawl`, `agents_create_kb_folder`, `agents_create_kb_text`, `agents_create_kb_url`, `agents_create_manual_triage_ticket`, `agents_create_mcp_server`, `agents_create_merge_proposal`, `agents_create_procedure`, `agents_create_test`, `agents_create_test_folder`, `agents_create_tool`, `agents_create_triage_ticket`, `agents_disable_built_in_tool`, `agents_duplicate`, `agents_edit_string_field`, `agents_merge_branch`, `agents_merge_merge_proposal`, `agents_move_tests`, `agents_rebase_branch`, `agents_review_merge_proposal`, `agents_update`, `agents_update_agent_behavior`, `agents_update_analysis`, `agents_update_branch`, `agents_update_client_overrides`, `agents_update_code_tool`, `agents_update_conversation`, `agents_update_end_call_tool`, `agents_update_guardrails`, `agents_update_kb_document`, `agents_update_keypad_tone_tool`, `agents_update_language_detection_tool`, `agents_update_language_presets`, `agents_update_mcp_server`, `agents_update_merge_proposal`, `agents_update_operations`, `agents_update_phone_number`, `agents_update_procedure_draft`, `agents_update_prompt_settings`, `agents_update_skip_turn_tool`, `agents_update_speech_recognition`, `agents_update_test`, `agents_update_tool`, `agents_update_transfer_to_agent_tool`, `agents_update_transfer_to_number_tool`, `agents_update_triage_ticket`, `agents_update_turn_taking`, `agents_update_voice`, `agents_update_voicemail_detection_tool`, `agents_update_widget`, `agents_update_workflow`, `creative_add_brand_kit_item`, `creative_add_flow_asset_node`, `creative_add_flow_node`, `creative_attach_reference_file`, `creative_connect_flow_nodes`, `creative_create_asset_upload`, `creative_create_brand_kit`, `creative_create_flow`, `creative_disconnect_flow_nodes`, `creative_duplicate_flow_nodes`, `creative_finalize_asset_upload`, `creative_save_designed_voice`, `creative_save_view_state`, `creative_show_flow_results`, `creative_update_brand_kit`, `creative_update_brand_kit_item`, `creative_update_flow_nodes`, `creative_update_node`, `creative_upload_flow_reference`, `get_more_tools`
+`agents_add_triage_ticket_comment`, `agents_add_triage_ticket_turn_comment`, `agents_add_workflow_node`, `agents_append_to_string_field`, `agents_attach_kb_document`, `agents_attach_test`, `agents_attach_tool`, `agents_bulk_move_knowledge_base`, `agents_cancel_batch_call`, `agents_comment_on_merge_proposal`, `agents_connect_workflow_nodes`, `agents_create`, `agents_create_branch`, `agents_create_code_tool`, `agents_create_deployment`, `agents_create_draft`, `agents_create_kb_crawl`, `agents_create_kb_folder`, `agents_create_kb_text`, `agents_create_kb_url`, `agents_create_manual_triage_ticket`, `agents_create_mcp_server`, `agents_create_merge_proposal`, `agents_create_phone_number`, `agents_create_procedure`, `agents_create_secret`, `agents_create_simulation_test`, `agents_create_test`, `agents_create_test_folder`, `agents_create_tool`, `agents_create_triage_ticket`, `agents_delete_workflow_element`, `agents_detach_kb_document`, `agents_detach_test`, `agents_detach_tool`, `agents_disable_built_in_tool`, `agents_duplicate`, `agents_duplicate_test`, `agents_edit_string_field`, `agents_merge_branch`, `agents_merge_merge_proposal`, `agents_move_tests`, `agents_publish_draft`, `agents_rebase_branch`, `agents_request_merge_proposal_review`, `agents_review_merge_proposal`, `agents_update`, `agents_update_agent_behavior`, `agents_update_analysis`, `agents_update_branch`, `agents_update_client_overrides`, `agents_update_code_tool`, `agents_update_conversation`, `agents_update_end_call_tool`, `agents_update_guardrails`, `agents_update_kb_document`, `agents_update_keypad_tone_tool`, `agents_update_language_detection_tool`, `agents_update_language_presets`, `agents_update_mcp_server`, `agents_update_merge_proposal`, `agents_update_operations`, `agents_update_phone_number`, `agents_update_procedure_draft`, `agents_update_procedure_visibility`, `agents_update_prompt_settings`, `agents_update_secret`, `agents_update_settings`, `agents_update_skip_turn_tool`, `agents_update_speech_recognition`, `agents_update_subagents`, `agents_update_test`, `agents_update_tool`, `agents_update_transfer_to_agent_tool`, `agents_update_transfer_to_number_tool`, `agents_update_triage_ticket`, `agents_update_turn_taking`, `agents_update_voice`, `agents_update_voicemail_detection_tool`, `agents_update_whatsapp_account`, `agents_update_widget`, `agents_update_workflow`, `agents_update_workflow_edge`, `agents_update_workflow_node`, `creative_add_brand_kit_item`, `creative_add_flow_asset_node`, `creative_add_flow_node`, `creative_attach_reference_file`, `creative_connect_flow_nodes`, `creative_create_asset_upload`, `creative_create_brand_kit`, `creative_create_flow`, `creative_disconnect_flow_nodes`, `creative_duplicate_flow_nodes`, `creative_finalize_asset_upload`, `creative_get_sandbox_run`, `creative_save_designed_voice`, `creative_save_view_state`, `creative_update_brand_kit`, `creative_update_brand_kit_item`, `creative_update_flow_nodes`, `creative_update_node`, `creative_upload_flow_reference`, `get_more_tools`
 
 </details>
 
 <details>
-<summary>The 2 export methods ElevenLabs offers</summary>
+<summary>The 1 export method ElevenLabs offers</summary>
 
-`agents_get_link`, `creative_get_generations`
+`agents_get_signed_url`
 
 </details>
 
@@ -94,16 +101,15 @@ The body is `{"input": {"sessionID": "<session>", "input": <the tool's input>}}`
 key is allowed:
 
 ```sh
-opencode api post /api/rpc/elevenlabs.tools/agents_list -H "x-opencode-directory:$PWD" -d '{"input":{"sessionID":"ses_…","input":{"context":"nightly agent audit"}}}'
+opencode api post /api/rpc/elevenlabs.tools/agents_list -H "x-opencode-directory:$PWD" -d '{"input":{"sessionID":"ses_…","input":{}}}'
 ```
 
 The tool's input is ElevenLabs', and ElevenLabs defines its fields: `describe` shows each tool's schema as OpenCode lists
-it now. Check it rather than guess a field name. **Every live tool requires `context`**, a short line saying why the
-call is being made; a call without it is refused upstream. Reading one conversation also takes a `conversation_id` from
-a list result:
+it now. Check it rather than guess a field name. ElevenLabs no longer takes the `context` argument earlier releases
+passed: no live tool has it. Reading one conversation takes a `conversation_id` from a list result:
 
 ```sh
-opencode api post /api/rpc/elevenlabs.tools/agents_get_conversation -H "x-opencode-directory:$PWD" -d '{"input":{"sessionID":"ses_…","input":{"conversation_id":"…","context":"why did this call fail"}}}'
+opencode api post /api/rpc/elevenlabs.tools/agents_get_conversation -H "x-opencode-directory:$PWD" -d '{"input":{"sessionID":"ses_…","input":{"conversation_id":"…"}}}'
 ```
 
 `describe` takes nothing, or a session to resolve each method's permission for:
@@ -115,13 +121,14 @@ opencode api post /api/rpc/elevenlabs.tools/describe -H "x-opencode-directory:$P
 
 ## Spending in a script
 
-A script's calls count against the same rolling 24-hour ledger the model's do. Twelve methods can spend, and every one
-of them is a change: under `access: "read-only"` all twelve are denied, `creative_transcribe_audio` included.
+A script's calls count against the same rolling 24-hour ledger the model's do. Eighteen methods can spend, and every one
+of them is a change: under `access: "read-only"` all eighteen are denied, `creative_transcribe_audio` included.
 
 - **The price is ElevenLabs'.** It is the answer to the same call with `estimate_only: true`, which a script sends
-  itself; under a cap the plugin needs one before each paid call. Seven of the twelve take `estimate_only`; `creative_design_voice`, `agents_run_tests`,
-  `agents_compute_kb_rag_index`, `agents_query_knowledge_base_rag` and `creative_create_brand_kit_from_website` do not,
-  so they run unpriced, and while a cap you set is on they are refused with `PRICE_UNKNOWN`.
+  itself; under a cap the plugin needs one before each paid call. Seven of the eighteen take `estimate_only`; the other
+  eleven — the batch calls, the sandbox, the test runs, agent and test generation, the knowledge-base index and query,
+  `creative_design_voice` and `creative_create_brand_kit_from_website` — do not, so they run unpriced, and while a cap
+  you set is on they are refused with `PRICE_UNKNOWN`.
 - **No cap is set by default.** A script's paid call is then priced, refused, cut and queued for nothing: it runs at
   the size it asks for, two calls of one method run side by side, and each result's cost line states only the figure
   that result reports, or `Credits: not reported`. Nothing is kept between calls, so a call that failed leaves nothing a
@@ -144,7 +151,7 @@ of them is a change: under `access: "read-only"` all twelve are denied, `creativ
   for a release that classifies it.
 
 ```sh
-opencode api post /api/rpc/elevenlabs.tools/creative_generate_image -H "x-opencode-directory:$PWD" -d '{"input":{"sessionID":"ses_…","input":{"prompt":"a ceramic mug on marble","model_id":"gpt-image-2","generations_count":1,"estimate_only":true,"context":"price one mug image"}}}'
+opencode api post /api/rpc/elevenlabs.tools/creative_generate_image -H "x-opencode-directory:$PWD" -d '{"input":{"sessionID":"ses_…","input":{"prompt":"a ceramic mug on marble","model_id":"gpt-image-2","generations_count":1,"estimate_only":true}}}'
 ```
 
 Under a cap, a paid call with no price and no remembered estimate is refused `PRICE_UNKNOWN`, with no generation and

@@ -3,20 +3,27 @@
 // these lists, and package.json's `jelly.tools` must match them (test/unit/jelly.test.ts). Keep this file free of
 // runtime imports: scripts/check-elevenlabs-tools.mjs loads it with Node's type stripping to report upstream drift.
 //
-// These are the 190 names the hosted server's own `tools/list` returned on 2026-11-09, reconciled against
-// test/fixtures/live-tools.json. `npm run drift` compares the two. The classes are read from what each tool's own
-// description and schema say it does; docs/architecture.md records the judgement calls. Every live name has a class.
+// These are the 237 names the hosted server's own `tools/list` returned on 2026-11-14, reconciled against
+// test/fixtures/live-tools.json, which also records ElevenLabs' own `readOnlyHint` for each. `npm run drift` compares
+// the two, and test/unit/live-tools.test.ts fails when they disagree. A tool is a read exactly when ElevenLabs marks it
+// read-only, with two exceptions kept stricter on purpose (READ_ONLY_OVERRIDES, below; docs/jelly.md gives the reasons).
+// The other classes are read from what each tool's own description and schema say it does; docs/architecture.md
+// records the judgement calls. Every live name has a class.
 
 /** Reads. They run without a prompt, and they are the tools RPC's methods. */
 export const READ_TOOLS: readonly string[] = [
+  "account_get_usage",
   "agents_calculate_llm_usage",
   "agents_count_conversations",
   "agents_get",
   "agents_get_alert",
+  "agents_get_batch_call",
   "agents_get_branch",
   "agents_get_branches_commit_status",
   "agents_get_config_summary",
+  "agents_get_connection_dependents",
   "agents_get_conversation",
+  "agents_get_conversation_audio_url",
   "agents_get_conversation_summary",
   "agents_get_insights_report",
   "agents_get_kb_dependents",
@@ -24,16 +31,24 @@ export const READ_TOOLS: readonly string[] = [
   "agents_get_kb_rag_indexes",
   "agents_get_knowledge_size",
   "agents_get_latest_bi_report",
+  // The agent's existing shareable link, as ElevenLabs marks it: a read. It mints nothing; a private agent's
+  // credential-like link is `agents_get_signed_url`, which is an export.
+  "agents_get_link",
   "agents_get_mcp_server",
   "agents_get_memory",
   "agents_get_merge_conflicts",
   "agents_get_merge_proposal",
+  "agents_get_overview_dashboard",
   "agents_get_phone_number",
   "agents_get_procedure",
   "agents_get_procedure_draft",
   "agents_get_rebase_conflicts",
+  "agents_get_settings",
+  "agents_get_structured_procedure_schema",
+  "agents_get_subagent_dependents",
   "agents_get_summaries",
   "agents_get_test",
+  "agents_get_test_result",
   "agents_get_test_result_summary",
   "agents_get_test_run",
   "agents_get_test_run_failures",
@@ -45,10 +60,13 @@ export const READ_TOOLS: readonly string[] = [
   "agents_get_topics_summary",
   "agents_get_triage_ticket",
   "agents_get_triage_ticket_assignable_users",
+  "agents_get_usage_limits",
   "agents_get_version",
+  "agents_get_whatsapp_account",
   "agents_get_widget",
   "agents_list",
   "agents_list_alerts",
+  "agents_list_batch_calls",
   "agents_list_branches",
   "agents_list_channels",
   "agents_list_conversations",
@@ -61,14 +79,18 @@ export const READ_TOOLS: readonly string[] = [
   "agents_list_merge_proposals",
   "agents_list_phone_numbers",
   "agents_list_procedures",
+  "agents_list_pronunciation_dictionaries",
   "agents_list_secrets",
   "agents_list_test_runs",
   "agents_list_tests",
   "agents_list_tools",
   "agents_list_triage_tickets",
   "agents_list_trigger_connections",
+  "agents_list_webhooks",
+  "agents_list_whatsapp_accounts",
   "agents_merge_branch_preview",
   "agents_query_analytics",
+  "agents_query_workspace_conversations",
   "agents_read_string_field",
   "agents_rebase_branch_preview",
   "agents_resolve_conversation",
@@ -83,6 +105,8 @@ export const READ_TOOLS: readonly string[] = [
   "creative_get_flow_node",
   "creative_get_flow_node_types",
   "creative_get_flow_run_status",
+  // Renders, with signed links to the workspace's own files; "Spends no credits", and ElevenLabs marks it a read.
+  "creative_get_generations",
   "creative_get_model_guide",
   "creative_get_model_schema",
   "creative_get_view_state",
@@ -90,17 +114,21 @@ export const READ_TOOLS: readonly string[] = [
   "creative_list_brand_kits",
   "creative_list_flows",
   "creative_list_voices",
+  // Shows a run's generations to the user again. It changes nothing in the workspace, and ElevenLabs marks it a read.
+  "creative_show_flow_results",
 ]
 
 /**
  * Reads of other people's calls. `agents_get_conversation` returns a transcript, the caller's identifier and the
  * details the agent extracted; `agents_get_conversation_summary` returns the plain messages of a short call;
- * `agents_search_conversation_messages` and its semantic twin search that text across calls. The generated block
- * allows them at `access: "all"` like every other tool; `conversations: "summary"` denies exactly these, and
- * `"off"` denies them with the rest of the conversation tools.
+ * `agents_search_conversation_messages` and its semantic twin search that text across calls;
+ * `agents_get_conversation_audio_url` returns a link to the call's recording. The generated block allows them at
+ * `access: "all"` like every other tool; `conversations: "summary"` denies exactly these, and `"off"` denies them with
+ * the rest of the conversation tools.
  */
 export const TRANSCRIPT_TOOLS: readonly string[] = [
   "agents_get_conversation",
+  "agents_get_conversation_audio_url",
   "agents_get_conversation_summary",
   "agents_search_conversation_messages",
   "agents_semantic_search_conversation_messages",
@@ -108,36 +136,47 @@ export const TRANSCRIPT_TOOLS: readonly string[] = [
 
 /**
  * Every read of a call's history, used by `conversations: "off"`. A user who wants no call data in the model's context
- * turns off the lists, the counts, the agent's memories and the triage tickets cut from a call as well as the words.
+ * turns off the lists, the counts, the agent's memories and the triage tickets cut from a call as well as the words,
+ * and the batch calls, whose recipients and per-call status are call history too.
  */
 export const CONVERSATION_TOOLS: readonly string[] = [
   ...TRANSCRIPT_TOOLS,
   "agents_count_conversations",
+  "agents_get_batch_call",
   "agents_get_memory",
   "agents_get_triage_ticket",
+  "agents_list_batch_calls",
   "agents_list_conversations",
   "agents_list_memories",
   "agents_list_triage_tickets",
+  "agents_query_workspace_conversations",
   "agents_resolve_conversation",
 ]
 
 /**
- * Tools that mint a link anyone outside the workspace can use. R4: the class is what the tool does.
- * `agents_get_link` returns the agent's public call link; `creative_get_generations` returns a signed
- * `full_res_url` for a generated file. `creative_create_asset_upload` is a write, not an export: its URL is inbound.
+ * Tools that mint something anyone outside the workspace can use. R4: the class is what the tool does.
+ * `agents_get_signed_url` mints a signed URL that starts a conversation with a private agent, which ElevenLabs' own
+ * description says to treat as a credential. `creative_create_asset_upload` is a write, not an export: its URL is
+ * inbound. The agent's existing shareable link (`agents_get_link`) and a render's signed link
+ * (`creative_get_generations`) are reads, as ElevenLabs marks them.
  */
 export const EXPORT_TOOLS: readonly string[] = [
-  "agents_get_link",
-  "creative_get_generations",
+  "agents_get_signed_url",
 ]
 
 /** Writes that change the workspace without spending credits. */
 export const WRITE_TOOLS: readonly string[] = [
   "agents_add_triage_ticket_comment",
   "agents_add_triage_ticket_turn_comment",
+  "agents_add_workflow_node",
   "agents_append_to_string_field",
+  "agents_attach_kb_document",
+  "agents_attach_test",
+  "agents_attach_tool",
   "agents_bulk_move_knowledge_base",
+  "agents_cancel_batch_call",
   "agents_comment_on_merge_proposal",
+  "agents_connect_workflow_nodes",
   "agents_create",
   "agents_create_branch",
   "agents_create_code_tool",
@@ -150,18 +189,28 @@ export const WRITE_TOOLS: readonly string[] = [
   "agents_create_manual_triage_ticket",
   "agents_create_mcp_server",
   "agents_create_merge_proposal",
+  "agents_create_phone_number",
   "agents_create_procedure",
+  "agents_create_secret",
+  "agents_create_simulation_test",
   "agents_create_test",
   "agents_create_test_folder",
   "agents_create_tool",
   "agents_create_triage_ticket",
+  "agents_delete_workflow_element",
+  "agents_detach_kb_document",
+  "agents_detach_test",
+  "agents_detach_tool",
   "agents_disable_built_in_tool",
   "agents_duplicate",
+  "agents_duplicate_test",
   "agents_edit_string_field",
   "agents_merge_branch",
   "agents_merge_merge_proposal",
   "agents_move_tests",
+  "agents_publish_draft",
   "agents_rebase_branch",
+  "agents_request_merge_proposal_review",
   "agents_review_merge_proposal",
   "agents_update",
   "agents_update_agent_behavior",
@@ -181,9 +230,13 @@ export const WRITE_TOOLS: readonly string[] = [
   "agents_update_operations",
   "agents_update_phone_number",
   "agents_update_procedure_draft",
+  "agents_update_procedure_visibility",
   "agents_update_prompt_settings",
+  "agents_update_secret",
+  "agents_update_settings",
   "agents_update_skip_turn_tool",
   "agents_update_speech_recognition",
+  "agents_update_subagents",
   "agents_update_test",
   "agents_update_tool",
   "agents_update_transfer_to_agent_tool",
@@ -192,8 +245,11 @@ export const WRITE_TOOLS: readonly string[] = [
   "agents_update_turn_taking",
   "agents_update_voice",
   "agents_update_voicemail_detection_tool",
+  "agents_update_whatsapp_account",
   "agents_update_widget",
   "agents_update_workflow",
+  "agents_update_workflow_edge",
+  "agents_update_workflow_node",
   "creative_add_brand_kit_item",
   "creative_add_flow_asset_node",
   "creative_add_flow_node",
@@ -205,9 +261,9 @@ export const WRITE_TOOLS: readonly string[] = [
   "creative_disconnect_flow_nodes",
   "creative_duplicate_flow_nodes",
   "creative_finalize_asset_upload",
+  "creative_get_sandbox_run",
   "creative_save_designed_voice",
   "creative_save_view_state",
-  "creative_show_flow_results",
   "creative_update_brand_kit",
   "creative_update_brand_kit_item",
   "creative_update_flow_nodes",
@@ -217,8 +273,36 @@ export const WRITE_TOOLS: readonly string[] = [
   // ask ElevenLabs to build a tool: "Describe the capability you were looking for, so it can inform which tools get
   // built next." It returns no tool definitions and adds nothing at run time. It changes what the server will offer,
   // and it carries the model's own words out of the workspace, so it asks under `ask-changes` and `read-only` denies
-  // it (docs/architecture.md, SECURITY.md).
+  // it (docs/architecture.md, SECURITY.md). ElevenLabs marks it read-only; this table is stricter on purpose, and
+  // READ_ONLY_OVERRIDES records why.
   "get_more_tools",
+]
+
+/**
+ * Where this table is stricter than ElevenLabs' own `readOnlyHint`, by name, with the reason. Each one is declared to
+ * Jelly as not read-only, so a read-only helper is never given it; docs/jelly.md repeats the reason, and the drift test
+ * accepts a disagreement only when it is listed here.
+ */
+export const READ_ONLY_OVERRIDES: Readonly<Record<string, string>> = {
+  agents_query_knowledge_base_rag:
+    "A RAG query embeds the query, work ElevenLabs plausibly bills, so this plugin counts it as spending; read-only access promises to deny every tool that can spend, and a read-only helper is never given one.",
+  get_more_tools:
+    "It sends the model's own free-text description of a missing capability to ElevenLabs, to decide which tools get built next. That is a message out of the workspace, not a read of it, so it is not given to a read-only helper and read-only access denies it.",
+}
+
+/**
+ * Tools that reach people outside this conversation: a phone call to a list of recipients, a change that goes live to
+ * every caller, a WhatsApp number's answers, a notification to workspace members. Each is a change, never a read, so
+ * `ask-changes` asks before it runs and `read-only` denies it, and a script's call is refused whenever the rule would
+ * ask (a script cannot answer); at the default `all`, as with every tool, it runs. The two batch-call tools also spend
+ * and are in SPEND_TOOLS. The skills tell the model to confirm the recipients or the change with the user first.
+ */
+export const REACH_TOOLS: readonly string[] = [
+  "agents_publish_draft",
+  "agents_request_merge_proposal_review",
+  "agents_retry_batch_call",
+  "agents_submit_batch_call",
+  "agents_update_whatsapp_account",
 ]
 
 /**
@@ -232,20 +316,30 @@ export const WRITE_TOOLS: readonly string[] = [
  * work ElevenLabs plausibly bills, and does not say it spends nothing, is counted as spending. The tools that really
  * do not spend say so unprompted — `creative_upload_flow_reference` ends "This starts no generation and spends no
  * credits", `creative_update_node` ends "This never starts a generation" — so silence beside billable work is the
- * signal, and a loud refusal is better than a silent spend. Four names are here on that rule and nothing else:
- * `agents_run_tests` (a test run holds conversations ElevenLabs bills), `agents_compute_kb_rag_index` (embedding a
- * document), `agents_query_knowledge_base_rag` (a RAG query, which embeds the query), and
- * `creative_create_brand_kit_from_website` (fetching a site and extracting its logo, colours, typography and tone).
- * None of the four declares `estimate_only`, so while either cap is on each is refused rather than run unpriced.
- * Live pass 2 measures whether they bill; whichever way it comes back, the rule above is what gets applied.
+ * signal, and a loud refusal is better than a silent spend. These names are here on that rule and nothing else:
+ * `agents_run_tests` and `agents_run_attached_tests` (a test run holds conversations ElevenLabs bills),
+ * `agents_compute_kb_rag_index` (embedding a document), `agents_query_knowledge_base_rag` (a RAG query, which embeds the
+ * query), `creative_create_brand_kit_from_website` (fetching a site and
+ * extracting its logo, colours, typography and tone), `agents_generate` (an LLM writes a whole agent) and
+ * `agents_generate_test_from_conversation` (an LLM writes a test). Three say they spend outright:
+ * `creative_execute_sandbox` ("It costs credits for each second the command runs"), and `agents_submit_batch_call`
+ * and `agents_retry_batch_call`, which place real phone calls. None of them declares `estimate_only`, so while either
+ * cap is on each is refused rather than run unpriced. Live pass 2 measures whether the rule-based ones bill; whichever
+ * way it comes back, the rule above is what gets applied.
  */
 export const SPEND_TOOLS: readonly string[] = [
   "agents_compute_kb_rag_index",
+  "agents_generate",
+  "agents_generate_test_from_conversation",
   "agents_query_knowledge_base_rag",
+  "agents_retry_batch_call",
+  "agents_run_attached_tests",
   "agents_run_tests",
+  "agents_submit_batch_call",
   "creative_create_brand_kit_from_website",
   "creative_design_voice",
   "creative_edit_image",
+  "creative_execute_sandbox",
   "creative_generate_image",
   "creative_generate_in_flow",
   "creative_generate_speech",
@@ -255,9 +349,10 @@ export const SPEND_TOOLS: readonly string[] = [
 ]
 
 /**
- * Reads that spend. Empty against this catalogue: `creative_transcribe_audio` was the one candidate, and live it adds
- * a node to a flow, so it is a write that spends and sits in `SPEND_TOOLS`. Kept because `access` is about changing
- * the workspace and money is a separate axis; a cap, when one is set, applies either way.
+ * Reads that spend. Empty: `agents_query_knowledge_base_rag` is the one tool ElevenLabs marks read-only that this table
+ * counts as spending, and it is kept a change instead (READ_ONLY_OVERRIDES), so that `access: "read-only"` keeps its
+ * promise to deny every tool that can spend. Kept because money is a separate axis: a cap, when one is set, applies
+ * to a read that spends as much as to a write.
  */
 const SPEND_READS: readonly string[] = []
 
@@ -333,7 +428,7 @@ export const DESTRUCTIVE_TOOLS: readonly string[] = [
 ]
 
 /**
- * Names the live catalogue returned that this table does not classify. Empty: all 190 have a class.
+ * Names the live catalogue returned that this table does not classify. Empty: all 237 have a class.
  *
  * `get_more_tools` was held here, as a catalogue pager that returned tool definitions and changed nothing. Its live
  * schema says otherwise — one required free-text `capability` string, and a description that asks ElevenLabs to build

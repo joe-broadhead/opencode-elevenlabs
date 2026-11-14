@@ -51,7 +51,7 @@ describe("nothing that may spend runs unguarded", () => {
   test("an unknown name is refused under a cap whatever its prefix, on the model path and the script path alike", async () => {
     for (const tool of ["agents_new_spender", "foo_bar"]) {
       const ledger = new Ledger()
-      const refused = await quoteCall({ ledger, caps: () => caps() }, tool, { context: "a test" }, call(tool)).then(
+      const refused = await quoteCall({ ledger, caps: () => caps() }, tool, {}, call(tool)).then(
         () => undefined,
         (error: unknown) => error as SpendRefused,
       )
@@ -67,7 +67,7 @@ describe("nothing that may spend runs unguarded", () => {
       const sync = new Ledger()
       const syncRefused = (() => {
         try {
-          quoteCallSync({ ledger: sync, caps: () => caps() }, tool, { context: "a test" }, call(tool))
+          quoteCallSync({ ledger: sync, caps: () => caps() }, tool, {}, call(tool))
           return undefined
         } catch (error) {
           return error as SpendRefused
@@ -78,15 +78,15 @@ describe("nothing that may spend runs unguarded", () => {
 
       // With both caps off there is nothing to enforce: it runs, untracked, on both paths.
       const off = new Ledger()
-      expect((await quoteCall({ ledger: off, caps: () => caps(null, null) }, tool, { context: "a test" }, call(tool))).tracked).toBe(false)
-      expect(quoteCallSync({ ledger: off, caps: () => caps(null, null) }, tool, { context: "a test" }, call(tool)).tracked).toBe(false)
+      expect((await quoteCall({ ledger: off, caps: () => caps(null, null) }, tool, {}, call(tool))).tracked).toBe(false)
+      expect(quoteCallSync({ ledger: off, caps: () => caps(null, null) }, tool, {}, call(tool)).tracked).toBe(false)
     }
   })
 
   test("a classified read still runs with a cap on, and so does the plugin's own tool", async () => {
     const ledger = new Ledger()
     for (const tool of ["agents_list", "agents_get_conversation", "get_more_tools", "save_media"]) {
-      const { tracked, price } = await quoteCall({ ledger, caps: () => caps() }, tool, { context: "a test" }, call(tool))
+      const { tracked, price } = await quoteCall({ ledger, caps: () => caps() }, tool, {}, call(tool))
       expect({ tool, tracked, credits: price.credits }).toEqual({ tool, tracked: false, credits: 0 })
     }
   })
@@ -97,7 +97,7 @@ describe("two ledgers handed one storage object share one cap", () => {
 
   // The sync path prices only from an estimate the ledger already holds, so each ledger here is given ElevenLabs'
   // figure for these arguments first, as a script does by sending `estimate_only` before the paid call.
-  const SPEECH = { prompt: "x".repeat(600), voice_id: "voice_example", model_id: "model_example", context: "a test" }
+  const SPEECH = { prompt: "x".repeat(600), voice_id: "voice_example", model_id: "model_example" }
   const knowing = (ledger: Ledger) => (ledger.rememberPrice("creative_generate_speech", SPEECH, { credits: 1200, basis: "exact", parts: [] }), ledger)
 
   test("a reservation in one ledger is visible to the other at once", () => {

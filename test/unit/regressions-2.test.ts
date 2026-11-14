@@ -24,10 +24,10 @@ const caps = (session: number | null = 100_000, daily: number | null = 100_000) 
 const call = (id = "c1", sessionID = "ses_a") => ({ sessionID, agent: "build", messageID: "m1", id })
 
 /** A transcription call in the live schema's own argument names: the audio is a node in a flow, never a local file. */
-const transcribeArgs = () => ({ model_id: "model_example", context: "a test", flow_id: "flow_example" })
+const transcribeArgs = () => ({ model_id: "model_example", flow_id: "flow_example" })
 
 /** A speech call in the live schema's own names. The spoken words go in `prompt`; there is no `text` argument. */
-const speechArgs = (prompt: string) => ({ prompt, voice_id: "voice_example", model_id: "model_example", context: "a test" })
+const speechArgs = (prompt: string) => ({ prompt, voice_id: "voice_example", model_id: "model_example" })
 
 /**
  * A speech call of `credits` credits, with ElevenLabs' figure for exactly those arguments already in this ledger — what
@@ -62,7 +62,7 @@ const estimator = (credits: number) => {
 describe("a file on disk sets no price, because no file is part of the call", () => {
   // This block used to measure WAV files: a minute of audio was 330 credits, and the reproduction was about reading
   // the audio behind a header rather than the header's own number. Live, `creative_transcribe_audio` takes no file at
-  // all — `{connect_from, context, estimate_only, flow_id, model_id, view_state_id}` — so the audio is a node in the
+  // all — `{connect_from, estimate_only, flow_id, model_id, view_state_id}` — so the audio is a node in the
   // workspace, its length is ElevenLabs' to know, and the price comes back from the server or the call does not run.
 
   test("a transcription is priced by ElevenLabs' own estimate, not by anything on this machine", async () => {

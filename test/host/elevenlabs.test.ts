@@ -19,7 +19,7 @@ const AGENT_RULES = defaultRules().map((rule, index, rules) => `  ${JSON.stringi
 const AGENTS_NEXT_STEP = "Put the default rules shown by /elevenlabs-status first in each listed agent's own permissions, in opencode.json or the agent's Markdown file, followed by your top-level rules for ElevenLabs tools."
 const NEW = NEW_TOOL.name
 const SIGN_IN = "Run /connect and choose ElevenLabs, then press o or Enter to open the link (in a terminal, opencode mcp auth elevenlabs opens it automatically)."
-/** The fake's tools: a read, a write, a delete, a share link, a speech and an image generation, and one unknown tool. */
+/** The fake's tools: a read, a write, a delete, a signed link, a speech and an image generation, and one unknown tool. */
 const SERVED = [READ, WRITE, DELETE, LINK, SPEECH, IMAGE, NEW].map((tool) => `elevenlabs_${tool}`).sort()
 
 // Starting a host takes several seconds, more on a busy machine.
@@ -207,7 +207,7 @@ describe(`the spending guard on OpenCode ${HOST_VERSION}`, () => {
 
     test("asks ElevenLabs for a price first, clamps four generations to one, and charges only the one that ran", async () => {
       const before = host.fake.calls.length
-      const outcome = await generate(await session(host), { prompt: "a ceramic mug", generations_count: 4, context: "make a mug" })
+      const outcome = await generate(await session(host), { prompt: "a ceramic mug", generations_count: 4 })
       expect(outcome).toHaveProperty("seen")
       // Two calls, both to the same tool: the free estimate, then the paid generation, cut to what the cap affords.
       expect(host.fake.calls.slice(before)).toEqual([IMAGE, IMAGE])
@@ -253,7 +253,7 @@ describe(`the spending guard on OpenCode ${HOST_VERSION}`, () => {
     // is the one call a refusal makes, and the figure in the refusal is ElevenLabs' own.
     test("a speech call is priced from ElevenLabs' estimate and refused on it, and the paid call is never made", async () => {
       const before = host.fake.calls.length
-      const outcome = await generate(await session(host), SPEECH, { prompt: "hello there", voice_id: "voice_example", generations_count: 1, context: "a test" })
+      const outcome = await generate(await session(host), SPEECH, { prompt: "hello there", voice_id: "voice_example", generations_count: 1 })
       expect(outcome).toHaveProperty("refused")
       expect((outcome as { refused: string }).refused).toContain("SPEND_CAP_REACHED")
       expect((outcome as { refused: string }).refused).toContain(`${IMAGE_CREDITS} credits`)
@@ -264,7 +264,7 @@ describe(`the spending guard on OpenCode ${HOST_VERSION}`, () => {
 
     test("an argument ElevenLabs' own schema does not have is PRICE_UNKNOWN, and not even the estimate is sent", async () => {
       const before = host.fake.calls.length
-      const outcome = await generate(await session(host), SPEECH, { text: "x".repeat(60), context: "a test" })
+      const outcome = await generate(await session(host), SPEECH, { text: "x".repeat(60) })
       expect(outcome).toHaveProperty("refused")
       expect((outcome as { refused: string }).refused).toContain("PRICE_UNKNOWN")
       expect(host.fake.calls.slice(before)).toEqual([])
@@ -339,7 +339,7 @@ describe(`a text-only credit figure on OpenCode ${HOST_VERSION}`, () => {
 
   const speak = async (prompt: string) => {
     const sessionID = await session(host)
-    const args = { prompt, voice_id: "voice_example", generations_count: 2, context: "a test" }
+    const args = { prompt, voice_id: "voice_example", generations_count: 2 }
     const outcome = await codeMode(host, sessionID, `const r = await tools.elevenlabs[${JSON.stringify(SPEECH)}](${JSON.stringify(args)}); throw new Error("SEEN " + JSON.stringify(r))`)
     expect(outcome).toHaveProperty("seen")
     return (outcome as { seen: { cost: { credits: number; basis: string } } }).seen.cost

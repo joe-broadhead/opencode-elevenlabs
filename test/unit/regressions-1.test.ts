@@ -27,7 +27,7 @@ const storage = () => {
 }
 
 /** A speech call in the live schema's own argument names. The spoken words go in `prompt`, as every creative tool's do. */
-const speechArgs = (prompt = "x".repeat(750)) => ({ prompt, voice_id: "voice_example", model_id: "model_example", context: "a test" })
+const speechArgs = (prompt = "x".repeat(750)) => ({ prompt, voice_id: "voice_example", model_id: "model_example" })
 
 /** What a restart reads: the whole store as it stands on disk, which the append-only ledger spreads over many keys. */
 const coldCopy = (store: { stored: Map<string, unknown> }) => {

@@ -9,14 +9,16 @@ If no `elevenlabs_*` tools are in this session, no one is signed in: run `/conne
 # ElevenLabs generation
 
 Generations land on a **Flow**, the editable canvas that holds the prompt and the results. They **spend the workspace's
-credits**, so read this first. Every tool takes a `context` parameter: one short line naming the goal.
+credits**, so read this first. Pass only the arguments a tool's own schema lists.
 
 ## What spends
 
-Twelve tools bill the workspace: `creative_generate_speech`, `creative_generate_image`, `creative_generate_video`,
-`creative_edit_image`, `creative_generate_in_flow`, `creative_run_flow_nodes`, `creative_transcribe_audio`,
-`creative_design_voice`, `agents_run_tests`, `agents_compute_kb_rag_index`, `agents_query_knowledge_base_rag` and
-`creative_create_brand_kit_from_website`. Everything else on a flow is free to call.
+Eighteen tools bill the workspace. On a flow: `creative_generate_speech`, `creative_generate_image`,
+`creative_generate_video`, `creative_edit_image`, `creative_generate_in_flow`, `creative_run_flow_nodes`,
+`creative_transcribe_audio`, `creative_design_voice`, `creative_execute_sandbox` (per second) and
+`creative_create_brand_kit_from_website`; everything else on a flow is free. The `elevenlabs` skill covers the other
+eight: `agents_submit_batch_call`, `agents_retry_batch_call`, `agents_run_tests`, `agents_run_attached_tests`, `agents_generate`,
+`agents_generate_test_from_conversation`, `agents_compute_kb_rag_index` and `agents_query_knowledge_base_rag`.
 
 ## Pricing
 
@@ -24,11 +26,11 @@ Twelve tools bill the workspace: `creative_generate_speech`, `creative_generate_
   is no rate card to work from. Send the same call with `estimate_only: true` and read the figure that comes back:
 
   ```json
-  { "prompt": "a ceramic mug on marble, morning light", "model_id": "gpt-image-2", "generations_count": 1, "estimate_only": true, "context": "price the mug shot" }
+  { "prompt": "a ceramic mug on marble, morning light", "model_id": "gpt-image-2", "generations_count": 1, "estimate_only": true }
   ```
 
   ```js
-  const priced = await tools.elevenlabs.creative_generate_image({ prompt, model_id: "gpt-image-2", generations_count: 1, estimate_only: true, context: "price the mug shot" })
+  const priced = await tools.elevenlabs.creative_generate_image({ prompt, model_id: "gpt-image-2", generations_count: 1, estimate_only: true })
   ```
 
   Say the price and what it buys, then make the paid call with the same arguments. An estimate charges nothing, but it

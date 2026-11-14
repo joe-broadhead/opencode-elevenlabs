@@ -98,24 +98,27 @@ export function clampGenerations(input: Record<string, unknown>, allowed: number
  * to the estimate would not price it either, because the server would be pricing a call it does not understand. Such a
  * call is refused PRICE_UNKNOWN while a cap is on, rather than priced as if the argument were not there.
  *
- * These are copies of the live schemas, taken on 2026-11-09; `test/unit/live-schema.test.ts` holds every one of them
+ * These are copies of the live schemas, taken on 2026-11-14; `test/unit/live-schema.test.ts` holds every one of them
  * against `test/fixtures/live-tools.json`, so an argument ElevenLabs adds upstream fails the suite rather than
- * reaching a paid call unpriced. `docs/architecture.md` lists them for the reader.
+ * reaching a paid call unpriced. `docs/architecture.md` lists them for the reader. ElevenLabs no longer takes a
+ * `context` argument on any tool, so none is allowed here: sent to a priced call, it is refused like any other unknown
+ * argument while a cap is on.
  *
- * Only the seven tools that accept `estimate_only` are here. The other two spending tools — `creative_design_voice`
- * and `agents_run_tests` — have no estimate at all, so nothing prices them and a cap refuses them whatever they carry.
+ * Only the seven tools that accept `estimate_only` are here. Every other spending tool — `creative_design_voice`,
+ * `agents_run_tests`, the batch calls and the rest of SPEND_ANY — has no estimate at all, so nothing prices it and a
+ * cap refuses it whatever it carries.
  */
 export const PRICED_ARGUMENTS: ReadonlyMap<string, ReadonlySet<string>> = new Map<string, ReadonlySet<string>>([
-  ["creative_edit_image", new Set(["connect_from", "context", "estimate_only", "flow_id", "generations_count", "model_id", "prompt"])],
-  ["creative_generate_image", new Set(["connect_from", "context", "estimate_only", "flow_id", "generations_count", "model_id", "prompt"])],
+  ["creative_edit_image", new Set(["connect_from", "estimate_only", "flow_id", "generations_count", "model_id", "prompt"])],
+  ["creative_generate_image", new Set(["connect_from", "estimate_only", "flow_id", "generations_count", "model_id", "prompt"])],
   [
     "creative_generate_in_flow",
-    new Set(["connect_from", "context", "estimate_only", "flow_id", "generations_count", "model_id", "node_type", "prompt", "view_state_id", "voice_id"]),
+    new Set(["connect_from", "estimate_only", "flow_id", "generations_count", "model_id", "node_type", "prompt", "view_state_id", "voice_id"]),
   ],
-  ["creative_generate_speech", new Set(["context", "estimate_only", "flow_id", "generations_count", "model_id", "prompt", "view_state_id", "voice_id"])],
-  ["creative_generate_video", new Set(["connect_from", "context", "estimate_only", "flow_id", "generations_count", "model_id", "prompt"])],
-  ["creative_run_flow_nodes", new Set(["context", "estimate_only", "flow_id", "generations_count", "node_ids"])],
-  ["creative_transcribe_audio", new Set(["connect_from", "context", "estimate_only", "flow_id", "model_id", "view_state_id"])],
+  ["creative_generate_speech", new Set(["estimate_only", "flow_id", "generations_count", "model_id", "prompt", "view_state_id", "voice_id"])],
+  ["creative_generate_video", new Set(["connect_from", "estimate_only", "flow_id", "generations_count", "model_id", "prompt"])],
+  ["creative_run_flow_nodes", new Set(["estimate_only", "flow_id", "generations_count", "node_ids"])],
+  ["creative_transcribe_audio", new Set(["connect_from", "estimate_only", "flow_id", "model_id", "view_state_id"])],
 ])
 
 /** The first argument a priced call carries that its tool's allowlist does not have, in words the caller can act on. */

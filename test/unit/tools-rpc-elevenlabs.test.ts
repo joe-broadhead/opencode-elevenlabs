@@ -44,7 +44,7 @@ describe("ElevenLabs' tools RPC", () => {
     setToolRuntime(runtime())
     let refused: unknown
     try {
-      shapeInput(SPEND_TOOLS.find((tool) => tool === "creative_generate_image")!, { prompt: "a mug", context: "price it" }, { ...CALL, action: "elevenlabs_creative_generate_image" })
+      shapeInput(SPEND_TOOLS.find((tool) => tool === "creative_generate_image")!, { prompt: "a mug" }, { ...CALL, action: "elevenlabs_creative_generate_image" })
     } catch (error) {
       refused = error
     }
@@ -57,7 +57,7 @@ describe("ElevenLabs' tools RPC", () => {
     setToolRuntime(spend)
     const call = { ...CALL, action: "elevenlabs_creative_generate_image" }
     // the clamp lands in the one key the live schema has, and adds no second count beside it.
-    const args: Record<string, unknown> = { prompt: "a mug", generations_count: 4, model_id: "model_example", context: "price it" }
+    const args: Record<string, unknown> = { prompt: "a mug", generations_count: 4, model_id: "model_example" }
     shapeInput("creative_generate_image", { ...args, estimate_only: true }, call)
     const estimated = shapeResult("creative_generate_image", { output: { estimate: { credits: 4000 } }, text: "" }, call)
     // The estimate is returned untouched: it is not a charge, so it carries no cost line of its own.
@@ -69,7 +69,7 @@ describe("ElevenLabs' tools RPC", () => {
     // batch is cut to the two the budget affords, and the price follows what will run.
     const clamped = { ...args }
     shapeInput("creative_generate_image", clamped, call)
-    expect(clamped).toEqual({ prompt: "a mug", generations_count: 2, model_id: "model_example", context: "price it" })
+    expect(clamped).toEqual({ prompt: "a mug", generations_count: 2, model_id: "model_example" })
     const paid = shapeResult("creative_generate_image", { output: { flow_id: "f1" }, text: "created" }, call)
     expect(paid.text).toContain("Credits: at most 2,000")
     expect(paid.text).toContain("2,000 of 10,000 credits today")
@@ -82,7 +82,7 @@ describe("ElevenLabs' tools RPC", () => {
     const shapers = shapersFor(spend)
     const call = { ...CALL, action: "elevenlabs_creative_generate_speech" }
     // One estimate, which this ledger then remembers: 1,200 credits for the two takes the call asks for.
-    const args = { prompt: "x".repeat(600), voice_id: "voice_example", model_id: "model_example", context: "say it" }
+    const args = { prompt: "x".repeat(600), voice_id: "voice_example", model_id: "model_example" }
     shapers.input("creative_generate_speech", { ...args, estimate_only: true }, call)
     shapers.result("creative_generate_speech", { output: { estimate: { credits: 1200 } }, text: "" }, call)
 
@@ -98,7 +98,7 @@ describe("ElevenLabs' tools RPC", () => {
 
   test("a transcription the ledger holds no estimate for is refused before dispatch", () => {
     setToolRuntime(runtime(100, 10000))
-    const args = { flow_id: "flow_example", connect_from: "node_example", model_id: "model_example", context: "read it" }
+    const args = { flow_id: "flow_example", connect_from: "node_example", model_id: "model_example" }
     expect(() => shapeInput("creative_transcribe_audio", args, { ...CALL, action: "elevenlabs_creative_transcribe_audio" })).toThrow("PRICE_UNKNOWN")
     setToolRuntime(undefined)
   })
@@ -107,7 +107,7 @@ describe("ElevenLabs' tools RPC", () => {
     const spend = runtime(100)
     setToolRuntime(spend)
     const call = { ...CALL, action: "elevenlabs_creative_generate_speech" }
-    const args = { prompt: "x".repeat(60), voice_id: "voice_example", model_id: "model_example", context: "say it" }
+    const args = { prompt: "x".repeat(60), voice_id: "voice_example", model_id: "model_example" }
     // 240 credits for the two takes the server runs by default: 120 a take, and the cap is 100. The clamp cuts a
     // batch the caller asked for; it does not write a count into a call that named none, so this one is refused at
     // the whole figure rather than quietly downgraded to a single take.

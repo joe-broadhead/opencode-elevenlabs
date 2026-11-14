@@ -71,6 +71,12 @@
     "icon": "assets/icon.svg",
     "tools": [
       {
+        "name": "elevenlabs_account_get_usage",
+        "permission": "elevenlabs_account_get_usage",
+        "effect": "allow",
+        "readOnly": true
+      },
+      {
         "name": "elevenlabs_agents_calculate_llm_usage",
         "permission": "elevenlabs_agents_calculate_llm_usage",
         "effect": "allow",
@@ -95,6 +101,12 @@
         "readOnly": true
       },
       {
+        "name": "elevenlabs_agents_get_batch_call",
+        "permission": "elevenlabs_agents_get_batch_call",
+        "effect": "allow",
+        "readOnly": true
+      },
+      {
         "name": "elevenlabs_agents_get_branch",
         "permission": "elevenlabs_agents_get_branch",
         "effect": "allow",
@@ -113,8 +125,20 @@
         "readOnly": true
       },
       {
+        "name": "elevenlabs_agents_get_connection_dependents",
+        "permission": "elevenlabs_agents_get_connection_dependents",
+        "effect": "allow",
+        "readOnly": true
+      },
+      {
         "name": "elevenlabs_agents_get_conversation",
         "permission": "elevenlabs_agents_get_conversation",
+        "effect": "allow",
+        "readOnly": true
+      },
+      {
+        "name": "elevenlabs_agents_get_conversation_audio_url",
+        "permission": "elevenlabs_agents_get_conversation_audio_url",
         "effect": "allow",
         "readOnly": true
       },
@@ -161,6 +185,12 @@
         "readOnly": true
       },
       {
+        "name": "elevenlabs_agents_get_link",
+        "permission": "elevenlabs_agents_get_link",
+        "effect": "allow",
+        "readOnly": true
+      },
+      {
         "name": "elevenlabs_agents_get_mcp_server",
         "permission": "elevenlabs_agents_get_mcp_server",
         "effect": "allow",
@@ -181,6 +211,12 @@
       {
         "name": "elevenlabs_agents_get_merge_proposal",
         "permission": "elevenlabs_agents_get_merge_proposal",
+        "effect": "allow",
+        "readOnly": true
+      },
+      {
+        "name": "elevenlabs_agents_get_overview_dashboard",
+        "permission": "elevenlabs_agents_get_overview_dashboard",
         "effect": "allow",
         "readOnly": true
       },
@@ -209,6 +245,24 @@
         "readOnly": true
       },
       {
+        "name": "elevenlabs_agents_get_settings",
+        "permission": "elevenlabs_agents_get_settings",
+        "effect": "allow",
+        "readOnly": true
+      },
+      {
+        "name": "elevenlabs_agents_get_structured_procedure_schema",
+        "permission": "elevenlabs_agents_get_structured_procedure_schema",
+        "effect": "allow",
+        "readOnly": true
+      },
+      {
+        "name": "elevenlabs_agents_get_subagent_dependents",
+        "permission": "elevenlabs_agents_get_subagent_dependents",
+        "effect": "allow",
+        "readOnly": true
+      },
+      {
         "name": "elevenlabs_agents_get_summaries",
         "permission": "elevenlabs_agents_get_summaries",
         "effect": "allow",
@@ -217,6 +271,12 @@
       {
         "name": "elevenlabs_agents_get_test",
         "permission": "elevenlabs_agents_get_test",
+        "effect": "allow",
+        "readOnly": true
+      },
+      {
+        "name": "elevenlabs_agents_get_test_result",
+        "permission": "elevenlabs_agents_get_test_result",
         "effect": "allow",
         "readOnly": true
       },
@@ -287,8 +347,20 @@
         "readOnly": true
       },
       {
+        "name": "elevenlabs_agents_get_usage_limits",
+        "permission": "elevenlabs_agents_get_usage_limits",
+        "effect": "allow",
+        "readOnly": true
+      },
+      {
         "name": "elevenlabs_agents_get_version",
         "permission": "elevenlabs_agents_get_version",
+        "effect": "allow",
+        "readOnly": true
+      },
+      {
+        "name": "elevenlabs_agents_get_whatsapp_account",
+        "permission": "elevenlabs_agents_get_whatsapp_account",
         "effect": "allow",
         "readOnly": true
       },
@@ -307,6 +379,12 @@
       {
         "name": "elevenlabs_agents_list_alerts",
         "permission": "elevenlabs_agents_list_alerts",
+        "effect": "allow",
+        "readOnly": true
+      },
+      {
+        "name": "elevenlabs_agents_list_batch_calls",
+        "permission": "elevenlabs_agents_list_batch_calls",
         "effect": "allow",
         "readOnly": true
       },
@@ -383,6 +461,12 @@
         "readOnly": true
       },
       {
+        "name": "elevenlabs_agents_list_pronunciation_dictionaries",
+        "permission": "elevenlabs_agents_list_pronunciation_dictionaries",
+        "effect": "allow",
+        "readOnly": true
+      },
+      {
         "name": "elevenlabs_agents_list_secrets",
         "permission": "elevenlabs_agents_list_secrets",
         "effect": "allow",
@@ -419,6 +503,18 @@
         "readOnly": true
       },
       {
+        "name": "elevenlabs_agents_list_webhooks",
+        "permission": "elevenlabs_agents_list_webhooks",
+        "effect": "allow",
+        "readOnly": true
+      },
+      {
+        "name": "elevenlabs_agents_list_whatsapp_accounts",
+        "permission": "elevenlabs_agents_list_whatsapp_accounts",
+        "effect": "allow",
+        "readOnly": true
+      },
+      {
         "name": "elevenlabs_agents_merge_branch_preview",
         "permission": "elevenlabs_agents_merge_branch_preview",
         "effect": "allow",
@@ -427,6 +523,12 @@
       {
         "name": "elevenlabs_agents_query_analytics",
         "permission": "elevenlabs_agents_query_analytics",
+        "effect": "allow",
+        "readOnly": true
+      },
+      {
+        "name": "elevenlabs_agents_query_workspace_conversations",
+        "permission": "elevenlabs_agents_query_workspace_conversations",
         "effect": "allow",
         "readOnly": true
       },
@@ -515,6 +617,12 @@
         "readOnly": true
       },
       {
+        "name": "elevenlabs_creative_get_generations",
+        "permission": "elevenlabs_creative_get_generations",
+        "effect": "allow",
+        "readOnly": true
+      },
+      {
         "name": "elevenlabs_creative_get_model_guide",
         "permission": "elevenlabs_creative_get_model_guide",
         "effect": "allow",
@@ -557,14 +665,14 @@
         "readOnly": true
       },
       {
-        "name": "elevenlabs_agents_get_link",
-        "permission": "elevenlabs_agents_get_link",
+        "name": "elevenlabs_creative_show_flow_results",
+        "permission": "elevenlabs_creative_show_flow_results",
         "effect": "allow",
-        "readOnly": false
+        "readOnly": true
       },
       {
-        "name": "elevenlabs_creative_get_generations",
-        "permission": "elevenlabs_creative_get_generations",
+        "name": "elevenlabs_agents_get_signed_url",
+        "permission": "elevenlabs_agents_get_signed_url",
         "effect": "allow",
         "readOnly": false
       },
@@ -581,8 +689,32 @@
         "readOnly": false
       },
       {
+        "name": "elevenlabs_agents_add_workflow_node",
+        "permission": "elevenlabs_agents_add_workflow_node",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
         "name": "elevenlabs_agents_append_to_string_field",
         "permission": "elevenlabs_agents_append_to_string_field",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
+        "name": "elevenlabs_agents_attach_kb_document",
+        "permission": "elevenlabs_agents_attach_kb_document",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
+        "name": "elevenlabs_agents_attach_test",
+        "permission": "elevenlabs_agents_attach_test",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
+        "name": "elevenlabs_agents_attach_tool",
+        "permission": "elevenlabs_agents_attach_tool",
         "effect": "allow",
         "readOnly": false
       },
@@ -593,8 +725,20 @@
         "readOnly": false
       },
       {
+        "name": "elevenlabs_agents_cancel_batch_call",
+        "permission": "elevenlabs_agents_cancel_batch_call",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
         "name": "elevenlabs_agents_comment_on_merge_proposal",
         "permission": "elevenlabs_agents_comment_on_merge_proposal",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
+        "name": "elevenlabs_agents_connect_workflow_nodes",
+        "permission": "elevenlabs_agents_connect_workflow_nodes",
         "effect": "allow",
         "readOnly": false
       },
@@ -671,8 +815,26 @@
         "readOnly": false
       },
       {
+        "name": "elevenlabs_agents_create_phone_number",
+        "permission": "elevenlabs_agents_create_phone_number",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
         "name": "elevenlabs_agents_create_procedure",
         "permission": "elevenlabs_agents_create_procedure",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
+        "name": "elevenlabs_agents_create_secret",
+        "permission": "elevenlabs_agents_create_secret",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
+        "name": "elevenlabs_agents_create_simulation_test",
+        "permission": "elevenlabs_agents_create_simulation_test",
         "effect": "allow",
         "readOnly": false
       },
@@ -701,6 +863,30 @@
         "readOnly": false
       },
       {
+        "name": "elevenlabs_agents_delete_workflow_element",
+        "permission": "elevenlabs_agents_delete_workflow_element",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
+        "name": "elevenlabs_agents_detach_kb_document",
+        "permission": "elevenlabs_agents_detach_kb_document",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
+        "name": "elevenlabs_agents_detach_test",
+        "permission": "elevenlabs_agents_detach_test",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
+        "name": "elevenlabs_agents_detach_tool",
+        "permission": "elevenlabs_agents_detach_tool",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
         "name": "elevenlabs_agents_disable_built_in_tool",
         "permission": "elevenlabs_agents_disable_built_in_tool",
         "effect": "allow",
@@ -709,6 +895,12 @@
       {
         "name": "elevenlabs_agents_duplicate",
         "permission": "elevenlabs_agents_duplicate",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
+        "name": "elevenlabs_agents_duplicate_test",
+        "permission": "elevenlabs_agents_duplicate_test",
         "effect": "allow",
         "readOnly": false
       },
@@ -737,8 +929,20 @@
         "readOnly": false
       },
       {
+        "name": "elevenlabs_agents_publish_draft",
+        "permission": "elevenlabs_agents_publish_draft",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
         "name": "elevenlabs_agents_rebase_branch",
         "permission": "elevenlabs_agents_rebase_branch",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
+        "name": "elevenlabs_agents_request_merge_proposal_review",
+        "permission": "elevenlabs_agents_request_merge_proposal_review",
         "effect": "allow",
         "readOnly": false
       },
@@ -857,8 +1061,26 @@
         "readOnly": false
       },
       {
+        "name": "elevenlabs_agents_update_procedure_visibility",
+        "permission": "elevenlabs_agents_update_procedure_visibility",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
         "name": "elevenlabs_agents_update_prompt_settings",
         "permission": "elevenlabs_agents_update_prompt_settings",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
+        "name": "elevenlabs_agents_update_secret",
+        "permission": "elevenlabs_agents_update_secret",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
+        "name": "elevenlabs_agents_update_settings",
+        "permission": "elevenlabs_agents_update_settings",
         "effect": "allow",
         "readOnly": false
       },
@@ -871,6 +1093,12 @@
       {
         "name": "elevenlabs_agents_update_speech_recognition",
         "permission": "elevenlabs_agents_update_speech_recognition",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
+        "name": "elevenlabs_agents_update_subagents",
+        "permission": "elevenlabs_agents_update_subagents",
         "effect": "allow",
         "readOnly": false
       },
@@ -923,6 +1151,12 @@
         "readOnly": false
       },
       {
+        "name": "elevenlabs_agents_update_whatsapp_account",
+        "permission": "elevenlabs_agents_update_whatsapp_account",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
         "name": "elevenlabs_agents_update_widget",
         "permission": "elevenlabs_agents_update_widget",
         "effect": "allow",
@@ -931,6 +1165,18 @@
       {
         "name": "elevenlabs_agents_update_workflow",
         "permission": "elevenlabs_agents_update_workflow",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
+        "name": "elevenlabs_agents_update_workflow_edge",
+        "permission": "elevenlabs_agents_update_workflow_edge",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
+        "name": "elevenlabs_agents_update_workflow_node",
+        "permission": "elevenlabs_agents_update_workflow_node",
         "effect": "allow",
         "readOnly": false
       },
@@ -1001,6 +1247,12 @@
         "readOnly": false
       },
       {
+        "name": "elevenlabs_creative_get_sandbox_run",
+        "permission": "elevenlabs_creative_get_sandbox_run",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
         "name": "elevenlabs_creative_save_designed_voice",
         "permission": "elevenlabs_creative_save_designed_voice",
         "effect": "allow",
@@ -1009,12 +1261,6 @@
       {
         "name": "elevenlabs_creative_save_view_state",
         "permission": "elevenlabs_creative_save_view_state",
-        "effect": "allow",
-        "readOnly": false
-      },
-      {
-        "name": "elevenlabs_creative_show_flow_results",
-        "permission": "elevenlabs_creative_show_flow_results",
         "effect": "allow",
         "readOnly": false
       },
@@ -1061,14 +1307,44 @@
         "readOnly": false
       },
       {
+        "name": "elevenlabs_agents_generate",
+        "permission": "elevenlabs_agents_generate",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
+        "name": "elevenlabs_agents_generate_test_from_conversation",
+        "permission": "elevenlabs_agents_generate_test_from_conversation",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
         "name": "elevenlabs_agents_query_knowledge_base_rag",
         "permission": "elevenlabs_agents_query_knowledge_base_rag",
         "effect": "allow",
         "readOnly": false
       },
       {
+        "name": "elevenlabs_agents_retry_batch_call",
+        "permission": "elevenlabs_agents_retry_batch_call",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
+        "name": "elevenlabs_agents_run_attached_tests",
+        "permission": "elevenlabs_agents_run_attached_tests",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
         "name": "elevenlabs_agents_run_tests",
         "permission": "elevenlabs_agents_run_tests",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
+        "name": "elevenlabs_agents_submit_batch_call",
+        "permission": "elevenlabs_agents_submit_batch_call",
         "effect": "allow",
         "readOnly": false
       },
@@ -1087,6 +1363,12 @@
       {
         "name": "elevenlabs_creative_edit_image",
         "permission": "elevenlabs_creative_edit_image",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
+        "name": "elevenlabs_creative_execute_sandbox",
+        "permission": "elevenlabs_creative_execute_sandbox",
         "effect": "allow",
         "readOnly": false
       },
