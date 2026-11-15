@@ -36,6 +36,11 @@ The declaration holds:
   states no policy, because what asks first is on the plugin's card.
 - `icon`: `assets/icon.svg`, the mark Jelly draws. The same file names the one line in `jelly.summary`, and beside it the
   mark in `jelly.icon`.
+- `cost`: the line Jelly shows on the plugin's review before it installs, in the plugin's own words, saying what it
+  costs with ElevenLabs: "Eighteen tools spend the signed-in workspace's ElevenLabs credits, such as generating speech,
+  images and video. A speech call renders two takes and an image call four by default, a retry is charged again, and
+  each paid result has a cost line with the credits it reported. No cap unless you set one." It changes nothing Jelly
+  allows.
 - `tools`: the 237 ElevenLabs tools plus `elevenlabs_save_media`, each with its permission action and `readOnly`.
   `readOnly` is true exactly where ElevenLabs marks the tool read-only, except for two that are declared stricter, as
   not read-only, so a read-only helper is never given them and `read-only` access denies them:
