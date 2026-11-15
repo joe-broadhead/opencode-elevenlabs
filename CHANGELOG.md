@@ -3,6 +3,15 @@
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project follows
 [Semantic Versioning](https://semver.org).
 
+## [Unreleased]
+
+### Added
+
+- **For jelly:** `jelly.cost`, the line jelly shows on the plugin's review before it installs: "Eighteen tools spend the
+  signed-in workspace's ElevenLabs credits, such as generating speech, images and video. A speech call renders two takes
+  and an image call four by default, a retry is charged again, and each paid result has a cost line with the credits it
+  reported. No cap unless you set one."
+
 ## [0.0.6] - 2026-11-15
 
 ### Changed

@@ -71,6 +71,7 @@
     "title": "ElevenLabs",
     "summary": "Your ElevenLabs agents, their calls, and generated speech, images and video.",
     "icon": "assets/icon.svg",
+    "cost": "Eighteen tools spend the signed-in workspace's ElevenLabs credits, such as generating speech, images and video. A speech call renders two takes and an image call four by default, a retry is charged again, and each paid result has a cost line with the credits it reported. No cap unless you set one.",
     "tools": [
       {
         "name": "elevenlabs_account_get_usage",
