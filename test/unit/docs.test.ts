@@ -224,14 +224,14 @@ describe("tested hosts", () => {
 
   test("the README's Requirements line names every tested release", () => {
     const requirements = /## Requirements([\s\S]*?)## /i.exec(readFileSync(join(ROOT, "README.md"), "utf8"))?.[1] ?? ""
-    const named = [...requirements.matchAll(/\b\d+\.\d+\.\d+\b/g)].map((match) => match[0]).filter((version) => version !== "2.3.0")
+    const named = [...requirements.matchAll(/\b\d+\.\d+\.\d+\b/g)].map((match) => match[0]).filter((version) => version !== "2.4.0")
     expect([...new Set(named)].sort()).toEqual([...TESTED_HOSTS].sort())
   })
 
   // A release inside the range that ships later is the untested example, so it must be one that never ships.
   test("the untested example is 2.2.99 or absent, and no doc names a future release as tested", () => {
     const all = SOURCES.map(([, body]) => body).join("\n")
-    expect(all).not.toMatch(/\b2\.2\.(?:7|8|9[0-8])\b(?!\d)/)
+    expect(all).not.toMatch(/\b2\.(?:2\.(?:[89]|9[0-8])|3\.(?:[1-9]|[1-9]\d))\b(?!\d)/)
     expect(readFileSync(join(ROOT, "test/unit/host-version.test.ts"), "utf8")).toContain("2.2.99")
   })
 })

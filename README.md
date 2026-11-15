@@ -9,7 +9,7 @@ ElevenLabs is a trademark of Eleven Labs Inc.; this unofficial plugin is not end
 
 ## Requirements
 
-- OpenCode `>=2.2.3 <2.3.0`. Tested on 2.2.3, 2.2.4, 2.2.5 and 2.2.6.
+- OpenCode `>=2.2.3 <2.4.0`. Tested on 2.2.3, 2.2.4, 2.2.5, 2.2.6, 2.2.7 and 2.3.0.
 - macOS or Linux.
 - An ElevenLabs account with a workspace. Generations spend that workspace's credits.
 
@@ -544,7 +544,7 @@ Every state, and every sentence `/elevenlabs-status` and `/elevenlabs-doctor` ca
 | --- | --- | --- |
 | `BALANCE_UNAVAILABLE` | the optional API key could not read the subscription | run `/elevenlabs-status`; if it keeps failing, remove the key in `/connect` |
 | `EXTERNAL_DIRECTORY_DENIED` | the media folder's `external_directory` rule is not allowed | add the rule the message prints, with the absolute path |
-| `HOST_UNTESTED` | OpenCode is outside `>=2.2.3 <2.3.0` | use a supported OpenCode, or set `"allowUntestedHost": true` |
+| `HOST_UNTESTED` | OpenCode is outside `>=2.2.3 <2.4.0` | use a supported OpenCode, or set `"allowUntestedHost": true` |
 | `MEDIA_EXPIRED` | the generated file's signed link has expired | fetch the generation again; do not generate again |
 | `MEDIA_TOO_LARGE` | the file is larger than `maxMediaBytes` | raise `maxMediaBytes` deliberately |
 | `MEDIA_URL_INVALID` | the link is not `https`, or not on ElevenLabs' generated-file host | pass the link a generation returned |
@@ -564,6 +564,8 @@ in your config shadows the plugin's. **Rename or move** that file, then restart 
 
 ## Known limits
 
+- **Stop does not cancel a price estimate already sent.** While a credit cap is on, the estimate runs in OpenCode's
+  `execute.before` hook, which is given no signal, so it finishes even when the call it prices is stopped.
 - **The tool table is the live catalogue.** It was captured from a signed-in workspace on 14 November 2026: 237 tools,
   with each one's real argument names, defaults, enums and ElevenLabs' own read-only marks, kept in
   `test/fixtures/live-tools.json` and checked by `npm run drift` and the unit tests. A tool ElevenLabs adds after that

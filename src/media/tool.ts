@@ -49,6 +49,8 @@ interface CallSource {
   readonly agent: string
   readonly messageID: string
   readonly id: string
+  /** Aborts when the person presses Stop (OpenCode 2.3); the download and the write stop with it. */
+  readonly signal?: AbortSignal
 }
 
 export interface ToolResult {
@@ -84,7 +86,7 @@ export async function runSaveMedia(input: SaveToolInput, raw: unknown, call: Cal
   const name = typeof args.name === "string" && args.name.trim() !== "" ? args.name : undefined
   const saved = await saveMedia(
     { url, ...(name === undefined ? {} : { name }) },
-    { ...input, ...(args.overwrite === true ? { overwrite: true } : {}) },
+    { ...input, ...(args.overwrite === true ? { overwrite: true } : {}), ...(call.signal ? { signal: call.signal } : {}) },
   )
   return { output: { ...saved }, text: savedText(saved) }
 }
@@ -107,6 +109,7 @@ export function addSaveTool(input: SaveToolInput) {
           agent: context.agent,
           messageID: context.messageID,
           id: context.id,
+          signal: context.signal,
         })
         return { output: result.output, content: result.text }
       },
