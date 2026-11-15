@@ -3,6 +3,18 @@
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project follows
 [Semantic Versioning](https://semver.org).
 
+## [0.0.6] - 2026-11-15
+
+### Changed
+
+- Admits OpenCode 2.3: the host range is `>=2.2.3 <2.4.0`, tested on 2.2.3, 2.2.4, 2.2.5, 2.2.6, 2.2.7 and 2.3.0, and CI
+  runs the host and pack suites on each of them. An out-of-range example is now 2.4.0.
+
+### Fixed
+
+- `elevenlabs_save_media` passes the call's signal to its download and file write, so pressing Stop (which OpenCode 2.3
+  aborts) stops a save part-way: the staged file is removed and nothing is published.
+
 ## [0.0.5] - 2026-11-14
 
 ### Changed

@@ -36,7 +36,7 @@ place and keeps the modules it already loaded for unchanged paths. Only `@openco
 ## Setup
 
 1. `parseOptions` validates the options; anything wrong fails with `OPTIONS_INVALID`.
-2. `checkHost` compares `ctx.app.version` with `>=2.2.3 <2.3.0`. Inside it the plugin starts; status calls only 2.2.3, 2.2.4, 2.2.5 and 2.2.6 tested. Outside it, setup fails with `HOST_UNTESTED` unless `allowUntestedHost` is set.
+2. `checkHost` compares `ctx.app.version` with `>=2.2.3 <2.4.0`. Inside it the plugin starts; status calls only 2.2.3, 2.2.4, 2.2.5, 2.2.6, 2.2.7 and 2.3.0 tested. Outside it, setup fails with `HOST_UNTESTED` unless `allowUntestedHost` is set.
 3. The ledger is read from `ctx.storage` once, so the 24-hour total survives a reload.
 4. `ctx.mcp.transform` registers `elevenlabs` at the selected region's URL, with `oauth.scope` pinned to seven scopes, or
    adopts the user's own entry at exactly that URL. Another region's URL is `stale`; any other is `conflict`.
@@ -56,7 +56,7 @@ place and keeps the modules it already loaded for unchanged paths. Only `@openco
 Transforms are synchronous and never throw: a failure is kept as a problem for status, and cleared when the next replay
 succeeds.
 
-## Platform facts (OpenCode 2.2.3 to 2.2.6)
+## Platform facts (OpenCode 2.2.3 to 2.2.7 and 2.3.0)
 
 - **The sign-in is CIMD.** ElevenLabs' authorization server advertises `client_id_metadata_document_supported: true` and
   no registration endpoint, so OpenCode sends its own client metadata document

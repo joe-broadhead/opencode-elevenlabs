@@ -9,24 +9,24 @@ ElevenLabs is a trademark of Eleven Labs Inc.; this unofficial plugin is not end
 
 ## Requirements
 
-- OpenCode `>=2.2.3 <2.3.0`. Tested on 2.2.3, 2.2.4, 2.2.5 and 2.2.6.
+- OpenCode `>=2.2.3 <2.4.0`. Tested on 2.2.3, 2.2.4, 2.2.5, 2.2.6, 2.2.7 and 2.3.0.
 - macOS or Linux.
 - An ElevenLabs account with a workspace. Generations spend that workspace's credits.
 
 ## Install
 
 ```sh
-opencode plugin add github:joe-broadhead/opencode-elevenlabs#v0.0.5
+opencode plugin add github:joe-broadhead/opencode-elevenlabs#v0.0.6
 ```
 
 Run `opencode reload`, or restart OpenCode, then run `/elevenlabs-status`.
 
-Each release has its own tag, and a Git install does not update by itself. To move to a newer release, remove the old entry with `opencode plugin remove github:joe-broadhead/opencode-elevenlabs#v0.0.4`, then add the new tag with `opencode plugin add github:joe-broadhead/opencode-elevenlabs#v<version>`.
+Each release has its own tag, and a Git install does not update by itself. To move to a newer release, remove the old entry with `opencode plugin remove github:joe-broadhead/opencode-elevenlabs#v0.0.5`, then add the new tag with `opencode plugin add github:joe-broadhead/opencode-elevenlabs#v<version>`.
 
 Or add the plugin to `opencode.json` instead, with the same spec:
 
 ```json
-{ "plugins": [{ "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.5" }] }
+{ "plugins": [{ "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.6" }] }
 ```
 
 The install takes the GitHub release tag. Its commit carries the built `dist/`, so the install runs no build.
@@ -212,7 +212,7 @@ spend your credits without asking, and so can a tool ElevenLabs adds later. Rest
    | `"read-only"` | the read tools | nothing: everything else is **denied**, generations included |
 
    ```json
-   { "plugins": [{ "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.5", "options": { "access": "read-only" } }] }
+   { "plugins": [{ "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.6", "options": { "access": "read-only" } }] }
    ```
 
 2. **An agent that is read-only or asks**, with rules of its own, later than the plugin's:
@@ -507,7 +507,7 @@ Options, the permission rules and every error code are in
 [docs/configuration.md](https://github.com/joe-broadhead/opencode-elevenlabs/blob/HEAD/docs/configuration.md).
 
 ```json
-{ "plugins": [{ "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.5", "options": {
+{ "plugins": [{ "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.6", "options": {
   "access": "all",
   "region": "global",
   "sessionCreditCap": null,
@@ -526,7 +526,7 @@ Pre-set the region, and a cap if you want one, in the system config, so every me
 ```json
 {
   "plugins": [{
-    "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.5",
+    "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.6",
     "options": { "region": "eu", "dailyCreditCap": 5000, "access": "ask-changes" }
   }]
 }
@@ -544,7 +544,7 @@ Every state, and every sentence `/elevenlabs-status` and `/elevenlabs-doctor` ca
 | --- | --- | --- |
 | `BALANCE_UNAVAILABLE` | the optional API key could not read the subscription | run `/elevenlabs-status`; if it keeps failing, remove the key in `/connect` |
 | `EXTERNAL_DIRECTORY_DENIED` | the media folder's `external_directory` rule is not allowed | add the rule the message prints, with the absolute path |
-| `HOST_UNTESTED` | OpenCode is outside `>=2.2.3 <2.3.0` | use a supported OpenCode, or set `"allowUntestedHost": true` |
+| `HOST_UNTESTED` | OpenCode is outside `>=2.2.3 <2.4.0` | use a supported OpenCode, or set `"allowUntestedHost": true` |
 | `MEDIA_EXPIRED` | the generated file's signed link has expired | fetch the generation again; do not generate again |
 | `MEDIA_TOO_LARGE` | the file is larger than `maxMediaBytes` | raise `maxMediaBytes` deliberately |
 | `MEDIA_URL_INVALID` | the link is not `https`, or not on ElevenLabs' generated-file host | pass the link a generation returned |
@@ -564,6 +564,8 @@ in your config shadows the plugin's. **Rename or move** that file, then restart 
 
 ## Known limits
 
+- **Stop does not cancel a price estimate already sent.** While a credit cap is on, the estimate runs in OpenCode's
+  `execute.before` hook, which is given no signal, so it finishes even when the call it prices is stopped.
 - **The tool table is the live catalogue.** It was captured from a signed-in workspace on 14 November 2026: 237 tools,
   with each one's real argument names, defaults, enums and ElevenLabs' own read-only marks, kept in
   `test/fixtures/live-tools.json` and checked by `npm run drift` and the unit tests. A tool ElevenLabs adds after that
@@ -607,7 +609,7 @@ earlier region, run the `opencode auth logout` command it gives as well:
 ```sh
 opencode mcp logout elevenlabs
 opencode auth list
-opencode plugin remove github:joe-broadhead/opencode-elevenlabs#v0.0.5
+opencode plugin remove github:joe-broadhead/opencode-elevenlabs#v0.0.6
 ```
 
 Files already saved under `mediaRoot` stay. Remove them yourself if you no longer want them.

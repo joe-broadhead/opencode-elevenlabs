@@ -119,8 +119,8 @@ describe("status view", () => {
   })
 
   test("an untested host the user allowed shows the warning", () => {
-    const untested = status({ host: checkHost("2.3.0", true) })
-    expect(viewMessage({ status: untested })).toContain("- OpenCode: 2.3.0 (untested; supported range >=2.2.3 <2.3.0). It is outside the supported range;")
+    const untested = status({ host: checkHost("2.4.0", true) })
+    expect(viewMessage({ status: untested })).toContain("- OpenCode: 2.4.0 (untested; supported range >=2.2.3 <2.4.0). It is outside the supported range;")
   })
 
   test.each([

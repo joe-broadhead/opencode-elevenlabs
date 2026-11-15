@@ -3,7 +3,7 @@
 Every option is optional. The plugin reads them from `opencode.json`:
 
 ```json
-{ "plugins": [{ "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.5", "options": { "access": "all" } }] }
+{ "plugins": [{ "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.6", "options": { "access": "all" } }] }
 ```
 
 ## Options
@@ -17,7 +17,7 @@ Every option is optional. The plugin reads them from `opencode.json`:
 | `mediaRoot` | a path, `~` for your home folder | `"~/Downloads/elevenlabs"` | Where `elevenlabs_save_media` writes. Created on first use with mode 0700. |
 | `maxMediaBytes` | a whole number of bytes | `209715200` (200 MB) | The largest file the save tool writes. |
 | `conversations` | `"full"`, `"summary"`, `"off"` | `"full"` | How much of a call's history the conversation reads may return. |
-| `allowUntestedHost` | `true`, `false` | `false` | Start on an OpenCode version outside `>=2.2.3 <2.3.0`, with a note in status. |
+| `allowUntestedHost` | `true`, `false` | `false` | Start on an OpenCode version outside `>=2.2.3 <2.4.0`, with a note in status. |
 
 Caps are opt-in. With neither set, the plugin refuses, cuts and queues nothing for money: ElevenLabs refuses a call the
 workspace's balance cannot pay for, and the permission rules decide whether a paid call runs at all. `0` is refused for
@@ -942,7 +942,7 @@ Every code the plugin raises, in the order the table lists them:
 | --- | --- | --- |
 | `BALANCE_UNAVAILABLE` | The optional API key could not read the subscription. | Run `/elevenlabs-status`; if it keeps failing, remove the key in `/connect`. |
 | `EXTERNAL_DIRECTORY_DENIED` | The save tool's `external_directory` rule is not allowed for the media folder. | Add `{ "action": "external_directory", "resource": "<absolute mediaRoot>/*", "effect": "allow" }` to the agent's rules. |
-| `HOST_UNTESTED` | OpenCode is outside `>=2.2.3 <2.3.0`. | Use a supported OpenCode, or set `"allowUntestedHost": true`. |
+| `HOST_UNTESTED` | OpenCode is outside `>=2.2.3 <2.4.0`. | Use a supported OpenCode, or set `"allowUntestedHost": true`. |
 | `MEDIA_EXPIRED` | The generated file's signed link has expired. | Fetch the generation again for a fresh link; do not generate again. |
 | `MEDIA_TOO_LARGE` | The file is larger than `maxMediaBytes`. | Raise `maxMediaBytes` if you mean to keep a file this large. |
 | `MEDIA_URL_INVALID` | The link is not `https`, carries credentials, or is not on ElevenLabs' generated-file host. | Pass the link a generation returned. |

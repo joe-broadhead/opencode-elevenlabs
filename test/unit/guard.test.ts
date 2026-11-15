@@ -162,6 +162,20 @@ describe("elevenlabs_save_media asserts the path rule too", () => {
     await expect(failure).rejects.toMatchObject({ code: "EXTERNAL_DIRECTORY_DENIED", nextStep: expect.stringContaining(`"external_directory", "resource": "${join(root, "media")}/*"`) })
   })
 
+  test("a stopped call fetches nothing: the call's signal reaches the download", async () => {
+    const save = { root: join(root, "media"), maxBytes: 1024, hosts: ["elevenlabsusercontent.com"], assert: asserting("none") }
+    const stop = new AbortController()
+    stop.abort()
+    let fetched = 0
+    const failure = runSaveMedia(
+      { ...save, fetch: (async (_url: string, init?: RequestInit) => (init?.signal?.throwIfAborted(), fetched++, new Response("x"))) as unknown as typeof fetch },
+      { url: "https://elevenlabsusercontent.com/a.mp3" },
+      { sessionID: "s", agent: "build", messageID: "m", id: "i", signal: stop.signal },
+    )
+    await expect(failure).rejects.toMatchObject({ name: "AbortError" })
+    expect(fetched).toBe(0)
+  })
+
   test("a declined permission is passed through untouched, not turned into a code", async () => {
     const declined = (async () => {
       throw Object.assign(new Error("The user declined"), { name: "Permission.DeclinedError" })

@@ -244,7 +244,7 @@ describe("setup", () => {
   })
 
   test("a host outside the range runs with the override, and an untested release inside the range runs without it", async () => {
-    for (const [options, version] of [[{ allowUntestedHost: true }, "2.3.0"], [{}, "2.2.99"]] as const) {
+    for (const [options, version] of [[{ allowUntestedHost: true }, "2.4.0"], [{}, "2.2.99"]] as const) {
       const { ctx, mcp } = context(options, version)
       const cleanup = await createElevenlabsPlugin(seam).setup(ctx)
       expect(mcp.callbacks).toHaveLength(1)

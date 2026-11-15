@@ -483,7 +483,7 @@ describe("the money gate folds case, as the permission gate does", () => {
 
   test("status names the second entry and offers to remove it, while a cap is on", () => {
     const facts = {
-      host: { version: "2.2.6", range: ">=2.2.3 <2.3.0", tested: true },
+      host: { version: "2.2.6", range: ">=2.2.3 <2.4.0", tested: true },
       server: { status: "connected" as const },
       source: { type: "plugin" as const, url: REGIONS.global },
       tools: ["creative_generate_speech"],
