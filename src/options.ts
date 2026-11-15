@@ -46,7 +46,7 @@ interface Options {
 
 export type ParsedOptions = Options
 
-const EXAMPLE = `"plugins": [{ "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.5", "options": { "access": "read-only" } }]`
+const EXAMPLE = `"plugins": [{ "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.6", "options": { "access": "read-only" } }]`
 const ACCEPTED = {
   allowUntestedHost: "true or false (the default)",
   access: `"all" (the default), "ask-changes" or "read-only"`,
