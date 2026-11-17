@@ -16,17 +16,17 @@ ElevenLabs is a trademark of Eleven Labs Inc.; this unofficial plugin is not end
 ## Install
 
 ```sh
-opencode plugin add github:joe-broadhead/opencode-elevenlabs#v0.0.7
+opencode plugin add github:joe-broadhead/opencode-elevenlabs#v0.0.8
 ```
 
 Run `opencode reload`, or restart OpenCode, then run `/elevenlabs-status`.
 
-Each release has its own tag, and a Git install does not update by itself. To move to a newer release, remove the old entry with `opencode plugin remove github:joe-broadhead/opencode-elevenlabs#v0.0.6`, then add the new tag with `opencode plugin add github:joe-broadhead/opencode-elevenlabs#v<version>`.
+Each release has its own tag, and a Git install does not update by itself. To move to a newer release, remove the old entry with `opencode plugin remove github:joe-broadhead/opencode-elevenlabs#v0.0.7`, then add the new tag with `opencode plugin add github:joe-broadhead/opencode-elevenlabs#v<version>`.
 
 Or add the plugin to `opencode.json` instead, with the same spec:
 
 ```json
-{ "plugins": [{ "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.7" }] }
+{ "plugins": [{ "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.8" }] }
 ```
 
 The install takes the GitHub release tag. Its commit carries the built `dist/`, so the install runs no build.
@@ -72,6 +72,27 @@ opencode api post /api/rpc/elevenlabs.tools/agents_list -H "x-opencode-directory
 
 [docs/scripting.md](https://github.com/joe-broadhead/opencode-elevenlabs/blob/HEAD/docs/scripting.md) has the envelope,
 the estimate path and every refusal.
+
+### The conversations source
+
+The plugin declares one [source contract](https://github.com/we-the-rebel-alliance/source-contract) source,
+`elevenlabs.conversations`, so a collector such as Memory or a dashboard can read the workspace's calls without the
+model. `elevenlabs_events_list` (a tool, and an `events_list` method of the RPC above) lists the conversations the
+workspace's agents had since a cursor, oldest first, and `probe` names the sign-in.
+
+Each event is metadata only, because the callers are other people: the conversation's id, its start, the agent as its
+one actor, and a title of the agent's name with the call's direction, status and outcome, such as
+`Support Desk: inbound call, done, successful`. No caller's name or number, no transcript, summary, score or feedback,
+and no link. A conversation is listed once it is done or failed, or two hours after it started. Reading goes through
+three free reads only, so it spends no credits: `agents_list_conversations`, and, when a read starts more than a day
+back, `agents_list` and `agents_get` for each agent's retention. `conversations: "off"` turns it off. ElevenLabs names
+no account, so the owner is OpenCode's sign-in for ElevenLabs. `npm run conformance` runs the contract's kit offline
+and writes the report each release carries.
+
+ElevenLabs deletes an agent's conversations after its retention period, two years unless it is changed. A read that
+starts before the latest of those horizons answers `gap` (`expired`) once, then lists what survives. **An agent with
+retention 0, or in Zero Retention Mode, keeps no conversations: the source never sees its calls, and answers no gap for
+them.** Known limits below has the rest.
 
 `/elevenlabs-status` prints the connection, the account, the region, the spend, the tools and one next step.
 `/elevenlabs` opens the same report in a dialog. `/elevenlabs-doctor` makes the live checks a status report cannot.
@@ -212,7 +233,7 @@ spend your credits without asking, and so can a tool ElevenLabs adds later. Rest
    | `"read-only"` | the read tools | nothing: everything else is **denied**, generations included |
 
    ```json
-   { "plugins": [{ "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.7", "options": { "access": "read-only" } }] }
+   { "plugins": [{ "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.8", "options": { "access": "read-only" } }] }
    ```
 
 2. **An agent that is read-only or asks**, with rules of its own, later than the plugin's:
@@ -343,6 +364,8 @@ it is folded here:
   { "action": "elevenlabs_creative_list_flows", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_list_voices", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_show_flow_results", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_events_list", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_probe", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_get_signed_url", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_add_triage_ticket_comment", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_add_triage_ticket_turn_comment", "resource": "*", "effect": "allow" },
@@ -497,7 +520,8 @@ the agent was told to extract. **No redaction is applied**: the point of reading
 - `conversations: "summary"` denies the transcript tools — `agents_get_conversation`, its summary, the two message
   searches and `agents_get_conversation_audio_url`, which links the call's recording — and keeps the metadata reads.
 - `conversations: "off"` denies those and every other read of a call's history too: `agents_list_conversations`, the
-  counts, `agents_query_workspace_conversations` and the batch calls' recipient lists.
+  counts, `agents_query_workspace_conversations` and the batch calls' recipient lists, and the source contract's
+  `events_list` (the conversations source below).
 
 The skills tell the model to summarise rather than quote, and never to move a caller's details anywhere else.
 
@@ -507,7 +531,7 @@ Options, the permission rules and every error code are in
 [docs/configuration.md](https://github.com/joe-broadhead/opencode-elevenlabs/blob/HEAD/docs/configuration.md).
 
 ```json
-{ "plugins": [{ "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.7", "options": {
+{ "plugins": [{ "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.8", "options": {
   "access": "all",
   "region": "global",
   "sessionCreditCap": null,
@@ -526,7 +550,7 @@ Pre-set the region, and a cap if you want one, in the system config, so every me
 ```json
 {
   "plugins": [{
-    "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.7",
+    "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.8",
     "options": { "region": "eu", "dailyCreditCap": 5000, "access": "ask-changes" }
   }]
 }
@@ -599,6 +623,32 @@ in your config shadows the plugin's. **Rename or move** that file, then restart 
   that path has been made yet. Signing in from OpenCode itself is unaffected.
 - In Jelly, the settings are drawn as choices and bounded numbers, which needs a Jelly that reads them: an older Jelly
   refuses the plugin's whole declaration. Jelly saves no `null`, so a credit cap there is no cap by being left unset.
+- **The conversations source sees only what ElevenLabs still lists.**
+  - **Retention.** ElevenLabs' docs disagree on whether an agent's retention removes a conversation from the list or
+    only its transcript and audio: the [retention page](https://elevenlabs.io/docs/agents-platform/customization/privacy/retention) says "transcripts and audio recordings", the
+    [API reference](https://elevenlabs.io/docs/api-reference/agents/get) says `retention_days` is "the number of days to retain the conversation". The source takes the
+    conservative reading, that the conversation goes, and answers a `gap` for a read that starts before the latest
+    retention horizon among the agents. An agent that states no retention is taken at the two-year default.
+  - **One gap per read, for an hour.** A read that pages on within an hour of its gap answers no second one, so during
+    one continuous read up to an hour's worth of conversations at the horizon's edge can be deleted without a second
+    gap. A cursor used more than an hour after its gap is a new read: the horizon is checked again, and a pause never
+    hides what retention deleted.
+  - **Loss by design.** An agent with retention 0, or in Zero Retention Mode, keeps no conversations (ElevenLabs offers
+    them only to a post-call webhook). The source never sees them and answers no gap for them.
+  - **Deletions.** A conversation a person deletes, or one a shortened retention removes at once, cannot be told apart
+    from one that never happened: ElevenLabs offers no list of deletions. One deleted before it was listed is never
+    seen; one deleted after it was listed stays with the consumer. Answering that with `removals[]` needs consumers on
+    source-contract 0.2.0, and is not sent yet.
+  - **A deleted agent** cannot be read, so its retention is not part of the horizon.
+  - **Status.** A conversation still running or processing two hours after its start is listed with that status, and
+    never listed again when it finishes.
+  - **The owner is OpenCode's sign-in,** because ElevenLabs names no account: signing in again, even as the same
+    workspace, is a new owner, and a cursor from before it is refused. The owner will carry `verified: false`, and the
+    descriptor an empty `permission.identity`, once Memory and jelly are on source-contract 0.2.0; consumers on 0.1.x
+    refuse both.
+  - **No consent sentence.** The descriptor carries no `scope.describe` for the loss by design above: a descriptor whose
+    `scope` names no keys is refused by the contract's own descriptor schema, so this README and the tool's description
+    say it instead.
 - Updates are not automatic for a Git install, and `opencode plugin update` and `opencode plugin check` do not work on one: to move to a newer release, remove the old entry and add the new tag.
 
 ## Uninstall
@@ -609,7 +659,7 @@ earlier region, run the `opencode auth logout` command it gives as well:
 ```sh
 opencode mcp logout elevenlabs
 opencode auth list
-opencode plugin remove github:joe-broadhead/opencode-elevenlabs#v0.0.7
+opencode plugin remove github:joe-broadhead/opencode-elevenlabs#v0.0.8
 ```
 
 Files already saved under `mediaRoot` stay. Remove them yourself if you no longer want them.

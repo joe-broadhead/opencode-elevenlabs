@@ -1,7 +1,7 @@
 import type { Plugin, Rpc } from "@opencode/plugin"
 import { BALANCE_NAME, type Balance } from "./balance.js"
 import { DISPLAY_NAME, oldSignInName, PLUGIN_ID, REGIONS, SERVER_NAME, TESTED_HOSTS, type Region } from "./constants.js"
-import { classify, OWN_TOOLS, TRANSCRIPT_TOOLS } from "./elevenlabs-tools.js"
+import { classify, OWN_TOOLS, SOURCE_TOOLS, TRANSCRIPT_TOOLS } from "./elevenlabs-tools.js"
 import { isSupportedHost, type HostCheck } from "./host-version.js"
 import type { Access, Conversations, CreditCap } from "./options.js"
 import { defaultRules, unguardedAgents, type Rule } from "./permissions.js"
@@ -402,8 +402,8 @@ export async function readStatus(ctx: StatusContext, facts: SetupFacts) {
     ...(listed ? { skills: { own: facts.skills, listed } } : {}),
     ...(server ? { server: server.status } : {}),
     ...(connection?.type === "credential" ? { account: connection.label } : {}),
-    // The plugin's own tool lives in the same namespace; it is not an ElevenLabs tool, so it is not counted.
-    tools: tools.filter((tool) => tool.options?.namespace === SERVER_NAME && !OWN_TOOLS.includes(tool.name)).map((tool) => tool.name),
+    // The plugin's own tools live in the same namespace; they are not ElevenLabs tools, so they are not counted.
+    tools: tools.filter((tool) => tool.options?.namespace === SERVER_NAME && !OWN_TOOLS.includes(tool.name) && !SOURCE_TOOLS.includes(tool.name)).map((tool) => tool.name),
     agents: agents.data,
   })
 }

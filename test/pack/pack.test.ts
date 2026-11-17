@@ -322,7 +322,8 @@ describe.each(HOST_VERSIONS)("the tools RPC on stock OpenCode %s", (version) => 
   test("describes every known tool and the plugin's own, each with its class, its action and the live schema", async () => {
     const { value } = await script("describe", {})
     expect(value.id).toBe(TOOLS_RPC_ID)
-    expect(value.methods.map((method: { name: string }) => method.name)).toEqual(METHODS.map((method) => method.name))
+    // The table, then the source contract's two methods setup registers beside it.
+    expect(value.methods.map((method: { name: string }) => method.name)).toEqual([...METHODS.map((method) => method.name), "events_list", "probe"])
     const expectedClass = (name: string) => {
       const cls = classify(name)
       return cls === "read" ? "read" : cls === "export" ? "export" : cls === "destructive" ? "destructive" : "write"
@@ -341,12 +342,25 @@ describe.each(HOST_VERSIONS)("the tools RPC on stock OpenCode %s", (version) => 
     const save = value.methods.find((method: { name: string }) => method.name === "elevenlabs_save_media")
     expect(save).toMatchObject({ kind: "plugin", class: "export", action: "elevenlabs_save_media", available: true })
     expect(Object.keys(save.input.properties)).toContain("url")
+    // The source contract's reads: the plugin's own, and reads.
+    expect(value.methods.find((method: { name: string }) => method.name === "events_list")).toMatchObject({ kind: "plugin", class: "read", action: "elevenlabs_events_list", available: true })
+    expect(value.methods.find((method: { name: string }) => method.name === "probe")).toMatchObject({ kind: "plugin", class: "read", action: "elevenlabs_probe", available: true })
+  })
+
+  test("the source contract's methods refuse with the contract's own codes: no sign-in is NEEDS_SIGN_IN, before any read", async () => {
+    // The fake server takes no OAuth, so OpenCode holds no ElevenLabs credential to name as the owner.
+    const from = fake.called.length
+    expect(await call("build", "probe", {})).toMatchObject({ type: "failed", code: "NEEDS_SIGN_IN" })
+    expect(await call("build", "events_list", { since: "2026-11-01T00:00:00Z" })).toMatchObject({ type: "failed", code: "NEEDS_SIGN_IN" })
+    expect(await call("build", "probe", { account: "work" })).toMatchObject({ type: "failed", code: "ACCOUNT_MISMATCH" })
+    expect(await call("build", "events_list", { since: "2026-11-01T00:00:00Z", limit: 0 })).toMatchObject({ type: "failed", code: "INPUT_INVALID" })
+    expect(fake.called.slice(from)).toEqual([])
   })
 
   test("describe with a session reports each method's permission: every tool allows by default", async () => {
     const { value } = await script("describe", { sessionID: sessions.build })
     expect(Object.fromEntries(value.methods.map((method: { name: string; permission: string }) => [method.name, method.permission]))).toEqual(
-      Object.fromEntries(METHODS.map((method) => [method.name, "allow"])),
+      Object.fromEntries([...METHODS.map((method) => method.name), "events_list", "probe"].map((name) => [name, "allow"])),
     )
   })
 

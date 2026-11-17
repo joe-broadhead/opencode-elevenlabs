@@ -139,12 +139,12 @@ describe("setup", () => {
     const commands: string[] = []
     command.run({ add: (definition: { name: string }) => commands.push(definition.name) })
     expect(commands).toEqual(["elevenlabs-status", "elevenlabs-doctor"])
-    // Code Mode's catalog describes the namespace, and the plugin's own tool lives in it.
+    // Code Mode's catalog describes the namespace, and the plugin's own tools live in it: the save tool and the source read.
     const namespaces: { name: string; description?: string }[] = []
     const tools: { name?: string; options?: { permission?: string } }[] = []
     tool.run({ namespace: (namespace: { name: string; description?: string }) => void namespaces.push(namespace), add: (info: never) => void tools.push(info) } as never)
     expect(namespaces).toEqual([{ name: "elevenlabs", description: NAMESPACE_DESCRIPTION }])
-    expect(tools.map((added) => added.name)).toEqual(["save_media"])
+    expect(tools.map((added) => added.name)).toEqual(["save_media", "events_list"])
     expect(tools[0]!.options?.permission).toBe("elevenlabs_save_media")
     // The optional API key entry, so the balance can be read without the MCP token.
     const integrations: { name?: string; methods: string[] }[] = []

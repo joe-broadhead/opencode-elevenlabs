@@ -359,10 +359,10 @@ const SPEND_READS: readonly string[] = []
 /** Every call the guard must price, whether it writes or reads. */
 export const SPEND_ANY: readonly string[] = [...SPEND_TOOLS, ...SPEND_READS]
 
-/** True when this table classifies the name: one of the five lists, or the plugin's own tool. Case is folded. */
+/** True when this table classifies the name: one of the five lists, or the plugin's own tools and source reads. Case is folded. */
 export const known = (raw: string) => {
   const name = raw.toLowerCase()
-  return ALL_TOOLS.includes(name) || OWN_TOOLS.includes(name)
+  return ALL_TOOLS.includes(name) || OWN_TOOLS.includes(name) || SOURCE_TOOLS.includes(name)
 }
 
 /**
@@ -448,6 +448,14 @@ export const ALL_TOOLS: readonly string[] = [
 
 /** The plugin's own tool, in the same namespace: it saves a generated file the model was given a link to. */
 export const OWN_TOOLS: readonly string[] = ["save_media"]
+
+/**
+ * The source contract's two reads, the plugin's own (src/events.ts): `events_list`, a tool and a tools-RPC method that
+ * lists the workspace's conversations as metadata, and `probe`, a tools-RPC method only, that names the sign-in. Both
+ * only read, through `agents_list_conversations` or nothing at all, and spend no credits, so every `access` allows them;
+ * `conversations: "off"` denies `events_list` with the other reads of a call's history.
+ */
+export const SOURCE_TOOLS: readonly string[] = ["events_list", "probe"]
 
 /** What a tool can do. `spend` is a write that bills the workspace, kept apart so the guard and SECURITY can name it. */
 type ToolClass = "read" | "write" | "spend" | "export" | "destructive" | "unknown"

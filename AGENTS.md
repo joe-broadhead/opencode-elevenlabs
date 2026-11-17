@@ -4,8 +4,8 @@ This repository is an OpenCode plugin. Read the README for what it does; this fi
 
 ## Layout and checks
 
-- `src/` is the plugin, `test/` the suites, `scripts/` the checks. `npm run check` runs typecheck, unit, build, icons,
-  host, pack, forbidden, copies, whitelist and actionlint, in that order.
+- `src/` is the plugin, `test/` the suites, `scripts/` the checks. `npm run check` runs typecheck, unit, conformance,
+  kit, build, icons, host, pack, forbidden, copies, whitelist and actionlint, in that order.
 - `npm run check` with `OPENCODE_BIN_2_2_3` to `OPENCODE_BIN_2_2_6` set runs the host and pack stages against every
   tested release; once unset it falls back to the locked SDK with a notice.
 - `npm run drift` compares the plugin's tool table with `test/fixtures/live-tools.json`.
@@ -27,9 +27,15 @@ Checked by `scripts/check-forbidden.mjs` across `src/`, `test/`, `scripts/` and 
 
 ## House rules
 
-- `src/host/tools-rpc.ts` is a copy of a module several plugins share. Edit only between its `PLUGIN-SPECIFIC` markers;
-  `npm run check` fails the copies stage otherwise. The same goes for `test/support/jelly-kit.ts` and
-  `test/support/jelly-settings.ts`.
+- The tools RPC's transport is source-contract's `tools-rpc` module (`@we-the-rebel-alliance/source-contract`, a dev
+  dependency pinned to a tag and bundled into `dist/index.js`); `src/host/tools-rpc.ts` is ElevenLabs' part of it.
+  `test/support/jelly-kit.ts` and `test/support/jelly-settings.ts` are copies every plugin shares: `npm run check`
+  fails the copies stage when either differs.
+- The source `elevenlabs.conversations` (`src/events.ts`, `package.json`'s `sources`) is metadata only: the callers are
+  other people, so an event never carries a caller, a transcript, a summary, a score or feedback, and its `text` stays
+  empty. It reads only `agents_list_conversations`, `agents_list` and `agents_get`, all free reads (the last two for
+  each agent's retention, which decides its `gap`); every tool it adds must be a free read, `permission.operations`
+  must name exactly what it reads, and the conformance stage (`npm run conformance`) fails otherwise.
 - The tool table is `src/elevenlabs-tools.ts` and nothing else: the default rules, the tools RPC, status, the spending
   guard, the Jelly declaration and the tests all derive from it.
 - Every error the plugin raises has a code from `PLUGIN_CODES`, and the README's and the configuration guide's tables

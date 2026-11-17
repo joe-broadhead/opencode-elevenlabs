@@ -3,7 +3,8 @@
 The plugin is a thin layer over ElevenLabs' hosted MCP server. OpenCode owns the MCP transport, OAuth, credentials,
 permission prompts and tool output limits. The plugin registers the server, names its `/connect` entry, adds the default
 permission rules, guards spending, saves generated files, reports status, ships three skills, and lets scripts call the
-known tools through a tools RPC. It adds one tool of its own and has no runtime dependencies beyond Node's built-ins.
+known tools through a tools RPC, and reads the workspace's conversations as a source contract source. It adds two tools of
+its own and has no runtime dependencies: the source contract's modules are bundled in.
 
 ## Layout
 
@@ -25,7 +26,8 @@ known tools through a tools RPC. It adds one tool of its own and has no runtime 
 | `src/integration.ts` | The `/connect` entry's name and the "Sign in required" mark |
 | `src/old-sign-ins.ts` | The sign-ins an earlier `region` left stored: found, listed in `/connect` under a clear name, and named by status |
 | `src/tui.ts` | The terminal UI part and the `/elevenlabs` dialog |
-| `src/host/tools-rpc.ts` | The tools RPC, `elevenlabs.tools`; a copy of a module shared by several plugins |
+| `src/host/tools-rpc.ts` | The tools RPC, `elevenlabs.tools`: ElevenLabs' part of source-contract's `tools-rpc` transport |
+| `src/events.ts` | The source `elevenlabs.conversations`: `events_list` (a tool and a method) and `probe` (a method) |
 | `src/skills.ts`, `src/redact.ts`, `src/host-version.ts`, `src/version.ts` | Skills, redaction, the host check, the version |
 
 `scripts/build.mjs` bundles each entry with esbuild into one self-contained file: `src/index.ts` into `dist/index.js` and

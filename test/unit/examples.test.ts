@@ -6,6 +6,7 @@ import { describe, expect, test } from "bun:test"
 import { readdirSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
+import { EVENTS_INPUT, PROBE_INPUT } from "../../src/events.js"
 import { SAVE_SCHEMA } from "../../src/media/tool.js"
 import { LIVE } from "./elevenlabs-catalog.js"
 
@@ -38,6 +39,12 @@ function check(examples: { tool: string; keys: string[] }[]) {
       const allowed = Object.keys(SAVE_SCHEMA.properties)
       expect({ tool, unknown: keys.filter((key) => !allowed.includes(key)) }).toEqual({ tool, unknown: [] })
       expect(keys).toContain("url")
+      continue
+    }
+    if (tool === "events_list" || tool === "probe") {
+      // The source contract's methods (src/events.ts): their schemas are the contract.
+      const allowed = Object.keys((tool === "events_list" ? EVENTS_INPUT : PROBE_INPUT).properties)
+      expect({ tool, unknown: keys.filter((key) => !allowed.includes(key)) }).toEqual({ tool, unknown: [] })
       continue
     }
     const live = LIVE.get(tool)

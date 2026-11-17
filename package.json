@@ -1,6 +1,6 @@
 {
   "name": "@joe-broadhead/opencode-elevenlabs",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "private": true,
   "description": "Unofficial OpenCode plugin for ElevenLabs: manage voice and chat agents, review their calls, and generate speech, images and video through ElevenLabs' official MCP server, with a spending guard and files saved to disk",
   "keywords": [
@@ -66,6 +66,40 @@
       "domain": "elevenlabs.io",
       "mark": true
     }
+  },
+  "sources": {
+    "contractVersion": 1,
+    "rpc": "elevenlabs.tools",
+    "probe": {
+      "action": "elevenlabs_probe"
+    },
+    "items": [
+      {
+        "id": "elevenlabs.conversations",
+        "kind": "events",
+        "reads": "session",
+        "tool": "events_list",
+        "input": {
+          "source": "elevenlabs"
+        },
+        "accounts": {
+          "named": false
+        },
+        "permission": {
+          "events": "elevenlabs_events_list",
+          "operations": [
+            "agents_list_conversations",
+            "agents_list",
+            "agents_get"
+          ]
+        },
+        "private": true,
+        "cost": {
+          "class": "free"
+        },
+        "maxBytes": 65536
+      }
+    ]
   },
   "jelly": {
     "title": "ElevenLabs",
@@ -670,6 +704,12 @@
       {
         "name": "elevenlabs_creative_show_flow_results",
         "permission": "elevenlabs_creative_show_flow_results",
+        "effect": "allow",
+        "readOnly": true
+      },
+      {
+        "name": "elevenlabs_events_list",
+        "permission": "elevenlabs_events_list",
         "effect": "allow",
         "readOnly": true
       },
@@ -1653,7 +1693,8 @@
     "test:pack": "node scripts/check.mjs pack",
     "lint": "node scripts/check.mjs forbidden",
     "drift": "node scripts/check-elevenlabs-tools.mjs",
-    "capture": "node scripts/capture-tools.mjs"
+    "capture": "node scripts/capture-tools.mjs",
+    "conformance": "node scripts/check.mjs conformance"
   },
   "devDependencies": {
     "@opencode/client": "2.2.3",
@@ -1663,6 +1704,7 @@
     "@opentui/solid": "0.8.0",
     "@types/bun": "1.4.4",
     "@types/node": "24.19.2",
+    "@we-the-rebel-alliance/source-contract": "github:we-the-rebel-alliance/source-contract#v0.2.0",
     "esbuild": "0.28.2",
     "solid-js": "1.9.17",
     "typescript": "5.9.3"

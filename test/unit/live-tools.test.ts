@@ -6,7 +6,7 @@ import { describe, expect, test } from "bun:test"
 import { readdirSync, readFileSync, statSync } from "node:fs"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
-import { ALL_TOOLS, OWN_TOOLS, READ_ONLY_OVERRIDES, REACH_TOOLS, READ_TOOLS, SPEND_ANY, mustPrice } from "../../src/elevenlabs-tools.js"
+import { ALL_TOOLS, OWN_TOOLS, READ_ONLY_OVERRIDES, REACH_TOOLS, READ_TOOLS, SOURCE_TOOLS, SPEND_ANY, mustPrice } from "../../src/elevenlabs-tools.js"
 import { defaultRules, evaluate } from "../../src/permissions.js"
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url))
@@ -50,9 +50,11 @@ describe("the committed capture", () => {
     expect(provenance.live).toEqual({ fixture: "live-tools.json", listedAt: capture.listedAt })
   })
 
-  test("names exactly the tools the table classifies, and the registry's own tool is the plugin's", () => {
+  test("names exactly the tools the table classifies, and the registry's own tools are the plugin's", () => {
     expect([...served.keys()].sort()).toEqual([...ALL_TOOLS].sort())
-    expect([...own].sort()).toEqual([...OWN_TOOLS].sort())
+    // The save tool, and the one source read that is a tool as well as a method: probe is a tools-RPC method only.
+    expect([...own].sort()).toEqual([...OWN_TOOLS, "events_list"].sort())
+    for (const tool of own) expect(served.has(tool)).toBe(false)
   })
 })
 
@@ -81,8 +83,8 @@ describe("the declaration against the capture", () => {
     expect(Object.keys(READ_ONLY_OVERRIDES).sort()).toEqual(overridden)
   })
 
-  test("reads are exactly the tools declared read-only", () => {
-    expect(declared.filter((tool) => tool.readOnly).map((tool) => tool.permission).sort()).toEqual(READ_TOOLS.map(permissionOf).sort())
+  test("reads are exactly the tools declared read-only, with the source read events_list", () => {
+    expect(declared.filter((tool) => tool.readOnly).map((tool) => tool.permission).sort()).toEqual([...READ_TOOLS, ...SOURCE_TOOLS.filter((tool) => own.has(tool))].map(permissionOf).sort())
   })
 })
 
