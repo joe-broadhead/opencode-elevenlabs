@@ -629,6 +629,10 @@ in your config shadows the plugin's. **Rename or move** that file, then restart 
     [API reference](https://elevenlabs.io/docs/api-reference/agents/get) says `retention_days` is "the number of days to retain the conversation". The source takes the
     conservative reading, that the conversation goes, and answers a `gap` for a read that starts before the latest
     retention horizon among the agents. An agent that states no retention is taken at the two-year default.
+  - **One gap per read, for an hour.** A read that pages on within an hour of its gap answers no second one, so during
+    one continuous read up to an hour's worth of conversations at the horizon's edge can be deleted without a second
+    gap. A cursor used more than an hour after its gap is a new read: the horizon is checked again, and a pause never
+    hides what retention deleted.
   - **Loss by design.** An agent with retention 0, or in Zero Retention Mode, keeps no conversations (ElevenLabs offers
     them only to a post-call webhook). The source never sees them and answers no gap for them.
   - **Deletions.** A conversation a person deletes, or one a shortened retention removes at once, cannot be told apart

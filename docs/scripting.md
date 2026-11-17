@@ -271,7 +271,8 @@ conversation on its own.
 ElevenLabs deletes an agent's conversations after its retention period, two years unless it is changed (its docs
 disagree on whether the list row goes too; the source assumes it does). A read that starts before the latest horizon
 among the agents (now less the shortest retention in days) answers `gap: {"reason":"expired","since":<its start>}` on
-its first page only, then lists what survives. An agent with retention 0, or in Zero Retention Mode, keeps no
+its first page only, then lists what survives. The cursor carries that gap for an hour, so a read that pages on answers
+it once; a cursor used later is a new read, whose horizon is checked again. An agent with retention 0, or in Zero Retention Mode, keeps no
 conversations by design: the source never sees them and answers no gap for them. A conversation a person deletes is not
 seen either.
 `conversations: "off"` denies `events_list` with the other reads of a call's history; one that runs anyway is refused

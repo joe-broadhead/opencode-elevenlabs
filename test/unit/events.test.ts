@@ -13,6 +13,7 @@ import {
   DEFAULT_RETENTION_DAYS,
   EVENTS_ACTION,
   EventsFailure,
+  GAP_WINDOW_MS,
   LIST_TOOL,
   OPERATIONS,
   PROBE_ACTION,
@@ -291,7 +292,7 @@ describe("events_list", () => {
 describe("retention", () => {
   const binding = { plugin: "elevenlabs", source: SOURCE, account: ACCOUNT }
   const digest = createHash("sha256").update(OWNER.id).digest("hex").slice(0, 16)
-  const cursorAt = (at: string, h?: number) => encodeBoundCursor(binding, { o: digest, t: Date.parse(at), i: "", ...(h === undefined ? {} : { h }) })
+  const cursorAt = (at: string, h?: number, g = NOW) => encodeBoundCursor(binding, { o: digest, t: Date.parse(at), i: "", ...(h === undefined ? {} : { h, g }) })
   const OLD = "2026-09-01T00:00:00Z"
 
   test("a read that starts before the latest agent horizon answers gap expired once, from its start, and lists what survives", async () => {
@@ -326,6 +327,11 @@ describe("retention", () => {
     const midRead = setup()
     expect((await midRead.list({ account: ACCOUNT, cursor: cursorAt(OLD, Date.parse("2026-08-01T00:00:00Z")) })).gap).toBeUndefined()
     expect(midRead.callsTo(AGENTS_TOOL)).toEqual([])
+    // The same cursor more than an hour after its gap is a new read: the horizon is checked again, and the gap answered
+    // again from its position.
+    expect((await setup().list({ account: ACCOUNT, cursor: cursorAt(OLD, Date.parse("2026-08-01T00:00:00Z"), NOW - GAP_WINDOW_MS - 1) })).gap).toEqual({ reason: "expired", since: "2026-09-01T00:00:00.000Z" })
+    // A horizon without the time of its gap is not a cursor this source issued.
+    expect(await refusal(setup().list({ account: ACCOUNT, cursor: encodeBoundCursor(binding, { o: digest, t: Date.parse(OLD), i: "", h: HORIZON }) }))).toBe("CURSOR_INVALID")
     // A finished read's cursor carries none, so a later read from it is checked again.
     expect((await setup().list({ account: ACCOUNT, cursor: cursorAt(OLD) })).gap).toEqual({ reason: "expired", since: "2026-09-01T00:00:00.000Z" })
   })

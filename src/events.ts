@@ -40,7 +40,8 @@ import { reasonOf } from "./redact.js"
  * audio, so the source takes the conservative reading: it does. A read that starts before the latest horizon among the
  * agents that keep conversations for a number of days (now less that many days) may have lost conversations, so its
  * first page answers `gap: { reason: "expired", since: <its start> }`, once, and goes on to list what survives; the
- * cursor records the horizon it answered until the read ends, so no later page of the read repeats it. An agent with `retention_days` 0, or
+ * cursor records the horizon it answered and when (`h`, `g`), so no page of the read in the hour after it repeats the
+ * gap; a cursor used later is a new read, and its horizon is checked again. An agent with `retention_days` 0, or
  * in Zero Retention Mode, keeps no conversations by design: the source never sees them, and answers no gap for them. A
  * conversation a person deletes is not seen either, and is not answered.
  *
@@ -99,6 +100,11 @@ const PRIVACY_FIELD = "platform_settings.privacy"
 /** The retention ElevenLabs gives an agent that states none: two years, its documented default. */
 export const DEFAULT_RETENTION_DAYS = 730
 const DAY_MS = 86_400_000
+/**
+ * How long a gap a read answered covers the pages after it: a read that pages on within this window keeps its one gap.
+ * A cursor used after it is a new read, whose horizon is checked again, so a pause never hides what retention deleted.
+ */
+export const GAP_WINDOW_MS = 3_600_000
 /** The statuses after which a conversation does not change: its outcome is known. */
 const FINAL = new Set(["done", "failed"])
 
@@ -366,17 +372,18 @@ const BINDING: CursorBinding = { plugin: SERVER_NAME, source: SOURCE, account: A
  * The state a cursor holds: anything that is not this source's bound cursor, an unbound cursor of an earlier version
  * included, is CURSOR_INVALID, and the caller starts again with since.
  */
-function cursorState(cursor: string): { readonly key: Key; readonly owner: string; readonly answered?: number } {
+function cursorState(cursor: string): { readonly key: Key; readonly owner: string; readonly answered?: { readonly horizon: number; readonly at: number } } {
   const decoded = decodeBoundCursor(BINDING, cursor)
   const state = decoded.ok ? decoded.state : undefined
-  const [t, i, o, h] = [state?.["t"], state?.["i"], state?.["o"], state?.["h"]]
+  const [t, i, o, h, g] = [state?.["t"], state?.["i"], state?.["o"], state?.["h"], state?.["g"]]
   if (
     typeof t !== "number" || !Number.isSafeInteger(t) || typeof i !== "string" || i.length > EVENT_LIMITS.externalId || typeof o !== "string" || !/^[0-9a-f]{16}$/.test(o) ||
-    (h !== undefined && (typeof h !== "number" || !Number.isSafeInteger(h)))
+    (h !== undefined && (typeof h !== "number" || !Number.isSafeInteger(h) || typeof g !== "number" || !Number.isSafeInteger(g))) ||
+    (h === undefined && g !== undefined)
   ) {
     return refuse("CURSOR_INVALID", `The cursor was not issued by ${DISPLAY_NAME}'s events_list`, CURSOR_NEXT)
   }
-  return { key: { t, i }, owner: o, ...(h === undefined ? {} : { answered: h }) }
+  return { key: { t, i }, owner: o, ...(h === undefined ? {} : { answered: { horizon: h, at: g as number } }) }
 }
 
 /** One agent's retention: a number of days, or none when it keeps conversations without limit or never keeps them. */
@@ -522,15 +529,16 @@ export async function listEvents(read: Read, owner: EventsOwner | undefined, inp
   const after: Key = cursor?.key ?? { t: startTime(request, now), i: "" }
 
   // Retention: a read that starts more than a day back may have lost conversations an agent's retention deleted, unless
-  // the cursor carries the horizon of a gap this read already answered. Nothing a day old or newer can have been
-  // deleted that way.
-  let answered = cursor?.answered
+  // the cursor carries a gap this read answered within the last GAP_WINDOW_MS. Nothing a day old or newer can have been
+  // deleted that way. A cursor used after the window is a new read: its horizon is checked again, and a position
+  // behind it answers a gap from that position.
+  let answered = cursor?.answered !== undefined && now - cursor.answered.at <= GAP_WINDOW_MS ? cursor.answered : undefined
   let gap: { readonly reason: "expired"; readonly since: string } | undefined
   if (now - after.t > DAY_MS && answered === undefined) {
     const horizon = await retentionHorizon(read, now)
     if (horizon !== undefined && after.t < horizon) {
       gap = { reason: "expired", since: new Date(after.t).toISOString() }
-      answered = horizon
+      answered = { horizon, at: now }
     }
   }
 
@@ -551,10 +559,10 @@ export async function listEvents(read: Read, owner: EventsOwner | undefined, inp
   const lastConversation = chosen[last]
   const position: Key = lastConversation ? keyOf(lastConversation) : after
   const more = listable.length > last + 1 || (!complete && blockedAt === -1)
-  // The cursor keeps the horizon a gap answered until the read ends (more is false) and while it is still behind it, so
-  // no later page of the read repeats the gap, however far the horizon moves while the read pages on.
-  const keep = answered !== undefined && (position.t < answered || more)
-  const next = encodeBoundCursor(BINDING, { o: ownerDigest, t: position.t, i: position.i, ...(keep ? { h: answered } : {}) })
+  // The cursor keeps the gap's horizon and time while the read pages on (more) or is still behind it; within the window
+  // no later page repeats the gap, however far the horizon moves while the read pages on.
+  const keep = answered !== undefined && (position.t < answered.horizon || more)
+  const next = encodeBoundCursor(BINDING, { o: ownerDigest, t: position.t, i: position.i, ...(keep ? { h: answered!.horizon, g: answered!.at } : {}) })
   return eventsListResult({ source: SOURCE, account: ACCOUNT, owner }, page, next, more, { refused, ...(gap ? { gap } : {}), plugin: PACKAGE, asOf: new Date(now).toISOString() })
 }
 
