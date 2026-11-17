@@ -8,9 +8,13 @@ import { resultProblems } from "@we-the-rebel-alliance/source-contract/events"
 import { mustPrice, READ_TOOLS, SOURCE_TOOLS, SPEND_ANY } from "../../src/elevenlabs-tools.js"
 import {
   ACCOUNT,
+  AGENT_TOOL,
+  AGENTS_TOOL,
+  DEFAULT_RETENTION_DAYS,
   EVENTS_ACTION,
   EventsFailure,
   LIST_TOOL,
+  OPERATIONS,
   PROBE_ACTION,
   SETTLE_MS,
   SOURCE,
@@ -21,7 +25,20 @@ import {
 } from "../../src/events.js"
 import { pluginError } from "../../src/host/tools-rpc.js"
 import { defaultRules, evaluate } from "../../src/permissions.js"
-import { CALLER_TEXT, CONVERSATIONS, CREDENTIAL, NOW, OWNER, SECRET, SINCE, syntheticList, type SyntheticConversation } from "../support/synthetic-conversations.js"
+import {
+  AGENTS,
+  CALLER_TEXT,
+  CONVERSATIONS,
+  CREDENTIAL,
+  HORIZON,
+  NOW,
+  OWNER,
+  SECRET,
+  SINCE,
+  syntheticWorkspace,
+  type SyntheticAgent,
+  type SyntheticConversation,
+} from "../support/synthetic-conversations.js"
 
 const pkg = (await import("../../package.json", { with: { type: "json" } })).default as {
   sources: { items: { permission: { events: string; operations: string[]; identity?: string[] }; cost: { class: string } }[]; probe: { action: string } }
@@ -29,7 +46,8 @@ const pkg = (await import("../../package.json", { with: { type: "json" } })).def
 
 interface Options {
   readonly conversations?: readonly SyntheticConversation[]
-  readonly fail?: (call: number) => string | undefined
+  readonly agents?: readonly SyntheticAgent[]
+  readonly fail?: (call: number, tool: string) => string | undefined
   readonly throws?: unknown
   readonly credential?: unknown
   readonly listed?: boolean
@@ -38,23 +56,27 @@ interface Options {
   readonly now?: number
 }
 
-/** OpenCode's executor for the list over the synthetic workspace, recording every action asserted and every call. */
+/** OpenCode's executors for the three reads over the synthetic workspace, recording every action asserted and every call. */
 function setup(options: Options = {}) {
-  const synthetic = syntheticList({ conversations: options.conversations ?? [...CONVERSATIONS, SECRET], ...(options.fail ? { fail: options.fail } : {}) })
+  const synthetic = syntheticWorkspace({
+    conversations: options.conversations ?? [...CONVERSATIONS, SECRET],
+    ...(options.agents ? { agents: options.agents } : {}),
+    ...(options.fail ? { fail: options.fail } : {}),
+  })
   const asserted: string[] = []
   const ctx: EventsContext = {
     tool: {
       list: async () =>
         (options.listed === false
           ? []
-          : [{
-              id: `elevenlabs_${LIST_TOOL}`,
+          : OPERATIONS.map((tool) => ({
+              id: `elevenlabs_${tool}`,
               execute: async (input: Record<string, unknown>) => {
-                asserted.push(`elevenlabs_${LIST_TOOL}`)
+                asserted.push(`elevenlabs_${tool}`)
                 if (options.throws !== undefined) throw options.throws
-                return synthetic.list(input)
+                return synthetic.execute(tool, input)
               },
-            }]) as never,
+            }))) as never,
     },
     mcp: { list: async () => ({ data: [{ name: "elevenlabs", status: { status: options.status ?? "connected" }, integrationID: "int_elevenlabs" }] }) as never },
     integration: { connection: { active: async () => ("credential" in options ? options.credential : CREDENTIAL) as never } },
@@ -67,6 +89,8 @@ function setup(options: Options = {}) {
     list: (input: Record<string, unknown>) => eventsMethod(ctx, state, () => now).run(input, call) as Promise<any>,
     probe: (input: Record<string, unknown>) => probeMethod(ctx, state).run(input, call) as Promise<any>,
     calls: synthetic.calls,
+    /** The calls to one tool. */
+    callsTo: (tool: string) => synthetic.calls.filter((call) => call.tool === tool),
     asserted,
   }
 }
@@ -132,9 +156,13 @@ describe("events_list", () => {
     const text = JSON.stringify(await walk(source, 2))
     for (const value of CALLER_TEXT) expect(text).not.toContain(value)
     expect(source.calls.length).toBeGreaterThan(0)
-    for (const call of source.calls) expect(call.input).toMatchObject({ sort_direction: "asc", summary_mode: "exclude", page_size: 100 })
-    // It reads only the list: its own action, then agents_list_conversations.
-    expect([...new Set(source.asserted)].sort()).toEqual([EVENTS_ACTION, `elevenlabs_${LIST_TOOL}`].sort())
+    for (const call of source.callsTo(LIST_TOOL)) expect(call.input).toMatchObject({ sort_direction: "asc", summary_mode: "exclude", page_size: 100 })
+    // agents_get is asked for the privacy settings alone, never the whole agent.
+    for (const call of source.callsTo(AGENT_TOOL)) expect(Object.keys(call.input).sort()).toEqual(["agent_id", "fields"])
+    for (const call of source.callsTo(AGENT_TOOL)) expect(call.input["fields"]).toEqual(["platform_settings.privacy"])
+    // It reads only the three declared operations, after its own action.
+    expect([...new Set(source.asserted)].sort()).toEqual([EVENTS_ACTION, ...OPERATIONS.map((tool) => `elevenlabs_${tool}`)].sort())
+    expect([...new Set(source.calls.map((call) => call.tool))].sort()).toEqual([...OPERATIONS].sort())
   })
 
   test("pages two at a time through every listable conversation once, in order, and the cursor resumes where it stopped", async () => {
@@ -182,13 +210,15 @@ describe("events_list", () => {
     expect((await finished.list({ since: SINCE, limit: 500 })).events.map((event: any) => event.external_id).slice(-2)).toEqual(["conv_07", "conv_08"])
   })
 
-  test("a cursor never expires: one from a year back resumes at its own position, and a broken one is CURSOR_INVALID", async () => {
+  test("an expired cursor: one from a year back answers gap expired and resumes at its own position; a broken one is CURSOR_INVALID", async () => {
     const digest = createHash("sha256").update(OWNER.id).digest("hex").slice(0, 16)
     const binding = { plugin: "elevenlabs", source: SOURCE, account: ACCOUNT }
     const old = encodeBoundCursor(binding, { o: digest, t: Date.parse("2025-10-01T00:00:00Z"), i: "" })
     const page = await setup().list({ account: ACCOUNT, cursor: old, limit: 500 })
-    expect(page.gap).toBeUndefined()
+    // A year back is behind the 30-day agent's retention: conversations may be gone, which the page says once.
+    expect(page.gap).toEqual({ reason: "expired", since: "2025-10-01T00:00:00.000Z" })
     expect(page.events[0].external_id).toBe("conv_01")
+    expect((await setup().list({ account: ACCOUNT, cursor: page.cursor })).gap).toBeUndefined()
     expect(await refusal(setup().list({ account: ACCOUNT, cursor: "not-a-cursor" }))).toBe("CURSOR_INVALID")
     expect(await refusal(setup().list({ account: ACCOUNT, cursor: encodeBoundCursor({ ...binding, source: "gmail" }, { o: digest, t: 0, i: "" }) }))).toBe("CURSOR_INVALID")
   })
@@ -203,9 +233,14 @@ describe("events_list", () => {
     expect(pluginError(error)).toEqual({ code: "UNAVAILABLE", what: (error as EventsFailure).what, next: (error as EventsFailure).next })
     expect(await refusal(setup({ fail: () => "HTTP 429: Too Many Requests" }).list({ since: SINCE }))).toBe("RATE_LIMITED")
     expect(await refusal(setup({ fail: () => 'MCP server "elevenlabs" is not connected' }).list({ since: SINCE }))).toBe("UNAVAILABLE")
+    // A retention read fails: the whole call fails too.
+    expect(await refusal(setup({ fail: (_, tool) => (tool === AGENT_TOOL ? "boom" : undefined) }).list({ since: SINCE }))).toBe("UNAVAILABLE")
+    expect(await refusal(setup({ fail: (_, tool) => (tool === AGENTS_TOOL ? "HTTP 429" : undefined) }).list({ since: SINCE }))).toBe("RATE_LIMITED")
     // The second page fails: the whole call fails, and nothing is listed past what the cursor holds.
     const many = Array.from({ length: 150 }, (_, index) => conversation(index, new Date(Date.parse("2026-10-21T00:00:00Z") + index * 60_000).toISOString().replace(".000", "")))
-    expect(await refusal(setup({ conversations: many, fail: (call) => (call === 2 ? "boom" : undefined) }).list({ since: SINCE, limit: 500 }))).toBe("UNAVAILABLE")
+    let lists = 0
+    const second = (_: number, tool: string) => (tool === LIST_TOOL && ++lists === 2 ? "boom" : undefined)
+    expect(await refusal(setup({ conversations: many, fail: second }).list({ since: SINCE, limit: 500 }))).toBe("UNAVAILABLE")
     // A refusal from the host's permission check is not ElevenLabs' failure: it passes through unchanged.
     const denied = new Error("PermissionDeniedError")
     expect(await setup({ throws: denied }).list({ since: SINCE }).catch((caught: unknown) => caught)).toBe(denied)
@@ -253,6 +288,87 @@ describe("events_list", () => {
   })
 })
 
+describe("retention", () => {
+  const binding = { plugin: "elevenlabs", source: SOURCE, account: ACCOUNT }
+  const digest = createHash("sha256").update(OWNER.id).digest("hex").slice(0, 16)
+  const cursorAt = (at: string, h?: number) => encodeBoundCursor(binding, { o: digest, t: Date.parse(at), i: "", ...(h === undefined ? {} : { h }) })
+  const OLD = "2026-09-01T00:00:00Z"
+
+  test("a read that starts before the latest agent horizon answers gap expired once, from its start, and lists what survives", async () => {
+    const source = setup()
+    const first = await source.list({ account: ACCOUNT, cursor: cursorAt(OLD), limit: 2 })
+    expect(first.gap).toEqual({ reason: "expired", since: "2026-09-01T00:00:00.000Z" })
+    expect(resultProblems(first, 2, 65_536)).toEqual([])
+    expect(first.events.map((event: any) => event.external_id)).toEqual(["conv_01", "conv_02"])
+    expect(first.more).toBe(true)
+    // Every later page of the read: no gap, and the whole listing is the same as one without the gap.
+    const rest = [first]
+    while (rest.at(-1).more) rest.push(await source.list({ account: ACCOUNT, cursor: rest.at(-1).cursor, limit: 2 }))
+    expect(rest.slice(1).every((page) => page.gap === undefined)).toBe(true)
+    const whole = (await setup().list({ since: SINCE, limit: 500 })).events.map((event: any) => event.external_id)
+    expect(rest.flatMap((page) => page.events.map((event: any) => event.external_id))).toEqual(whole)
+    // The same from a first listing with since.
+    expect((await setup().list({ since: OLD, limit: 2 })).gap).toEqual({ reason: "expired", since: "2026-09-01T00:00:00.000Z" })
+  })
+
+  test("a read that starts after the horizon answers no gap; one a day back or newer, or inside an answered gap, reads no retention", async () => {
+    const after = setup()
+    expect((await after.list({ account: ACCOUNT, cursor: cursorAt(new Date(HORIZON + 60_000).toISOString()) })).gap).toBeUndefined()
+    expect(after.callsTo(AGENT_TOOL).length).toBe(AGENTS.length)
+    const recent = setup()
+    await recent.list({ account: ACCOUNT, cursor: cursorAt("2026-11-01T00:00:00Z") })
+    expect(recent.callsTo(AGENTS_TOOL)).toEqual([])
+    expect(recent.callsTo(AGENT_TOOL)).toEqual([])
+    const inside = setup()
+    expect((await inside.list({ account: ACCOUNT, cursor: cursorAt(OLD, HORIZON) })).gap).toBeUndefined()
+    expect(inside.callsTo(AGENTS_TOOL)).toEqual([])
+    // A cursor whose answered horizon it has passed is checked again.
+    const passed = setup()
+    expect((await passed.list({ account: ACCOUNT, cursor: cursorAt(OLD, Date.parse("2026-08-01T00:00:00Z")) })).gap).toEqual({ reason: "expired", since: "2026-09-01T00:00:00.000Z" })
+  })
+
+  test("reads active and archived agents, one agents_get each, and no more list calls than it needs", async () => {
+    const source = setup()
+    await source.list({ account: ACCOUNT, cursor: cursorAt(OLD) })
+    expect(source.callsTo(AGENTS_TOOL).map((call) => call.input["archived"])).toEqual([false, true])
+    expect(source.callsTo(AGENT_TOOL).map((call) => call.input["agent_id"]).sort()).toEqual(AGENTS.map((agent) => agent.agent_id).sort())
+    expect(source.callsTo(LIST_TOOL).length).toBe(1)
+  })
+
+  test("agents that keep no conversations (retention 0, Zero Retention Mode) or keep them without limit answer no gap", async () => {
+    const byDesign: SyntheticAgent[] = [
+      { agent_id: "agent_a", name: "a", privacy: { retention_days: 0 } },
+      { agent_id: "agent_b", name: "b", privacy: { retention_days: 7, zero_retention_mode: true } },
+      { agent_id: "agent_c", name: "c", privacy: { retention_days: -1 } },
+    ]
+    expect((await setup({ agents: byDesign }).list({ account: ACCOUNT, cursor: cursorAt("2020-01-01T00:00:00Z") })).gap).toBeUndefined()
+    expect((await setup({ agents: [] }).list({ account: ACCOUNT, cursor: cursorAt("2020-01-01T00:00:00Z") })).gap).toBeUndefined()
+  })
+
+  test("an agent that states no retention keeps conversations two years, ElevenLabs' default", async () => {
+    const plain: SyntheticAgent[] = [{ agent_id: "agent_plain", name: "plain" }]
+    const edge = NOW - DEFAULT_RETENTION_DAYS * 86_400_000
+    expect((await setup({ agents: plain }).list({ account: ACCOUNT, cursor: cursorAt(new Date(edge - 60_000).toISOString()) })).gap?.reason).toBe("expired")
+    expect((await setup({ agents: plain }).list({ account: ACCOUNT, cursor: cursorAt(new Date(edge + 60_000).toISOString()) })).gap).toBeUndefined()
+  })
+
+  test("a retention that cannot be read fails the read, never a guess", async () => {
+    const odd: SyntheticAgent[] = [{ agent_id: "agent_odd", name: "odd", privacy: { retention_days: 1.5 } }]
+    expect(await refusal(setup({ agents: odd }).list({ account: ACCOUNT, cursor: cursorAt(OLD) }))).toBe("UNAVAILABLE")
+  })
+})
+
+describe("an entry that cannot be read", () => {
+  test("fails the page with UNAVAILABLE, naming the count, and the cursor does not move past it", async () => {
+    const broken = { ...CONVERSATIONS[1]!, agent_id: "" }
+    const source = setup({ conversations: [CONVERSATIONS[0]!, broken, CONVERSATIONS[2]!] })
+    const error = await source.list({ since: SINCE }).catch((caught: unknown) => caught)
+    expect(error).toBeInstanceOf(EventsFailure)
+    expect((error as EventsFailure).code).toBe("UNAVAILABLE")
+    expect((error as EventsFailure).what).toContain("1 of 3 conversations")
+  })
+})
+
 describe("probe", () => {
   test("names OpenCode's sign-in as the owner, and calls ElevenLabs for nothing", async () => {
     const source = setup()
@@ -281,11 +397,17 @@ describe("probe", () => {
 describe("reading spends nothing", () => {
   const item = pkg.sources.items[0]!
 
-  test("the source declares only free reads, and its cost is free", () => {
+  test("the source declares only free reads, and its cost is free", async () => {
     expect(item.cost).toEqual({ class: "free" })
-    expect(item.permission.operations).toEqual([LIST_TOOL])
+    expect(item.permission.operations).toEqual([...OPERATIONS])
+    expect(OPERATIONS).toEqual([LIST_TOOL, AGENTS_TOOL, AGENT_TOOL])
     for (const operation of item.permission.operations) {
       expect({ operation, read: READ_TOOLS.includes(operation), spends: SPEND_ANY.includes(operation), priced: mustPrice(operation) }).toEqual({ operation, read: true, spends: false, priced: false })
+    }
+    // ElevenLabs itself marks each of them read-only, in the live capture of its tools.
+    const capture = (await import("../fixtures/live-tools.json", { with: { type: "json" } })).default as { tools: { name: string; readOnlyHint: boolean }[] }
+    for (const operation of item.permission.operations) {
+      expect({ operation, readOnlyHint: capture.tools.find((tool) => tool.name === operation)?.readOnlyHint }).toEqual({ operation, readOnlyHint: true })
     }
     // events_list and probe are the plugin's own: the spending guard never prices or refuses them.
     for (const tool of SOURCE_TOOLS) expect({ tool, priced: mustPrice(tool) }).toEqual({ tool, priced: false })

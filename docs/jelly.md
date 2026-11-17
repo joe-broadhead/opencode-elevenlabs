@@ -50,7 +50,8 @@ The declaration holds:
     to decide which tools get built next. That is a message out of the workspace, not a read of it.
 
   `elevenlabs_save_media` is not read-only: it writes a file. `elevenlabs_events_list` is read-only: it lists the
-  conversations' metadata through `agents_list_conversations`, and spends nothing. Five declared tools reach people
+  conversations' metadata through `agents_list_conversations`, `agents_list` and `agents_get`, and spends nothing.
+  Five declared tools reach people
   outside the conversation, and none is read-only: `elevenlabs_agents_submit_batch_call` and `elevenlabs_agents_retry_batch_call`
   place real phone calls (and spend), `elevenlabs_agents_publish_draft` makes staged changes live to callers,
   `elevenlabs_agents_update_whatsapp_account` changes how an agent answers a WhatsApp number, and

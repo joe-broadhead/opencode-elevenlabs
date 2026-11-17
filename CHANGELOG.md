@@ -11,8 +11,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and thi
   tool `elevenlabs_events_list`, and a method of the tools RPC) lists the conversations the workspace's agents had,
   oldest first, as metadata only (the conversation's id, its start, the agent, and a title of the agent's name with the
   call's direction, status and outcome; never a caller, a transcript or a summary), and `probe` names the sign-in. Both
-  only read, through `agents_list_conversations` or nothing, and spend no credits; every `access` allows them, and
-  `conversations: "off"` denies `events_list`. `npm run conformance` runs the source contract's conformance kit offline
+  only read, through `agents_list_conversations`, `agents_list` and `agents_get` or nothing, and spend no credits;
+  every `access` allows them, and `conversations: "off"` denies `events_list`. A read that starts before an agent's
+  retention horizon answers `gap` (`expired`) once; agents that keep no conversations are never seen. `npm run conformance` runs the source contract's conformance kit offline
   and writes `reports/conformance-report.json`, which a release attaches.
 
 ### Changed

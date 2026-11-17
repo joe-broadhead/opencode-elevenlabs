@@ -33,8 +33,9 @@ Checked by `scripts/check-forbidden.mjs` across `src/`, `test/`, `scripts/` and 
   fails the copies stage when either differs.
 - The source `elevenlabs.conversations` (`src/events.ts`, `package.json`'s `sources`) is metadata only: the callers are
   other people, so an event never carries a caller, a transcript, a summary, a score or feedback, and its `text` stays
-  empty. It reads only `agents_list_conversations`, a free read; `permission.operations` must name exactly what it
-  reads, and the conformance stage (`npm run conformance`) fails otherwise.
+  empty. It reads only `agents_list_conversations`, `agents_list` and `agents_get`, all free reads (the last two for
+  each agent's retention, which decides its `gap`); every tool it adds must be a free read, `permission.operations`
+  must name exactly what it reads, and the conformance stage (`npm run conformance`) fails otherwise.
 - The tool table is `src/elevenlabs-tools.ts` and nothing else: the default rules, the tools RPC, status, the spending
   guard, the Jelly declaration and the tests all derive from it.
 - Every error the plugin raises has a code from `PLUGIN_CODES`, and the README's and the configuration guide's tables

@@ -256,8 +256,24 @@ The plugin declares one [source contract](https://github.com/we-the-rebel-allian
   or the workspace, so the owner is OpenCode's sign-in for the `elevenlabs` server, `elevenlabs:credential:` and the
   credential's id, labelled with its label: a new sign-in is a new owner. It calls ElevenLabs for nothing.
 
-`events_list` reads only `agents_list_conversations`, a free read: 100 at a time, oldest first, without transcript
-summaries. Neither method spends credits, so the descriptor's `cost` is `free`, and both are allowed at every `access`.
+`events_list` makes only free reads, which the descriptor's `permission.operations` names:
+
+- `agents_list_conversations`: 100 at a time, oldest first, without transcript summaries; one to twenty calls a read,
+  usually one.
+- `agents_list` and `agents_get` (with `fields: ["platform_settings.privacy"]`), only when the read starts more than a
+  day back and past any gap the cursor already answered: two `agents_list` calls (active and archived agents, one more
+  per 100 agents) and one `agents_get` per agent, for each agent's retention.
+
+Neither method spends credits, so the descriptor's `cost` is `free`, and both are allowed at every `access`. Any failed
+call, or an entry that cannot be read, fails the whole read with its cursor held, so a page never drops one
+conversation on its own.
+
+ElevenLabs deletes an agent's conversations after its retention period, two years unless it is changed (its docs
+disagree on whether the list row goes too; the source assumes it does). A read that starts before the latest horizon
+among the agents (now less the shortest retention in days) answers `gap: {"reason":"expired","since":<its start>}` on
+its first page only, then lists what survives. An agent with retention 0, or in Zero Retention Mode, keeps no
+conversations by design: the source never sees them and answers no gap for them. A conversation a person deletes is not
+seen either.
 `conversations: "off"` denies `events_list` with the other reads of a call's history; one that runs anyway is refused
 `SOURCE_DISABLED`. There is one account, `default`, which a call passes with its cursor.
 
@@ -278,8 +294,8 @@ contract's own codes:
 | `NEEDS_SIGN_IN` | OpenCode holds no ElevenLabs sign-in, or the server needs one. |
 | `SOURCE_DISABLED` | The `conversations` option is `"off"`. |
 | `RATE_LIMITED` | ElevenLabs refused the list for its rate limit. |
-| `UNAVAILABLE` | The server is not connected or not ElevenLabs', or ElevenLabs' list failed. Call again with the same cursor. |
-| `PERMISSION_DENIED` | A rule denies `elevenlabs_events_list`, `elevenlabs_probe` or `elevenlabs_agents_list_conversations`. |
+| `UNAVAILABLE` | The server is not connected or not ElevenLabs', a read failed, or ElevenLabs answered an entry or a retention it cannot read. Call again with the same cursor. |
+| `PERMISSION_DENIED` | A rule denies `elevenlabs_events_list`, `elevenlabs_probe`, or one of the three reads: `elevenlabs_agents_list_conversations`, `elevenlabs_agents_list`, `elevenlabs_agents_get`. |
 
 ## What scripts cannot do
 

@@ -12,9 +12,9 @@ import { sourceConformance, type ConformanceReport, type PageCase, type SessionC
 import { encodeBoundCursor, encodeCursor } from "@we-the-rebel-alliance/source-contract/cursor"
 import { SOURCES_SCHEMA, type Sources } from "@we-the-rebel-alliance/source-contract/schema"
 import type { ToolCall } from "@we-the-rebel-alliance/source-contract/tools-rpc"
-import { ACCOUNT, LIST_TOOL, SOURCE, SOURCE_ID, eventsMethod, probeMethod, type EventsContext, type EventsState } from "../../src/events.js"
+import { ACCOUNT, OPERATIONS, SOURCE, SOURCE_ID, eventsMethod, probeMethod, type EventsContext, type EventsState } from "../../src/events.js"
 import { TOOLS_RPC_ID } from "../../src/host/tools-rpc.js"
-import { CONVERSATIONS, CREDENTIAL, NOW, SECRET, SINCE, syntheticList } from "./synthetic-conversations.js"
+import { CONVERSATIONS, CREDENTIAL, NOW, SECRET, SINCE, syntheticWorkspace } from "./synthetic-conversations.js"
 
 export const ROOT = fileURLToPath(new URL("../..", import.meta.url))
 export const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as {
@@ -35,36 +35,29 @@ export function declaredSources(): Sources {
 export const declaredTools = () => pkg.jelly.tools.map((tool) => ({ id: tool.name.replace(/^elevenlabs_/, ""), readOnly: tool.readOnly }))
 
 /**
- * Why no single conversation can fail on its own, for the kit's `failed-holds-cursor` check: events_list reads only the
- * list, which answers each page whole, and nothing per conversation.
+ * Why no single conversation can fail on its own, for the kit's `failed-holds-cursor` check: every read events_list
+ * makes is a list (or an agent's settings), and any failure, an unreadable entry included, fails the whole call.
  */
 export const ATOMIC =
-  "events_list reads only agents_list_conversations, which answers each page whole, and reads nothing per conversation: a failed read fails the whole call, so no single conversation fails on its own"
-
-/**
- * Why the kit's `gap-and-cursor-expired` check does not apply: the cursor is the plugin's own position, never an
- * ElevenLabs token.
- */
-export const NO_EXPIRY =
-  "the cursor is the start time and id of the last conversation listed, kept by the plugin, never an ElevenLabs paging token, so it cannot expire; each call queries agents_list_conversations afresh from that start"
+  "a page is read by one to twenty agents_list_conversations calls, plus the agents' retention when the read starts more than a day back; any failed call or unreadable entry fails the whole read and holds the cursor, and nothing is read per conversation, so no single conversation fails on its own"
 
 /** The source's state as setup gives it: ElevenLabs' own server, conversations on. */
 const STATE: EventsState = { managed: () => true, disabled: () => false }
 
-/** OpenCode's executor for the list, answering from the synthetic workspace; it asserts `elevenlabs_<tool>` first, as the host does. */
+/** OpenCode's executors for the three reads, answering from the synthetic workspace; each asserts `elevenlabs_<tool>` first, as the host does. */
 export function context(permission: SessionContext["permission"], options: { readonly credential?: typeof CREDENTIAL | undefined } = {}): EventsContext {
-  const { list } = syntheticList({ conversations: [...CONVERSATIONS, SECRET] })
+  const workspace = syntheticWorkspace({ conversations: [...CONVERSATIONS, SECRET] })
   const credential = "credential" in options ? options.credential : CREDENTIAL
   return {
     tool: {
       list: async () =>
-        [{
-          id: `elevenlabs_${LIST_TOOL}`,
+        OPERATIONS.map((tool) => ({
+          id: `elevenlabs_${tool}`,
           execute: async (input: Record<string, unknown>) => {
-            await permission.assert({ action: `elevenlabs_${LIST_TOOL}`, resources: ["*"] })
-            return list(input)
+            await permission.assert({ action: `elevenlabs_${tool}`, resources: ["*"] })
+            return workspace.execute(tool, input)
           },
-        }] as never,
+        })) as never,
     },
     mcp: { list: async () => ({ data: [{ name: "elevenlabs", status: { status: "connected" }, integrationID: "int_elevenlabs" }] }) as never },
     integration: { connection: { active: async () => credential as never } },
@@ -80,8 +73,8 @@ export const list = (input: Record<string, unknown>, session: SessionContext = o
 export const probe = (input: Record<string, unknown>, session: SessionContext = open) => probeMethod(context(session.permission), STATE).run(input, call())
 
 /** A cursor bound like the source's own, for a test to bend one part of. */
-export const boundCursor = (binding: { plugin: string; source: string; account: string }, owner = CREDENTIAL.id) =>
-  encodeBoundCursor(binding, { o: createHash("sha256").update(`elevenlabs:credential:${owner}`).digest("hex").slice(0, 16), t: Date.parse(SINCE), i: "" })
+export const boundCursor = (binding: { plugin: string; source: string; account: string }, owner = CREDENTIAL.id, at = SINCE) =>
+  encodeBoundCursor(binding, { o: createHash("sha256").update(`elevenlabs:credential:${owner}`).digest("hex").slice(0, 16), t: Date.parse(at), i: "" })
 
 async function cases(): Promise<PageCase[]> {
   const first = (await list({ since: SINCE, limit: 2 }))["cursor"] as string
@@ -92,6 +85,14 @@ async function cases(): Promise<PageCase[]> {
     { name: "what came after the first two", input: { account: ACCOUNT, cursor: first }, expect: "page" },
     { name: "the same, two at a time", input: { account: ACCOUNT, cursor: first, limit: 2 }, expect: "page" },
     { name: "nothing listable since the last listing", input: { account: ACCOUNT, cursor: done }, expect: "empty" },
+    {
+      // Before the 30-day retention of one agent: conversations may have been deleted, so the first page answers the
+      // gap, once, and lists what survives; its cursor, and every later page of the read, carries no gap.
+      name: "a cursor older than an agent's retention horizon, two at a time",
+      input: { account: ACCOUNT, cursor: boundCursor(own, CREDENTIAL.id, "2026-09-01T00:00:00Z"), limit: 2 },
+      expect: "expired",
+    },
+    { name: "a first listing from before the retention horizon", input: { account: ACCOUNT, since: "2026-09-01T00:00:00Z", limit: 3 }, expect: "page" },
     { name: "a cursor without the account it reads", input: { cursor: first }, expect: { refuses: "INPUT_INVALID" } },
     { name: "another account than ElevenLabs' one", input: { account: "work", since: SINCE }, expect: { refuses: "ACCOUNT_MISMATCH" } },
     { name: "a cursor issued for another sign-in", input: { account: ACCOUNT, cursor: boundCursor(own, "cred_someone_else") }, expect: { refuses: "ACCOUNT_MISMATCH" } },
@@ -122,7 +123,6 @@ export async function conformanceReports(): Promise<ConformanceReport[]> {
     sources,
     describe: { id: TOOLS_RPC_ID },
     atomicPages: { reason: ATOMIC },
-    noExpiry: { reason: NO_EXPIRY },
   })
   return [report]
 }

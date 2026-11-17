@@ -5,7 +5,7 @@ import { declarationProblems } from "@we-the-rebel-alliance/source-contract/conf
 import { readInstalledDescriptor } from "@we-the-rebel-alliance/source-contract/descriptor"
 import { ACCOUNT, PACKAGE, SOURCE_ID } from "../../src/events.js"
 import { TOOLS_RPC_ID } from "../../src/host/tools-rpc.js"
-import { ATOMIC, NO_EXPIRY, ROOT, conformanceReports, declaredSources, declaredTools, list, pkg, probe } from "../support/conformance.js"
+import { ATOMIC, ROOT, conformanceReports, declaredSources, declaredTools, list, pkg, probe } from "../support/conformance.js"
 import { SINCE } from "../support/synthetic-conversations.js"
 
 describe("the source contract's conformance kit", () => {
@@ -32,13 +32,12 @@ describe("the source contract's conformance kit", () => {
     expect(report!.problems).toEqual([])
     expect(report!.incomplete).toBe(false)
     expect(report!.ok).toBe(true)
-    // Not applicable, each for its stated reason: one list call per page, a cursor of the plugin's own, and nothing
-    // the source never does (a gap, a removal, a cost, details, scope suggestions, a snapshot).
+    // Not applicable: failed[] for its stated reason (any failure fails the whole read), and what the source never does
+    // (a removal, a cost, details, scope suggestions, a snapshot). The gap checks run, on a cursor behind an agent's
+    // retention horizon.
     const skipped = Object.fromEntries(report!.checks.filter((check) => check.notApplicable).map((check) => [check.name, check.reason ?? null]))
     expect(skipped).toEqual({
       "failed-holds-cursor": ATOMIC,
-      "gap-and-cursor-expired": NO_EXPIRY,
-      "gap-once-per-read": null,
       "removals-are-final": null,
       "billed-cost": null,
       details: null,
@@ -46,7 +45,7 @@ describe("the source contract's conformance kit", () => {
       "output-schema": null,
     })
     expect(report!.checks.filter((check) => check.ran).map((check) => check.name).sort()).toEqual(
-      ["declaration", "identity-grants", "page-result", "probe", "refused-is-final", "rpc-id", "unused-grants"].sort(),
+      ["declaration", "gap-and-cursor-expired", "gap-once-per-read", "identity-grants", "page-result", "probe", "refused-is-final", "rpc-id", "unused-grants"].sort(),
     )
   })
 })
