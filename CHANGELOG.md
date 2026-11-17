@@ -3,7 +3,7 @@
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project follows
 [Semantic Versioning](https://semver.org).
 
-## [Unreleased]
+## [0.0.8] - 2026-11-17
 
 ### Added
 
@@ -13,13 +13,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and thi
   call's direction, status and outcome; never a caller, a transcript or a summary), and `probe` names the sign-in. Both
   only read, through `agents_list_conversations`, `agents_list` and `agents_get` or nothing, and spend no credits;
   every `access` allows them, and `conversations: "off"` denies `events_list`. A read that starts before an agent's
-  retention horizon answers `gap` (`expired`) once; agents that keep no conversations are never seen. `npm run conformance` runs the source contract's conformance kit offline
-  and writes `reports/conformance-report.json`, which a release attaches.
+  retention horizon answers `gap` (`expired`) once; agents that keep no conversations are never seen.
+  `npm run conformance` runs the source contract's conformance kit offline and writes
+  `reports/conformance-report.json`, which a release attaches.
 
 ### Changed
 
 - The tools RPC's transport is source-contract's `tools-rpc` module, pinned in `package.json` and bundled into
   `dist/index.js`, instead of a copy of the family's shared module. Same RPC id, same methods, same answers.
+- Tested on OpenCode 2.2.3, 2.2.4, 2.2.5, 2.2.6, 2.2.7 and 2.3.0 (`TESTED_HOSTS` in `src/constants.ts`); the host range
+  is unchanged, `>=2.2.3 <2.4.0`.
 
 ## [0.0.7] - 2026-11-15
 
