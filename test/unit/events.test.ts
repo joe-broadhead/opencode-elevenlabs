@@ -311,7 +311,7 @@ describe("retention", () => {
     expect((await setup().list({ since: OLD, limit: 2 })).gap).toEqual({ reason: "expired", since: "2026-09-01T00:00:00.000Z" })
   })
 
-  test("a read that starts after the horizon answers no gap; one a day back or newer, or inside an answered gap, reads no retention", async () => {
+  test("a read that starts after the horizon answers no gap; one a day back or newer, or mid-read after a gap, reads no retention", async () => {
     const after = setup()
     expect((await after.list({ account: ACCOUNT, cursor: cursorAt(new Date(HORIZON + 60_000).toISOString()) })).gap).toBeUndefined()
     expect(after.callsTo(AGENT_TOOL).length).toBe(AGENTS.length)
@@ -322,10 +322,53 @@ describe("retention", () => {
     const inside = setup()
     expect((await inside.list({ account: ACCOUNT, cursor: cursorAt(OLD, HORIZON) })).gap).toBeUndefined()
     expect(inside.callsTo(AGENTS_TOOL)).toEqual([])
-    // A cursor whose answered horizon it has passed is checked again.
-    const passed = setup()
-    expect((await passed.list({ account: ACCOUNT, cursor: cursorAt(OLD, Date.parse("2026-08-01T00:00:00Z")) })).gap).toEqual({ reason: "expired", since: "2026-09-01T00:00:00.000Z" })
+    // A cursor that carries an answered horizon is mid-read, even once its position is past it: no second gap.
+    const midRead = setup()
+    expect((await midRead.list({ account: ACCOUNT, cursor: cursorAt(OLD, Date.parse("2026-08-01T00:00:00Z")) })).gap).toBeUndefined()
+    expect(midRead.callsTo(AGENTS_TOOL)).toEqual([])
+    // A finished read's cursor carries none, so a later read from it is checked again.
+    expect((await setup().list({ account: ACCOUNT, cursor: cursorAt(OLD) })).gap).toEqual({ reason: "expired", since: "2026-09-01T00:00:00.000Z" })
   })
+
+  test("under a moving clock, a read that crosses the horizon answers its gap once and skips nothing (busy workspace, 20 phases)", async () => {
+    // A conversation every second around a 30-day agent's horizon, read 100 at a time from before it, the clock moving
+    // one second a page: the horizon moves past the read's position while it pages on.
+    const DAY = 86_400_000
+    const now0 = Date.UTC(2026, 10, 17, 12)
+    const agents: SyntheticAgent[] = [
+      { agent_id: "agent_short", name: "Short", privacy: { retention_days: 30 } },
+      { agent_id: "agent_long", name: "Long", privacy: { retention_days: -1 } },
+    ]
+    const h0 = Math.floor((now0 - 30 * DAY) / 1000)
+    for (let offset = 0; offset < 100; offset += 5) {
+      const conversations = Array.from({ length: 10_800 - offset }, (_, index) =>
+        conversation(index, new Date((h0 - 7200 + offset + index) * 1000).toISOString().replace(".000", ""), { agent_id: "agent_long", agent_name: "Long" }),
+      )
+      let now = now0
+      const workspace = syntheticWorkspace({ conversations, agents })
+      const ctx: EventsContext = {
+        tool: { list: async () => OPERATIONS.map((tool) => ({ id: `elevenlabs_${tool}`, execute: async (input: Record<string, unknown>) => workspace.execute(tool, input) })) as never },
+        mcp: { list: async () => ({ data: [{ name: "elevenlabs", status: { status: "connected" }, integrationID: "int" }] }) as never },
+        integration: { connection: { active: async () => CREDENTIAL as never } },
+        permission: { assert: async () => {} } as never,
+      }
+      const call = { sessionID: "s", agent: "build", messageID: "m", id: "c", signal: new AbortController().signal, progress: async () => {} }
+      const method = eventsMethod(ctx, { managed: () => true, disabled: () => false }, () => now)
+      const seen: string[] = []
+      const gaps: unknown[] = []
+      let input: Record<string, unknown> = { account: ACCOUNT, since: new Date((h0 - 7300) * 1000).toISOString(), limit: 100 }
+      for (let page = 0; page < 500; page++) {
+        const result = (await method.run(input, call)) as any
+        seen.push(...result.events.map((event: any) => event.external_id))
+        if (result.gap) gaps.push(result.gap)
+        now += 1000
+        if (!result.more) break
+        input = { account: ACCOUNT, cursor: result.cursor, limit: 100 }
+      }
+      expect({ offset, gaps: gaps.length }).toEqual({ offset, gaps: 1 })
+      expect({ offset, listed: seen.length, unique: new Set(seen).size }).toEqual({ offset, listed: conversations.length, unique: conversations.length })
+    }
+  }, 120_000)
 
   test("reads active and archived agents, one agents_get each, and no more list calls than it needs", async () => {
     const source = setup()

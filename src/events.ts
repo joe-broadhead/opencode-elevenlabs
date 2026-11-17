@@ -40,7 +40,7 @@ import { reasonOf } from "./redact.js"
  * audio, so the source takes the conservative reading: it does. A read that starts before the latest horizon among the
  * agents that keep conversations for a number of days (now less that many days) may have lost conversations, so its
  * first page answers `gap: { reason: "expired", since: <its start> }`, once, and goes on to list what survives; the
- * cursor records the horizon it answered, so no later page of the read repeats it. An agent with `retention_days` 0, or
+ * cursor records the horizon it answered until the read ends, so no later page of the read repeats it. An agent with `retention_days` 0, or
  * in Zero Retention Mode, keeps no conversations by design: the source never sees them, and answers no gap for them. A
  * conversation a person deletes is not seen either, and is not answered.
  *
@@ -522,10 +522,11 @@ export async function listEvents(read: Read, owner: EventsOwner | undefined, inp
   const after: Key = cursor?.key ?? { t: startTime(request, now), i: "" }
 
   // Retention: a read that starts more than a day back may have lost conversations an agent's retention deleted, unless
-  // a gap the cursor already answered covers its start. Nothing a day old or newer can have been deleted that way.
+  // the cursor carries the horizon of a gap this read already answered. Nothing a day old or newer can have been
+  // deleted that way.
   let answered = cursor?.answered
   let gap: { readonly reason: "expired"; readonly since: string } | undefined
-  if (now - after.t > DAY_MS && !(answered !== undefined && after.t < answered)) {
+  if (now - after.t > DAY_MS && answered === undefined) {
     const horizon = await retentionHorizon(read, now)
     if (horizon !== undefined && after.t < horizon) {
       gap = { reason: "expired", since: new Date(after.t).toISOString() }
@@ -550,8 +551,9 @@ export async function listEvents(read: Read, owner: EventsOwner | undefined, inp
   const lastConversation = chosen[last]
   const position: Key = lastConversation ? keyOf(lastConversation) : after
   const more = listable.length > last + 1 || (!complete && blockedAt === -1)
-  // The cursor keeps the horizon a gap answered while the read is still behind it, so no later page repeats the gap.
-  const keep = answered !== undefined && position.t < answered
+  // The cursor keeps the horizon a gap answered until the read ends (more is false) and while it is still behind it, so
+  // no later page of the read repeats the gap, however far the horizon moves while the read pages on.
+  const keep = answered !== undefined && (position.t < answered || more)
   const next = encodeBoundCursor(BINDING, { o: ownerDigest, t: position.t, i: position.i, ...(keep ? { h: answered } : {}) })
   return eventsListResult({ source: SOURCE, account: ACCOUNT, owner }, page, next, more, { refused, ...(gap ? { gap } : {}), plugin: PACKAGE, asOf: new Date(now).toISOString() })
 }
