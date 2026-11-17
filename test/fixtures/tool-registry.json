@@ -1,6 +1,7 @@
 {
   "own": [
-    "save_media"
+    "save_media",
+    "events_list"
   ],
   "tools": {
     "agents_query_knowledge_base_rag": {

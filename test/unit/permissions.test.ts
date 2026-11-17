@@ -23,6 +23,8 @@ describe("the default rules", () => {
     expect(rules).toEqual([
       { action: "elevenlabs_*", resource: "*", effect: "allow" },
       ...READ_TOOLS.map((tool): Rule => ({ action: `elevenlabs_${tool}`, resource: "*", effect: "allow" })),
+      { action: "elevenlabs_events_list", resource: "*", effect: "allow" },
+      { action: "elevenlabs_probe", resource: "*", effect: "allow" },
       ...[...EXPORT_TOOLS, ...WRITE_TOOLS, ...SPEND_TOOLS, ...DESTRUCTIVE_TOOLS].map((tool): Rule => ({ action: `elevenlabs_${tool}`, resource: "*", effect: "allow" })),
     ])
     expect(effects(rules)).toEqual(["allow", "allow", "allow", "allow"])

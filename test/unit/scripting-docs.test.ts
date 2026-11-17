@@ -5,12 +5,15 @@ import { describe, expect, test } from "bun:test"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
+import { eventsMethod, probeMethod } from "../../src/events.js"
 import { METHODS, TOOLS_RPC_ID } from "../../src/host/tools-rpc.js"
 import { LIVE } from "./elevenlabs-catalog.js"
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url))
 const FILES = ["docs/scripting.md", "README.md"]
-const METHODS_BY_NAME = new Map(METHODS.map((method) => [method.name, method]))
+// The table, and the source contract's two methods setup registers beside it.
+const STATE = { managed: () => true, disabled: () => false }
+const METHODS_BY_NAME = new Map([...METHODS, eventsMethod({} as never, STATE), probeMethod({} as never, STATE)].map((method) => [method.name, method]))
 
 /** Every `opencode api post /api/rpc/…` call in a file, as its method name and its parsed body. */
 function calls(text: string): { file: string; line: number; method: string; body: unknown; statement: string }[] {

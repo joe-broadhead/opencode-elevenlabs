@@ -4,7 +4,7 @@ import { describe, expect, test } from "bun:test"
 import { readdirSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
-import { PLUGIN_CODES, RPC_CODES } from "../../src/constants.js"
+import { PLUGIN_CODES, RPC_CODES, SOURCE_CODES } from "../../src/constants.js"
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url))
 const read = (file: string) => readFileSync(join(ROOT, file), "utf8")
@@ -42,7 +42,7 @@ const SCRIPTING = read("docs/scripting.md")
 describe("codes", () => {
   test("every code raised in src is in one of the two tables", () => {
     // ACCOUNT_UNKNOWN comes from the shared tools RPC and only exists for per-account servers; this plugin has none.
-    const known = new Set<string>([...PLUGIN_CODES, ...RPC_CODES, "ACCOUNT_UNKNOWN"])
+    const known = new Set<string>([...PLUGIN_CODES, ...RPC_CODES, ...SOURCE_CODES, "ACCOUNT_UNKNOWN"])
     // Not plugin codes: HTTP methods, JSON Schema and platform names a description quotes, and Node's errno codes.
     const plain = new Set([
       "GET", "HEAD", "PUT", "PATCH", "DELETE", "POST", "UTC", "JSON", "MCP", "UUID",
@@ -58,8 +58,9 @@ describe("codes", () => {
     expect(tableCodes(TROUBLESHOOTING).sort()).toEqual([...PLUGIN_CODES].sort())
   })
 
-  test("docs/scripting.md lists exactly the tools RPC's codes, plus the plugin's two refusals", () => {
-    // R1's refusal table: the shared codes, then the plugin's own codes for a refused billed call.
-    expect(tableCodes(SCRIPTING).sort()).toEqual([...RPC_CODES, "PRICE_UNKNOWN", "SPEND_CAP_REACHED"].sort())
+  test("docs/scripting.md lists exactly the tools RPC's codes, the plugin's two refusals, and the source contract's codes", () => {
+    // R1's refusal table: the shared codes, then the plugin's own codes for a refused billed call; then the source
+    // contract's table, for events_list and probe. PERMISSION_DENIED is in both.
+    expect([...new Set(tableCodes(SCRIPTING))].sort()).toEqual([...new Set([...RPC_CODES, "PRICE_UNKNOWN", "SPEND_CAP_REACHED", ...SOURCE_CODES])].sort())
   })
 })

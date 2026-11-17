@@ -22,6 +22,8 @@ const NEW = NEW_TOOL.name
 const SIGN_IN = "Run /connect and choose ElevenLabs, then press o or Enter to open the link (in a terminal, opencode mcp auth elevenlabs opens it automatically)."
 /** The fake's tools: a read, a write, a delete, a signed link, a speech and an image generation, and one unknown tool. */
 const SERVED = [READ, WRITE, DELETE, LINK, SPEECH, IMAGE, NEW].map((tool) => `elevenlabs_${tool}`).sort()
+/** The plugin's own tools in the same namespace: the save tool and the source contract's events_list. */
+const OWN = ["elevenlabs_save_media", "elevenlabs_events_list"]
 
 // Starting a host takes several seconds, more on a busy machine.
 setDefaultTimeout(120_000)
@@ -39,7 +41,7 @@ const hidden = (rules: readonly Rule[], action: string) => {
 const elevenlabsTools = (host: Host) =>
   until("ElevenLabs' tools are registered", async () => {
     const ids = (await host.probe().tool.list()).map((tool) => tool.id).filter((id) => id.startsWith("elevenlabs_"))
-    const wanted = [...SERVED, "elevenlabs_save_media"].sort()
+    const wanted = [...SERVED, ...OWN].sort()
     return ids.length === wanted.length && ids.sort()
   })
 
@@ -94,7 +96,7 @@ describe(`the plugin's own server on OpenCode ${HOST_VERSION}`, () => {
     expect(plugins.find((plugin) => plugin.id === "elevenlabs")?.state.status).toBe("active")
     const { data: servers } = await host.client.mcp.list({ location: host.location })
     expect(servers.find((server) => server.name === "elevenlabs")?.status).toEqual({ status: "connected" })
-    expect(await elevenlabsTools(host)).toEqual([...SERVED, "elevenlabs_save_media"].sort())
+    expect(await elevenlabsTools(host)).toEqual([...SERVED, ...OWN].sort())
     const { data: skills } = await host.client.skill.list({ location: host.location })
     expect(skills.map((skill) => skill.id).filter((id) => id.startsWith("elevenlabs")).sort()).toEqual([...SKILL_NAMES].sort())
     const { data: commands } = await host.client.command.list({ location: host.location })
@@ -128,7 +130,7 @@ describe(`the plugin's own server on OpenCode ${HOST_VERSION}`, () => {
     expect(await attempt(host, build, "build", WRITE)).toEqual({ asked: undefined, ok: true })
     expect(host.fake.calls.slice(before)).toEqual([READ, NEW, WRITE])
     const rules = (await agentRules(host)).get("build")!
-    expect([...SERVED, "elevenlabs_save_media"].filter((action) => hidden(rules, action))).toEqual([])
+    expect([...SERVED, ...OWN].filter((action) => hidden(rules, action))).toEqual([])
     expect(await effect(host, "build", `elevenlabs_${NEW}`)).toBe("allow")
   })
 
@@ -602,7 +604,7 @@ describe("the forced Code Mode catalogue", () => {
 
   test("stays at most 1,000 tokens, and still names the skill to read first", async () => {
     // Measure the full catalogue: every served tool registered, not just the plugin's own one.
-    expect(await elevenlabsTools(host)).toHaveLength(SERVED.length + 1)
+    expect(await elevenlabsTools(host)).toHaveLength(SERVED.length + OWN.length)
     const sessionID = await session(host)
     await host.client.sessions.prompt({ sessionID, text: "Reply with ok." } as never)
     await until("the catalogue reaches the model", async () => captured.includes("- elevenlabs ("))

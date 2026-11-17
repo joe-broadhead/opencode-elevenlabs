@@ -240,6 +240,47 @@ OpenCode itself answers `rpc.method_not_found` for a method that does not exist,
 | `input` not an object | `"input" must be an object` |
 | `describe` given anything but `{}`, a session or nothing | `describe takes nothing, or {"sessionID":"<session>"}` |
 
+## The conversations source
+
+The plugin declares one [source contract](https://github.com/we-the-rebel-alliance/source-contract) source in
+`package.json`'s `sources`, `elevenlabs.conversations`, read through two methods of this RPC beside the table above:
+
+- `events_list` (action `elevenlabs_events_list`, also a tool): the conversations the workspace's agents had since a
+  cursor, as normalised events, oldest first. Each event is metadata only: the conversation's id, its start, the agent
+  as the one actor (`elevenlabs:<agent id>` and its name), a title of the agent's name with the call's direction,
+  status and outcome (`Support Desk: inbound call, done, successful`), and the labels `status:`, `outcome:` and
+  `direction:`. Its `text` is always empty and its `url` null: the callers are other people, so no caller, number,
+  transcript, summary, score or feedback is ever in it, and ElevenLabs gives no link to a conversation. A conversation
+  is listed once it is `done` or `failed`, or two hours after its start, so its outcome is known.
+- `probe` (action `elevenlabs_probe`, a method only): who is signed in. ElevenLabs has no tool that names the account
+  or the workspace, so the owner is OpenCode's sign-in for the `elevenlabs` server, `elevenlabs:credential:` and the
+  credential's id, labelled with its label: a new sign-in is a new owner. It calls ElevenLabs for nothing.
+
+`events_list` reads only `agents_list_conversations`, a free read: 100 at a time, oldest first, without transcript
+summaries. Neither method spends credits, so the descriptor's `cost` is `free`, and both are allowed at every `access`.
+`conversations: "off"` denies `events_list` with the other reads of a call's history; one that runs anyway is refused
+`SOURCE_DISABLED`. There is one account, `default`, which a call passes with its cursor.
+
+```sh
+opencode api post /api/rpc/elevenlabs.tools/events_list -H "x-opencode-directory:$PWD" -d '{"input":{"sessionID":"ses_…","input":{"since":"2026-11-01T00:00:00Z","limit":50}}}'
+```
+
+The page holds the source, the account, the owner, the events, a `cursor` to pass back with `"account":"default"`, and
+`more`. The cursor is the start and id of the last conversation listed, so it never expires. Its refusals carry the
+contract's own codes:
+
+| Code | When |
+| --- | --- |
+| `INPUT_INVALID` | The input has an unknown key, a `limit` outside 1 to 500, a `since` that is not an ISO date or date-time, or a cursor without `"account":"default"`. |
+| `SOURCE_UNKNOWN` | `source` is not `elevenlabs`. |
+| `ACCOUNT_MISMATCH` | `account` is not `default`, or the cursor was issued for another sign-in than the one OpenCode holds now. |
+| `CURSOR_INVALID` | The cursor was not issued by this source's `events_list`. Start again with `since`. |
+| `NEEDS_SIGN_IN` | OpenCode holds no ElevenLabs sign-in, or the server needs one. |
+| `SOURCE_DISABLED` | The `conversations` option is `"off"`. |
+| `RATE_LIMITED` | ElevenLabs refused the list for its rate limit. |
+| `UNAVAILABLE` | The server is not connected or not ElevenLabs', or ElevenLabs' list failed. Call again with the same cursor. |
+| `PERMISSION_DENIED` | A rule denies `elevenlabs_events_list`, `elevenlabs_probe` or `elevenlabs_agents_list_conversations`. |
+
 ## What scripts cannot do
 
 - Call a tool that ElevenLabs adds later, even with an allow rule, until this plugin classifies it. Such a tool still

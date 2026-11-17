@@ -6,7 +6,7 @@ import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { GENERATION_KEYS, PRICED_ARGUMENTS } from "../../src/billing.js"
 import { PLUGIN_CODES, TESTED_HOSTS } from "../../src/constants.js"
-import { ALL_TOOLS, CONVERSATION_TOOLS, OWN_TOOLS, READ_TOOLS, SPEND_TOOLS, TRANSCRIPT_TOOLS } from "../../src/elevenlabs-tools.js"
+import { ALL_TOOLS, CONVERSATION_TOOLS, OWN_TOOLS, READ_TOOLS, SOURCE_TOOLS, SPEND_TOOLS, TRANSCRIPT_TOOLS } from "../../src/elevenlabs-tools.js"
 import { defaultRules } from "../../src/permissions.js"
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url))
@@ -30,8 +30,9 @@ const flat = (file: string) => text(file).replace(/\s+/g, " ")
 describe("docs", () => {
   test.each(FILES)("%s names only ElevenLabs tools the plugin knows", (file) => {
     const named = [...flat(file).matchAll(/\belevenlabs_([a-z][a-z_]*)(?![\w*])/g)].map((match) => match[1]!)
-    // `elevenlabs_save_media` is the plugin's own tool; everything else is ElevenLabs'.
-    expect(named.filter((tool) => ![...ALL_TOOLS, ...OWN_TOOLS].includes(tool))).toEqual([])
+    // `elevenlabs_save_media` is the plugin's own tool, and `elevenlabs_events_list` and `elevenlabs_probe` the source
+    // contract's actions; everything else is ElevenLabs'.
+    expect(named.filter((tool) => ![...ALL_TOOLS, ...OWN_TOOLS, ...SOURCE_TOOLS].includes(tool))).toEqual([])
   })
 
   // S5: version numbers live in package.json and the CHANGELOG heading only, and nothing says the package is unreleased.

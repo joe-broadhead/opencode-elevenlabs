@@ -10,8 +10,8 @@ const self = fileURLToPath(import.meta.url)
 const ROOTS = ["src", "test", "scripts", "dist"]
 const MEMBER = String.raw`\s*(?:\?\.|\.)\s*`
 const PERMISSION_HOOK = new RegExp(String.raw`\bpermission${MEMBER}hook\b`)
-/** The copy of the module shared by several plugins, and the bundle that inlines it. */
-const TOOLS_RPC = ["src/host/tools-rpc.ts", "dist/index.js"]
+/** The bundle that inlines the tools RPC's transport, source-contract's `tools-rpc` module: its one evaluate hook. */
+const TOOLS_RPC = ["dist/index.js"]
 
 const RULES = [
   { id: "fork-marker", pattern: /dispatch[-_ ]?lease|catalog[-_ ]?ownership|text[-_ ]?only[-_ ]?respons/i, why: "dispatch-lease, ownership and text-only markers are fork-only" },
@@ -24,7 +24,7 @@ const RULES = [
   { id: "experimental-policies", pattern: new RegExp(String.raw`\bexperimental${MEMBER}policies\b`), why: "experimental.policies is deprecated" },
   { id: "opencode-ai-import", pattern: /["'`]@opencode\/ai(?:\/[^"'`]*)?["'`]/, why: "@opencode/ai breaks between patch releases; import only @opencode/plugin" },
   // The tools RPC's evaluate hook only turns an ask on one of its own script calls in flight into a deny, because no one
-  // can answer it. It is allowed there, and in the bundle that inlines it, exactly once (counted below).
+  // can answer it. It lives in source-contract's transport, so it is allowed only in the bundle that inlines it, exactly once (counted below).
   { id: "permission-hook", pattern: PERMISSION_HOOK, why: "no escalating permission hook; default rules go through ctx.agent.transform", except: TOOLS_RPC },
   { id: "host-source", pattern: /packages\/(?:core|plugin|schema)\/src\b|opencode-[\w-]*-host\b|\bconsumer-host\b/, why: "never reference or import private host source or host checkouts" },
   { id: "absolute-path", pattern: /\/Users\/[^/\s"'`]+\/|\/home\/[^/\s"'`]+\/|\/(?:private\/)?var\/folders\/|(?<![\w.:/-])\/tmp\/|[A-Za-z]:\\\\?Users\\/, why: "machine-local home and temp paths do not belong in the repository; make temp folders with mkdtemp under realpathSync(\"/tmp\"), or use a relative path" },

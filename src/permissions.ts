@@ -6,6 +6,7 @@ import {
   DESTRUCTIVE_TOOLS,
   EXPORT_TOOLS,
   READ_TOOLS,
+  SOURCE_TOOLS,
   SPEND_TOOLS,
   TRANSCRIPT_TOOLS,
   WRITE_TOOLS,
@@ -28,7 +29,10 @@ const rule = (tool: string, effect: Rule["effect"]): Rule => ({ action: actionOf
  * denies come last, so they win over the block's own allows and over the `elevenlabs_*` namespace rule.
  */
 export const conversationDenies = (conversations: Conversations): readonly string[] =>
-  conversations === "off" ? [...CONVERSATION_TOOLS, ...CONVERSATION_PATTERNS] : conversations === "summary" ? [...TRANSCRIPT_TOOLS, ...TRANSCRIPT_PATTERNS] : []
+  conversations === "off" ? [...CONVERSATION_TOOLS, ...CONVERSATION_SOURCE, ...CONVERSATION_PATTERNS] : conversations === "summary" ? [...TRANSCRIPT_TOOLS, ...TRANSCRIPT_PATTERNS] : []
+
+/** The source contract's read of the conversations' metadata (src/events.ts), which `off` stops with the rest. */
+const CONVERSATION_SOURCE: readonly string[] = ["events_list"]
 
 /**
  * Patterns for the words a tool that returns a call's words carries, whatever it is called exactly. Bare, because the
@@ -56,6 +60,8 @@ export const defaultRules = (access: Access = "all", conversations: Conversation
   return [
     rule("*", other),
     ...READ_TOOLS.map((tool) => rule(tool, "allow")),
+    // The source contract's reads: the plugin's own, free, and allowed like ElevenLabs' reads.
+    ...SOURCE_TOOLS.map((tool) => rule(tool, "allow")),
     ...[...EXPORT_TOOLS, ...WRITE_TOOLS, ...SPEND_TOOLS, ...DESTRUCTIVE_TOOLS].map((tool) => rule(tool, other)),
     // Exact names first, then the patterns: a rule's action may be a pattern, and the last matching rule wins.
     ...conversationDenies(conversations).map((tool) => rule(tool, "deny")),

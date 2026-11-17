@@ -73,6 +73,21 @@ opencode api post /api/rpc/elevenlabs.tools/agents_list -H "x-opencode-directory
 [docs/scripting.md](https://github.com/joe-broadhead/opencode-elevenlabs/blob/HEAD/docs/scripting.md) has the envelope,
 the estimate path and every refusal.
 
+### The conversations source
+
+The plugin declares one [source contract](https://github.com/we-the-rebel-alliance/source-contract) source,
+`elevenlabs.conversations`, so a collector such as Memory or a dashboard can read the workspace's calls without the
+model. `elevenlabs_events_list` (a tool, and an `events_list` method of the RPC above) lists the conversations the
+workspace's agents had since a cursor, oldest first, and `probe` names the sign-in.
+
+Each event is metadata only, because the callers are other people: the conversation's id, its start, the agent as its
+one actor, and a title of the agent's name with the call's direction, status and outcome, such as
+`Support Desk: inbound call, done, successful`. No caller's name or number, no transcript, summary, score or feedback,
+and no link. A conversation is listed once it is done or failed, or two hours after it started. Reading goes through
+`agents_list_conversations` only, a free read, so it spends no credits; `conversations: "off"` turns it off.
+ElevenLabs names no account, so the owner is OpenCode's sign-in for ElevenLabs. `npm run conformance` runs the
+contract's kit offline and writes the report each release carries.
+
 `/elevenlabs-status` prints the connection, the account, the region, the spend, the tools and one next step.
 `/elevenlabs` opens the same report in a dialog. `/elevenlabs-doctor` makes the live checks a status report cannot.
 
@@ -343,6 +358,8 @@ it is folded here:
   { "action": "elevenlabs_creative_list_flows", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_list_voices", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_show_flow_results", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_events_list", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_probe", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_get_signed_url", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_add_triage_ticket_comment", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_add_triage_ticket_turn_comment", "resource": "*", "effect": "allow" },
@@ -497,7 +514,8 @@ the agent was told to extract. **No redaction is applied**: the point of reading
 - `conversations: "summary"` denies the transcript tools — `agents_get_conversation`, its summary, the two message
   searches and `agents_get_conversation_audio_url`, which links the call's recording — and keeps the metadata reads.
 - `conversations: "off"` denies those and every other read of a call's history too: `agents_list_conversations`, the
-  counts, `agents_query_workspace_conversations` and the batch calls' recipient lists.
+  counts, `agents_query_workspace_conversations` and the batch calls' recipient lists, and the source contract's
+  `events_list` (the conversations source below).
 
 The skills tell the model to summarise rather than quote, and never to move a caller's details anywhere else.
 

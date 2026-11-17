@@ -31,7 +31,9 @@ describe("the jelly declaration", () => {
     // Every tool is allowed by default, so Jelly's declaration allows the billed and destructive tools too.
     for (const tool of [...EXPORT_TOOLS, ...WRITE_TOOLS, ...SPEND_TOOLS, ...DESTRUCTIVE_TOOLS]) expect(byPermission.get(`elevenlabs_${tool}`)).toMatchObject({ effect: "allow", readOnly: false })
     for (const tool of OWN_TOOLS) expect(byPermission.get(`elevenlabs_${tool}`)).toMatchObject({ effect: "allow", readOnly: false })
-    expect(jelly.tools.map((tool) => tool.permission)).toEqual([...READ_TOOLS, ...ALL_TOOLS.filter((tool) => !READ_TOOLS.includes(tool)), ...OWN_TOOLS].map((tool) => `elevenlabs_${tool}`))
+    // The source read events_list is the plugin's own and read-only, so it follows ElevenLabs' reads.
+    expect(byPermission.get("elevenlabs_events_list")).toMatchObject({ effect: "allow", readOnly: true })
+    expect(jelly.tools.map((tool) => tool.permission)).toEqual([...READ_TOOLS, "events_list", ...ALL_TOOLS.filter((tool) => !READ_TOOLS.includes(tool)), ...OWN_TOOLS].map((tool) => `elevenlabs_${tool}`))
   })
 
   test("has no views, RPC or Home contributions, and two sign-ins: the elevenlabs server, and the optional balance key", () => {

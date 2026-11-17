@@ -13,6 +13,7 @@ import {
   SERVER_NAME,
 } from "./constants.js"
 import { runDoctor } from "./doctor.js"
+import { eventsMethod, probeMethod, registerEvents, type EventsState } from "./events.js"
 import { checkHost } from "./host-version.js"
 import { registerToolsRpc, setToolRuntime, shapersFor, METHODS, type ToolRuntime } from "./host/tools-rpc.js"
 import { watchIntegration } from "./integration.js"
@@ -254,6 +255,9 @@ export function createElevenlabsPlugin(seam: ElevenlabsSeam = {}) {
           ...(seam.fetch === undefined ? {} : { fetch: seam.fetch }),
         })(editor)
       })
+      // The source contract's events_list, as a tool beside ElevenLabs' own (src/events.ts); probe is a tools-RPC method only.
+      const sourceState: EventsState = { managed, disabled: () => options.conversations === "off" }
+      await registerEvents(ctx, sourceState)
       await registerDefaultRules(ctx.agent, defaultRules(options.access, options.conversations), report("rules"))
       await registerBalanceIntegration(ctx.integration)
       // A region change leaves the earlier region's sign-in stored and unlisted. The plugin cannot delete it, so it lists
@@ -326,7 +330,7 @@ export function createElevenlabsPlugin(seam: ElevenlabsSeam = {}) {
       const runtime: ToolRuntime = { ledger, caps, save }
       setToolRuntime(runtime)
       const stopTools = await registerToolsRpc(ctx, {
-        methods: METHODS,
+        methods: [...METHODS, eventsMethod(ctx, sourceState), probeMethod(ctx, sourceState)],
         mcp: { server: SERVER_NAME, managed: () => source?.type !== "conflict" },
         // The shapers are this location's own, so a second location never prices or saves with the first one's ledger.
         shapers: shapersFor(runtime),
