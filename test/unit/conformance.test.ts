@@ -16,7 +16,10 @@ describe("the source contract's conformance kit", () => {
     const sources = declaredSources()
     expect(sources.rpc).toBe(TOOLS_RPC_ID)
     expect(pkg.name).toBe(PACKAGE)
-    expect(sources.items.map((item) => [item.id, item.kind])).toEqual([[SOURCE_ID, "events"]])
+    expect(sources.items.map((item) => [item.id, item.kind])).toEqual([
+      [SOURCE_ID, "events"],
+      ["elevenlabs.conversations.list", "snapshot"],
+    ])
   })
 
   test("the descriptor and the reads agree: one account, default, which probe names and every page carries", async () => {
