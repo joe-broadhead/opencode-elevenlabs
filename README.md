@@ -9,7 +9,7 @@ ElevenLabs is a trademark of Eleven Labs Inc.; this unofficial plugin is not end
 
 ## Requirements
 
-- OpenCode `>=2.2.3 <2.4.0`. Tested on 2.2.3, 2.2.4, 2.2.5, 2.2.6, 2.2.7 and 2.3.0.
+- OpenCode `>=2.2.3 <2.4.0`. Tested on 2.2.3, 2.2.4, 2.2.5, 2.2.6, 2.2.7, 2.3.0, 2.3.1 and 2.3.2.
 - macOS or Linux.
 - An ElevenLabs account with a workspace. Generations spend that workspace's credits.
 

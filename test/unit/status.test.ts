@@ -109,7 +109,7 @@ describe("buildStatus", () => {
     const status = buildStatus({ ...base, host: checkHost("2.2.99", false) })
     expect(status.host.tested).toBe(false)
     expect(row(status, "OpenCode")).toContain("2.2.99 (untested; supported range >=2.2.3 <2.4.0)")
-    expect(TESTED_HOSTS).toEqual(["2.2.3", "2.2.4", "2.2.5", "2.2.6", "2.2.7", "2.3.0"])
+    expect(TESTED_HOSTS).toEqual(["2.2.3", "2.2.4", "2.2.5", "2.2.6", "2.2.7", "2.3.0", "2.3.1", "2.3.2"])
   })
 
   test("the agent fix prints the block for the current options, in full", () => {
