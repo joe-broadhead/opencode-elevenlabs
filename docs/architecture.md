@@ -38,7 +38,7 @@ place and keeps the modules it already loaded for unchanged paths. Only `@openco
 ## Setup
 
 1. `parseOptions` validates the options; anything wrong fails with `OPTIONS_INVALID`.
-2. `checkHost` compares `ctx.app.version` with `>=2.2.3 <2.4.0`. Inside it the plugin starts; status calls only 2.2.3, 2.2.4, 2.2.5, 2.2.6, 2.2.7 and 2.3.0 tested. Outside it, setup fails with `HOST_UNTESTED` unless `allowUntestedHost` is set.
+2. `checkHost` compares `ctx.app.version` with `>=2.2.3 <2.4.0`. Inside it the plugin starts; status calls only 2.2.3, 2.2.4, 2.2.5, 2.2.6, 2.2.7, 2.3.0, 2.3.1 and 2.3.2 tested. Outside it, setup fails with `HOST_UNTESTED` unless `allowUntestedHost` is set.
 3. The ledger is read from `ctx.storage` once, so the 24-hour total survives a reload.
 4. `ctx.mcp.transform` registers `elevenlabs` at the selected region's URL, with `oauth.scope` pinned to seven scopes, or
    adopts the user's own entry at exactly that URL. Another region's URL is `stale`; any other is `conflict`.
@@ -58,7 +58,7 @@ place and keeps the modules it already loaded for unchanged paths. Only `@openco
 Transforms are synchronous and never throw: a failure is kept as a problem for status, and cleared when the next replay
 succeeds.
 
-## Platform facts (OpenCode 2.2.3 to 2.2.7 and 2.3.0)
+## Platform facts (OpenCode 2.2.3 to 2.3.2)
 
 - **The sign-in is CIMD.** ElevenLabs' authorization server advertises `client_id_metadata_document_supported: true` and
   no registration endpoint, so OpenCode sends its own client metadata document
@@ -75,6 +75,11 @@ succeeds.
 - **The hooks.** `execute.before` can change an MCP call's arguments on the model path and in Code Mode, and
   `execute.after` can add to a result. The tools RPC's executor bypasses both, so the same guard runs there through the
   block's own shapers.
+- **Unattended Code Mode.** Up to 2.3.0 a schedule's `if: { code }` check runs once at creation, with asks settled
+  unattended. From 2.3.1 `experimental.automation` replaces `experimental.schedule`: a code action's tools are
+  authorized at creation the same way (an ask or a deny is refused), and the program runs, under an unattended grant
+  for those tools, when the scheduler finds it due. Only a server process starts the scheduler; the host test starts it
+  in its embedded host. The flag is `experimental.automations`, also read as `experimental.schedules`.
 - **A plugin tool's declared permission only hides it on a deny.** Every plugin-owned tool that writes asserts its own
   action inside `execute`; `elevenlabs_save_media` does, on both paths.
 - **Changing a server's URL changes its integration id** (`mcp_` + `sha1(name\0url)`), so a region change needs a new

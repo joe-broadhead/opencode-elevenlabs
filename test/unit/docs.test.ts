@@ -60,7 +60,7 @@ describe("docs", () => {
     const uninstall = /## Uninstall(.*?)## Links/.exec(flat("README.md"))?.[1] ?? ""
     const logout = uninstall.indexOf("opencode mcp logout elevenlabs")
     const check = uninstall.indexOf("opencode auth list")
-    const remove = uninstall.indexOf("opencode plugin remove github:joe-broadhead/opencode-elevenlabs#v0.0.8")
+    const remove = uninstall.indexOf("opencode plugin remove github:joe-broadhead/opencode-elevenlabs#v0.0.9")
     expect(logout).toBeGreaterThanOrEqual(0)
     expect(check).toBeGreaterThan(logout)
     expect(remove).toBeGreaterThan(check)
@@ -232,7 +232,7 @@ describe("tested hosts", () => {
   // A release inside the range that ships later is the untested example, so it must be one that never ships.
   test("the untested example is 2.2.99 or absent, and no doc names a future release as tested", () => {
     const all = SOURCES.map(([, body]) => body).join("\n")
-    expect(all).not.toMatch(/\b2\.(?:2\.(?:[89]|9[0-8])|3\.(?:[1-9]|[1-9]\d))\b(?!\d)/)
+    expect(all).not.toMatch(/\b2\.(?:2\.(?:[89]|9[0-8])|3\.(?:[3-9]|[1-9]\d))\b(?!\d)/)
     expect(readFileSync(join(ROOT, "test/unit/host-version.test.ts"), "utf8")).toContain("2.2.99")
   })
 })

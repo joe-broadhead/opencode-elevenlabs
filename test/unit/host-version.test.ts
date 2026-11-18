@@ -4,7 +4,7 @@ import { SUPPORTED_HOST, TESTED_HOSTS } from "../../src/constants.js"
 import { checkHost, isSupportedHost, isTestedHost } from "../../src/host-version.js"
 
 describe("host guard", () => {
-  test.each(["2.2.3", "2.2.4", "2.2.5", "2.2.6", "2.2.7", "2.3.0"])("calls %s tested", (version) => {
+  test.each(["2.2.3", "2.2.4", "2.2.5", "2.2.6", "2.2.7", "2.3.0", "2.3.1", "2.3.2"])("calls %s tested", (version) => {
     expect(isTestedHost(version)).toBe(true)
     expect(checkHost(version, false)).toEqual({ version, range: SUPPORTED_HOST, tested: true })
   })
@@ -38,7 +38,7 @@ describe("host guard", () => {
   test("the supported range is the package's opencode.host, and the tested releases lie inside it", () => {
     const pkg = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8"))
     expect(pkg.opencode.host).toBe(SUPPORTED_HOST)
-    expect(TESTED_HOSTS).toEqual(["2.2.3", "2.2.4", "2.2.5", "2.2.6", "2.2.7", "2.3.0"])
+    expect(TESTED_HOSTS).toEqual(["2.2.3", "2.2.4", "2.2.5", "2.2.6", "2.2.7", "2.3.0", "2.3.1", "2.3.2"])
     for (const version of TESTED_HOSTS) expect(isSupportedHost(version)).toBe(true)
   })
 })

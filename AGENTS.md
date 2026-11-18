@@ -10,7 +10,10 @@ This repository is an OpenCode plugin. Read the README for what it does; this fi
   tested release; once unset it falls back to the locked SDK with a notice.
 - `npm run drift` compares the plugin's tool table with `test/fixtures/live-tools.json`.
 - The host suite needs Bun 1.4.4 and Node 24. It starts an embedded OpenCode, so it must not run against a real account:
-  the fake server is loopback only, and any fetch that leaves loopback fails the run.
+  the fake server is loopback only, and any fetch that leaves loopback fails the run. On 2.3.1 and later the harness
+  builds that host through `PromiseSdk.create`, which `OpenCode.create` calls, with the SDK's `overrides` so that its
+  Automation service also runs the scheduler, as `opencode serve` does: Code Mode with nobody present runs there as an
+  automation's code action (`unattended` in `test/host/harness.ts`).
 
 ## Forbidden in this repository
 

@@ -3,6 +3,12 @@
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project follows
 [Semantic Versioning](https://semver.org).
 
+## [0.0.9] - 2026-11-18
+
+### Changed
+
+- OpenCode 2.3.1 and 2.3.2 join the tested releases, so the host, pack and CI stages run on each: tested on 2.2.3, 2.2.4, 2.2.5, 2.2.6, 2.2.7, 2.3.0, 2.3.1 and 2.3.2. The supported range is unchanged (`>=2.2.3 <2.4.0`), and so are the host devDependencies the checks compile against (2.2.3).
+
 ## [0.0.8] - 2026-11-17
 
 ### Added
