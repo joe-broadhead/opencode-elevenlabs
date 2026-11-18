@@ -75,6 +75,11 @@ succeeds.
 - **The hooks.** `execute.before` can change an MCP call's arguments on the model path and in Code Mode, and
   `execute.after` can add to a result. The tools RPC's executor bypasses both, so the same guard runs there through the
   block's own shapers.
+- **Unattended Code Mode.** Up to 2.3.0 a schedule's `if: { code }` check runs once at creation, with asks settled
+  unattended. From 2.3.1 `experimental.automation` replaces `experimental.schedule`: a code action's tools are
+  authorized at creation the same way (an ask or a deny is refused), and the program runs, under an unattended grant
+  for those tools, when the scheduler finds it due. Only a server process starts the scheduler; the host test starts it
+  in its embedded host. The flag is `experimental.automations`, also read as `experimental.schedules`.
 - **A plugin tool's declared permission only hides it on a deny.** Every plugin-owned tool that writes asserts its own
   action inside `execute`; `elevenlabs_save_media` does, on both paths.
 - **Changing a server's URL changes its integration id** (`mcp_` + `sha1(name\0url)`), so a region change needs a new

@@ -14,7 +14,7 @@ import { SKILL_NAMES } from "../../src/skills.js"
 import { OAUTH_SCOPES, SUPPORTED_HOST, TESTED_HOSTS } from "../../src/constants.js"
 import { serverIntegrationID } from "../../src/old-sign-ins.js"
 import { DELETE, IMAGE, IMAGE_CREDITS, LINK, NEW_TOOL, READ, SPEECH, WRITE } from "./fake-mcp.js"
-import { agentRules, attempt, cleanup, effect, HOST_VERSION, session, startHost, until, type Host } from "./harness.js"
+import { agentRules, attempt, cleanup, effect, HOST_VERSION, session, startHost, unattended, until, type Host } from "./harness.js"
 
 const AGENT_RULES = defaultRules().map((rule, index, rules) => `  ${JSON.stringify(rule)}${index < rules.length - 1 ? "," : ""}`).join("\n")
 const AGENTS_NEXT_STEP = "Put the default rules shown by /elevenlabs-status first in each listed agent's own permissions, in opencode.json or the agent's Markdown file, followed by your top-level rules for ElevenLabs tools."
@@ -46,18 +46,13 @@ const elevenlabsTools = (host: Host) =>
   })
 
 /**
- * Runs `code` as Code Mode does, through a schedule's check program: OpenCode checks each tool's input and output and
- * evaluates permissions with nobody present to answer a prompt. The program reports by throwing "SEEN <json>".
+ * Runs `code` as Code Mode does, with nobody present to answer a prompt (`unattended`): OpenCode checks each tool's
+ * input and output and evaluates permissions as the session's agent, under its rules. The program reports by throwing
+ * "SEEN <json>".
  */
 async function codeMode(host: Host, sessionID: string, code: string): Promise<{ seen: unknown } | { refused: string }> {
-  let message: string
-  try {
-    const schedule = await host.client.experimental.schedule.create({ sessionID, name: "elevenlabs-host-test", when: { in: "6 hours" }, prompt: "noop", if: { code } })
-    await host.client.experimental.schedule.delete({ scheduleID: schedule.id })
-    throw new Error("the check program finished without reporting")
-  } catch (error) {
-    message = error instanceof Error ? error.message : String(error)
-  }
+  const outcome = await unattended(host, sessionID, code)
+  const message = outcome.ok ? "the check program finished without reporting" : outcome.error
   const seen = /SEEN (.*)$/s.exec(message)
   if (!seen) return { refused: message }
   try {
