@@ -1,9 +1,9 @@
 # Jelly
 
 Jelly reads the `jelly` section of `package.json` without loading the plugin, so that section must describe the plugin
-exactly. 239 tools are declared (101 read-only): the 237 ElevenLabs tools its server served on 14 November 2026, the
+exactly. 247 tools are declared (104 read-only): the 245 ElevenLabs tools its server served on 19 November 2026, the
 plugin's own `elevenlabs_save_media`, and the source contract's `elevenlabs_events_list`.
-`test/fixtures/live-tools.json` is the capture of the 237, with ElevenLabs' own `readOnlyHint` for each tool, and
+`test/fixtures/live-tools.json` is the capture of the 245, with ElevenLabs' own `readOnlyHint` for each tool, and
 `test/unit/live-tools.test.ts` fails when the declaration and the capture disagree: a served tool left undeclared, a
 declared tool the server no longer serves, or a `readOnly` that differs from the server's without a reason below.
 
@@ -37,11 +37,11 @@ The declaration holds:
 - `icon`: `assets/icon.svg`, the mark Jelly draws. The same file names the one line in `jelly.summary`, and beside it the
   mark in `jelly.icon`.
 - `cost`: the line Jelly shows on the plugin's review before it installs, in the plugin's own words, saying what it
-  costs with ElevenLabs: "Eighteen tools spend the signed-in workspace's ElevenLabs credits, such as generating speech,
+  costs with ElevenLabs: "Nineteen tools spend the signed-in workspace's ElevenLabs credits, such as generating speech,
   images and video. A speech call renders two takes and an image call four by default, a retry is charged again, and
   each paid result has a cost line with the credits it reported. No cap unless you set one." It changes nothing Jelly
   allows.
-- `tools`: the 237 ElevenLabs tools plus `elevenlabs_save_media` and `elevenlabs_events_list`, each with its permission
+- `tools`: the 245 ElevenLabs tools plus `elevenlabs_save_media` and `elevenlabs_events_list`, each with its permission
   action and `readOnly`. `readOnly` is true exactly where ElevenLabs marks the tool read-only, except for two that are
   declared stricter, as not read-only, so a read-only helper is never given them and `read-only` access denies them:
   - `elevenlabs_agents_query_knowledge_base_rag`: a RAG query embeds the query, work ElevenLabs plausibly bills, so
@@ -51,9 +51,10 @@ The declaration holds:
 
   `elevenlabs_save_media` is not read-only: it writes a file. `elevenlabs_events_list` is read-only: it lists the
   conversations' metadata through `agents_list_conversations`, `agents_list` and `agents_get`, and spends nothing.
-  Five declared tools reach people
+  Six declared tools reach people
   outside the conversation, and none is read-only: `elevenlabs_agents_submit_batch_call` and `elevenlabs_agents_retry_batch_call`
-  place real phone calls (and spend), `elevenlabs_agents_publish_draft` makes staged changes live to callers,
+  place real phone calls (and spend), `elevenlabs_agents_outbound_call` places one call now (and spends),
+  `elevenlabs_agents_publish_draft` makes staged changes live to callers,
   `elevenlabs_agents_update_whatsapp_account` changes how an agent answers a WhatsApp number, and
   `elevenlabs_agents_request_merge_proposal_review` notifies workspace members.
 - `skills`: `elevenlabs`, `elevenlabs-creative`, `elevenlabs-calls`.

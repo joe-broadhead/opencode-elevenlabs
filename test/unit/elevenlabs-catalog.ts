@@ -1,5 +1,5 @@
 // The saved tool list, test/fixtures/live-tools.json, as a test reads it. The file is a live capture of ElevenLabs'
-// hosted MCP server's own `tools/list` (schema `opencode-family/live-tools@1`): the 237 tools it serves, with their own
+// hosted MCP server's own `tools/list` (schema `opencode-family/live-tools@1`): the 245 tools it serves, with their own
 // descriptions, input schemas and annotations (test/fixtures/README.md and provenance.json say how and when). A raw
 // `tools/list` response, whose descriptions are plain strings, reads the same way. No runtime import.
 import { readFileSync } from "node:fs"

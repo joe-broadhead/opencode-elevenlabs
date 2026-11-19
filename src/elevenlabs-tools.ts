@@ -3,7 +3,7 @@
 // these lists, and package.json's `jelly.tools` must match them (test/unit/jelly.test.ts). Keep this file free of
 // runtime imports: scripts/check-elevenlabs-tools.mjs loads it with Node's type stripping to report upstream drift.
 //
-// These are the 237 names the hosted server's own `tools/list` returned on 2026-11-14, reconciled against
+// These are the 245 names the hosted server's own `tools/list` returned on 2026-11-19, reconciled against
 // test/fixtures/live-tools.json, which also records ElevenLabs' own `readOnlyHint` for each. `npm run drift` compares
 // the two, and test/unit/live-tools.test.ts fails when they disagree. A tool is a read exactly when ElevenLabs marks it
 // read-only, with two exceptions kept stricter on purpose (READ_ONLY_OVERRIDES, below; docs/jelly.md gives the reasons).
@@ -25,6 +25,7 @@ export const READ_TOOLS: readonly string[] = [
   "agents_get_conversation",
   "agents_get_conversation_audio_url",
   "agents_get_conversation_summary",
+  "agents_get_draft",
   "agents_get_insights_report",
   "agents_get_kb_dependents",
   "agents_get_kb_document",
@@ -42,6 +43,7 @@ export const READ_TOOLS: readonly string[] = [
   "agents_get_phone_number",
   "agents_get_procedure",
   "agents_get_procedure_draft",
+  "agents_get_pronunciation_dictionary",
   "agents_get_rebase_conflicts",
   "agents_get_settings",
   "agents_get_structured_procedure_schema",
@@ -107,6 +109,7 @@ export const READ_TOOLS: readonly string[] = [
   "creative_get_flow_run_status",
   // Renders, with signed links to the workspace's own files; "Spends no credits", and ElevenLabs marks it a read.
   "creative_get_generations",
+  "creative_get_guide",
   "creative_get_model_guide",
   "creative_get_model_schema",
   "creative_get_view_state",
@@ -166,6 +169,7 @@ export const EXPORT_TOOLS: readonly string[] = [
 
 /** Writes that change the workspace without spending credits. */
 export const WRITE_TOOLS: readonly string[] = [
+  "agents_add_pronunciation_dictionary_rules",
   "agents_add_triage_ticket_comment",
   "agents_add_triage_ticket_turn_comment",
   "agents_add_workflow_node",
@@ -191,6 +195,7 @@ export const WRITE_TOOLS: readonly string[] = [
   "agents_create_merge_proposal",
   "agents_create_phone_number",
   "agents_create_procedure",
+  "agents_create_pronunciation_dictionary",
   "agents_create_secret",
   "agents_create_simulation_test",
   "agents_create_test",
@@ -210,6 +215,7 @@ export const WRITE_TOOLS: readonly string[] = [
   "agents_move_tests",
   "agents_publish_draft",
   "agents_rebase_branch",
+  "agents_remove_pronunciation_dictionary_rules",
   "agents_request_merge_proposal_review",
   "agents_review_merge_proposal",
   "agents_update",
@@ -219,6 +225,7 @@ export const WRITE_TOOLS: readonly string[] = [
   "agents_update_client_overrides",
   "agents_update_code_tool",
   "agents_update_conversation",
+  "agents_update_draft",
   "agents_update_end_call_tool",
   "agents_update_guardrails",
   "agents_update_kb_document",
@@ -291,13 +298,15 @@ export const READ_ONLY_OVERRIDES: Readonly<Record<string, string>> = {
 }
 
 /**
- * Tools that reach people outside this conversation: a phone call to a list of recipients, a change that goes live to
- * every caller, a WhatsApp number's answers, a notification to workspace members. Each is a change, never a read, so
- * `ask-changes` asks before it runs and `read-only` denies it, and a script's call is refused whenever the rule would
- * ask (a script cannot answer); at the default `all`, as with every tool, it runs. The two batch-call tools also spend
- * and are in SPEND_TOOLS. The skills tell the model to confirm the recipients or the change with the user first.
+ * Tools that reach people outside this conversation: a phone call to a list of recipients or to one number, a change
+ * that goes live to every caller, a WhatsApp number's answers, a notification to workspace members. Each is a change,
+ * never a read, so `ask-changes` asks before it runs and `read-only` denies it, and a script's call is refused whenever
+ * the rule would ask (a script cannot answer); at the default `all`, as with every tool, it runs. The batch-call tools
+ * and `agents_outbound_call` also spend and are in SPEND_TOOLS. The skills tell the model to confirm the recipients,
+ * or the outbound call's agent, numbers and first message, with the user first.
  */
 export const REACH_TOOLS: readonly string[] = [
+  "agents_outbound_call",
   "agents_publish_draft",
   "agents_request_merge_proposal_review",
   "agents_retry_batch_call",
@@ -321,16 +330,17 @@ export const REACH_TOOLS: readonly string[] = [
  * `agents_compute_kb_rag_index` (embedding a document), `agents_query_knowledge_base_rag` (a RAG query, which embeds the
  * query), `creative_create_brand_kit_from_website` (fetching a site and
  * extracting its logo, colours, typography and tone), `agents_generate` (an LLM writes a whole agent) and
- * `agents_generate_test_from_conversation` (an LLM writes a test). Three say they spend outright:
- * `creative_execute_sandbox` ("It costs credits for each second the command runs"), and `agents_submit_batch_call`
- * and `agents_retry_batch_call`, which place real phone calls. None of them declares `estimate_only`, so while either
- * cap is on each is refused rather than run unpriced. Live pass 2 measures whether the rule-based ones bill; whichever
- * way it comes back, the rule above is what gets applied.
+ * `agents_generate_test_from_conversation` (an LLM writes a test). Four say they spend outright:
+ * `creative_execute_sandbox` ("It costs credits for each second the command runs"), and `agents_submit_batch_call`,
+ * `agents_retry_batch_call` and `agents_outbound_call`, which place real phone calls. None of them declares
+ * `estimate_only`, so while either cap is on each is refused rather than run unpriced. Live pass 2 measures whether
+ * the rule-based ones bill; whichever way it comes back, the rule above is what gets applied.
  */
 export const SPEND_TOOLS: readonly string[] = [
   "agents_compute_kb_rag_index",
   "agents_generate",
   "agents_generate_test_from_conversation",
+  "agents_outbound_call",
   "agents_query_knowledge_base_rag",
   "agents_retry_batch_call",
   "agents_run_attached_tests",
@@ -428,7 +438,7 @@ export const DESTRUCTIVE_TOOLS: readonly string[] = [
 ]
 
 /**
- * Names the live catalogue returned that this table does not classify. Empty: all 237 have a class.
+ * Names the live catalogue returned that this table does not classify. Empty: all 245 have a class.
  *
  * `get_more_tools` was held here, as a catalogue pager that returned tool definitions and changed nothing. Its live
  * schema says otherwise — one required free-text `capability` string, and a description that asks ElevenLabs to build

@@ -2,8 +2,8 @@
 
 ## `live-tools.json`, `provenance.json` and `tool-registry.json`
 
-**Captured from a live account on 14 November 2026.** `live-tools.json` is ElevenLabs' hosted server's own
-`tools/list`, every page, recorded by the family's capture script (schema `opencode-family/live-tools@1`): 237 tools,
+**Captured from a live account on 19 November 2026.** `live-tools.json` is ElevenLabs' hosted server's own
+`tools/list`, every page, recorded by the family's capture script (schema `opencode-family/live-tools@1`): 245 tools,
 each with its name, title, ElevenLabs' own `readOnlyHint`, `destructiveHint` and other annotations, its input schema in
 full, and its description in full with its sha256 and length. No tool was called, and no token, header, account id,
 server instructions or result text is recorded. The ids in schema examples are the ones ElevenLabs' public API
