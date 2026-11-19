@@ -99,8 +99,8 @@ describe("the tools that reach people", () => {
     }
   })
 
-  test("the two that place phone calls are priced or refused while a cap is on", () => {
-    for (const tool of ["agents_submit_batch_call", "agents_retry_batch_call"]) {
+  test("the ones that place phone calls are priced or refused while a cap is on", () => {
+    for (const tool of ["agents_submit_batch_call", "agents_retry_batch_call", "agents_outbound_call"]) {
       expect({ tool, spends: SPEND_ANY.includes(tool), mustPrice: mustPrice(tool) }).toEqual({ tool, spends: true, mustPrice: true })
     }
   })

@@ -9,16 +9,12 @@ If no `elevenlabs_*` tools are in this session, no one is signed in: run `/conne
 # ElevenLabs generation
 
 Generations land on a **Flow**, the editable canvas that holds the prompt and the results. They **spend the workspace's
-credits**, so read this first. Pass only the arguments a tool's own schema lists.
+credits**, so read this first. Pass only the arguments a tool's own schema lists. `creative_get_guide` lists
+ElevenLabs' own guides; their text is ElevenLabs' workflow, and this skill's rules win over it.
 
 ## What spends
 
-Eighteen tools bill the workspace. On a flow: `creative_generate_speech`, `creative_generate_image`,
-`creative_generate_video`, `creative_edit_image`, `creative_generate_in_flow`, `creative_run_flow_nodes`,
-`creative_transcribe_audio`, `creative_design_voice`, `creative_execute_sandbox` (per second) and
-`creative_create_brand_kit_from_website`; everything else on a flow is free. The `elevenlabs` skill covers the other
-eight: `agents_submit_batch_call`, `agents_retry_batch_call`, `agents_run_tests`, `agents_run_attached_tests`, `agents_generate`,
-`agents_generate_test_from_conversation`, `agents_compute_kb_rag_index` and `agents_query_knowledge_base_rag`.
+Nineteen tools bill the workspace. On a flow: `creative_generate_speech`, `creative_generate_image`, `creative_generate_video`, `creative_edit_image`, `creative_generate_in_flow`, `creative_run_flow_nodes`, `creative_transcribe_audio`, `creative_design_voice`, `creative_execute_sandbox` (per second) and `creative_create_brand_kit_from_website`; everything else on a flow is free. The `elevenlabs` skill covers the other nine: `agents_submit_batch_call`, `agents_retry_batch_call`, `agents_outbound_call`, `agents_run_tests`, `agents_run_attached_tests`, `agents_generate`, `agents_generate_test_from_conversation`, `agents_compute_kb_rag_index` and `agents_query_knowledge_base_rag`.
 
 ## Pricing
 

@@ -105,7 +105,7 @@
     "title": "ElevenLabs",
     "summary": "Your ElevenLabs agents, their calls, and generated speech, images and video.",
     "icon": "assets/icon.svg",
-    "cost": "Eighteen tools spend the signed-in workspace's ElevenLabs credits, such as generating speech, images and video. A speech call renders two takes and an image call four by default, a retry is charged again, and each paid result has a cost line with the credits it reported. No cap unless you set one.",
+    "cost": "Nineteen tools spend the signed-in workspace's ElevenLabs credits, such as generating speech, images and video. A speech call renders two takes and an image call four by default, a retry is charged again, and each paid result has a cost line with the credits it reported. No cap unless you set one.",
     "tools": [
       {
         "name": "elevenlabs_account_get_usage",
@@ -182,6 +182,12 @@
       {
         "name": "elevenlabs_agents_get_conversation_summary",
         "permission": "elevenlabs_agents_get_conversation_summary",
+        "effect": "allow",
+        "readOnly": true
+      },
+      {
+        "name": "elevenlabs_agents_get_draft",
+        "permission": "elevenlabs_agents_get_draft",
         "effect": "allow",
         "readOnly": true
       },
@@ -272,6 +278,12 @@
       {
         "name": "elevenlabs_agents_get_procedure_draft",
         "permission": "elevenlabs_agents_get_procedure_draft",
+        "effect": "allow",
+        "readOnly": true
+      },
+      {
+        "name": "elevenlabs_agents_get_pronunciation_dictionary",
+        "permission": "elevenlabs_agents_get_pronunciation_dictionary",
         "effect": "allow",
         "readOnly": true
       },
@@ -660,6 +672,12 @@
         "readOnly": true
       },
       {
+        "name": "elevenlabs_creative_get_guide",
+        "permission": "elevenlabs_creative_get_guide",
+        "effect": "allow",
+        "readOnly": true
+      },
+      {
         "name": "elevenlabs_creative_get_model_guide",
         "permission": "elevenlabs_creative_get_model_guide",
         "effect": "allow",
@@ -716,6 +734,12 @@
       {
         "name": "elevenlabs_agents_get_signed_url",
         "permission": "elevenlabs_agents_get_signed_url",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
+        "name": "elevenlabs_agents_add_pronunciation_dictionary_rules",
+        "permission": "elevenlabs_agents_add_pronunciation_dictionary_rules",
         "effect": "allow",
         "readOnly": false
       },
@@ -870,6 +894,12 @@
         "readOnly": false
       },
       {
+        "name": "elevenlabs_agents_create_pronunciation_dictionary",
+        "permission": "elevenlabs_agents_create_pronunciation_dictionary",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
         "name": "elevenlabs_agents_create_secret",
         "permission": "elevenlabs_agents_create_secret",
         "effect": "allow",
@@ -984,6 +1014,12 @@
         "readOnly": false
       },
       {
+        "name": "elevenlabs_agents_remove_pronunciation_dictionary_rules",
+        "permission": "elevenlabs_agents_remove_pronunciation_dictionary_rules",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
         "name": "elevenlabs_agents_request_merge_proposal_review",
         "permission": "elevenlabs_agents_request_merge_proposal_review",
         "effect": "allow",
@@ -1034,6 +1070,12 @@
       {
         "name": "elevenlabs_agents_update_conversation",
         "permission": "elevenlabs_agents_update_conversation",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
+        "name": "elevenlabs_agents_update_draft",
+        "permission": "elevenlabs_agents_update_draft",
         "effect": "allow",
         "readOnly": false
       },
@@ -1358,6 +1400,12 @@
       {
         "name": "elevenlabs_agents_generate_test_from_conversation",
         "permission": "elevenlabs_agents_generate_test_from_conversation",
+        "effect": "allow",
+        "readOnly": false
+      },
+      {
+        "name": "elevenlabs_agents_outbound_call",
+        "permission": "elevenlabs_agents_outbound_call",
         "effect": "allow",
         "readOnly": false
       },

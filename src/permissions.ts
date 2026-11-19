@@ -44,6 +44,11 @@ const TRANSCRIPT_PATTERNS: readonly string[] = ["*transcript*", "*conversation*m
  * Patterns that catch a read of a call's history, a new tool included, for `conversations: "off"`. Narrow on purpose:
  * `get_call`, `list_calls` and `export_history` are history reads, and none of them match a generation, a transcription
  * or another tool this table means to keep. A broader `*call*` would. The match itself ignores case.
+ *
+ * `agents_outbound_call` starts one call and returns its `conversation_id`, never a caller's words, so it is left out
+ * of these patterns and of CONVERSATION_TOOLS: `conversations` governs reads of a call's history, and the call it
+ * starts is a write, bound by `access`, REACH_TOOLS and the caps instead. The pronunciation-dictionary and draft
+ * tools match none of the patterns either: none of them reads a conversation.
  */
 const CONVERSATION_PATTERNS: readonly string[] = ["*conversation*", "*transcript*", "*call*recording*", "*get_call*", "*list_calls*", "*export_history*"]
 
