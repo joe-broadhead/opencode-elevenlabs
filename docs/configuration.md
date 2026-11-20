@@ -3,7 +3,7 @@
 Every option is optional. The plugin reads them from `opencode.json`:
 
 ```json
-{ "plugins": [{ "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.9", "options": { "access": "all" } }] }
+{ "plugins": [{ "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.10", "options": { "access": "all" } }] }
 ```
 
 ## Options
@@ -29,20 +29,20 @@ bounds. Jelly saves no `null`, so a cap there is no cap by being left unset.
 
 ## Spending
 
-Eighteen tools can bill the workspace: `creative_generate_speech`, `creative_generate_image`,
+Nineteen tools can bill the workspace: `creative_generate_speech`, `creative_generate_image`,
 `creative_generate_video`, `creative_edit_image`, `creative_generate_in_flow`, `creative_run_flow_nodes`,
 `creative_transcribe_audio`, `creative_design_voice`, `creative_execute_sandbox`, `agents_submit_batch_call`,
-`agents_retry_batch_call`, `agents_run_tests`, `agents_run_attached_tests`, `agents_generate`,
+`agents_retry_batch_call`, `agents_outbound_call`, `agents_run_tests`, `agents_run_attached_tests`, `agents_generate`,
 `agents_generate_test_from_conversation`, `agents_compute_kb_rag_index`, `agents_query_knowledge_base_rag` and
 `creative_create_brand_kit_from_website`. A price is ElevenLabs' own figure: the same call with `estimate_only: true`.
 There is no rate table in this plugin. Every paid result carries a cost line, with or without a cap.
 
-The first seven take `estimate_only`. The other eleven do not, so with no cap they run unpriced, and while a cap you set
+The first seven take `estimate_only`. The other twelve do not, so with no cap they run unpriced, and while a cap you set
 is on they are refused (`PRICE_UNKNOWN`). `creative_execute_sandbox` says it bills for each second its command runs, and
-the two batch-call tools place real phone calls. The rest are counted as spending because ElevenLabs' catalogue says
-neither way about them and they describe server-side work it plausibly bills — a test run's conversations, an LLM
-writing an agent or a test, embedding a knowledge-base document, running a RAG query, reading a public website — and
-the plugin counts silence against the owner's money rather than for it.
+the batch-call and outbound-call tools place real phone calls. The rest are counted as spending because ElevenLabs'
+catalogue says neither way about them and they describe server-side work it plausibly bills — a test run's
+conversations, an LLM writing an agent or a test, embedding a knowledge-base document, running a RAG query, reading a
+public website — and the plugin counts silence against the owner's money rather than for it.
 
 With no cap, no estimate is sent before a paid call: no flow or node is left in the workspace for it, and the call
 raises no permission prompt beyond its own. It runs at whatever size it asks for, calls of one method run side by side,
@@ -58,7 +58,7 @@ directory; two machines do not share it.
 
 A call the plugin cannot price is refused with `PRICE_UNKNOWN` while a cap is on, never run unpriced: a failed or
 missing estimate, an argument ElevenLabs' own schema for that tool does not have, any name the table does not know, and
-the eleven spending tools ElevenLabs offers no estimate for — every one in the list above after
+the twelve spending tools ElevenLabs offers no estimate for — every one in the list above after
 `creative_transcribe_audio`.
 
 Under a cap, the estimate is sent only where the paid call could run, because it is a call of its own: it costs nothing, but it
@@ -79,10 +79,11 @@ each agent's base `* * allow`. Everything later wins: the agent's own rules, you
 ### `access: "all"` — the default
 
 Every tool runs, including a tool ElevenLabs adds later, and generations spend credits within the workspace's balance
-and any cap you set.
+and any cap you set. **At the default `access: "all"` with no credit cap, an outbound or batch call runs without a
+prompt; set `access: "ask-changes"` or a credit cap to stop that.**
 
 <details>
-<summary>The 238 rules it inserts</summary>
+<summary>The 248 rules it inserts</summary>
 
 ```json
 [
@@ -100,6 +101,7 @@ and any cap you set.
   { "action": "elevenlabs_agents_get_conversation", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_get_conversation_audio_url", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_get_conversation_summary", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_get_draft", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_get_insights_report", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_get_kb_dependents", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_get_kb_document", "resource": "*", "effect": "allow" },
@@ -115,6 +117,7 @@ and any cap you set.
   { "action": "elevenlabs_agents_get_phone_number", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_get_procedure", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_get_procedure_draft", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_get_pronunciation_dictionary", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_get_rebase_conflicts", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_get_settings", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_get_structured_procedure_schema", "resource": "*", "effect": "allow" },
@@ -179,6 +182,7 @@ and any cap you set.
   { "action": "elevenlabs_creative_get_flow_node_types", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_get_flow_run_status", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_get_generations", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_creative_get_guide", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_get_model_guide", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_get_model_schema", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_get_view_state", "resource": "*", "effect": "allow" },
@@ -190,6 +194,7 @@ and any cap you set.
   { "action": "elevenlabs_events_list", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_probe", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_get_signed_url", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_add_pronunciation_dictionary_rules", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_add_triage_ticket_comment", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_add_triage_ticket_turn_comment", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_add_workflow_node", "resource": "*", "effect": "allow" },
@@ -215,6 +220,7 @@ and any cap you set.
   { "action": "elevenlabs_agents_create_merge_proposal", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_create_phone_number", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_create_procedure", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_create_pronunciation_dictionary", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_create_secret", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_create_simulation_test", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_create_test", "resource": "*", "effect": "allow" },
@@ -234,6 +240,7 @@ and any cap you set.
   { "action": "elevenlabs_agents_move_tests", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_publish_draft", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_rebase_branch", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_remove_pronunciation_dictionary_rules", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_request_merge_proposal_review", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_review_merge_proposal", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_update", "resource": "*", "effect": "allow" },
@@ -243,6 +250,7 @@ and any cap you set.
   { "action": "elevenlabs_agents_update_client_overrides", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_update_code_tool", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_update_conversation", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_update_draft", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_update_end_call_tool", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_update_guardrails", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_update_kb_document", "resource": "*", "effect": "allow" },
@@ -297,6 +305,7 @@ and any cap you set.
   { "action": "elevenlabs_agents_compute_kb_rag_index", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_generate", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_generate_test_from_conversation", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_outbound_call", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_query_knowledge_base_rag", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_retry_batch_call", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_run_attached_tests", "resource": "*", "effect": "allow" },
@@ -337,7 +346,7 @@ The reads run; every other tool asks first, and a tool ElevenLabs adds later ask
 can answer, an ask is refused. A tool that can spend asks once, before its estimate is sent.
 
 <details>
-<summary>The 238 rules it inserts</summary>
+<summary>The 248 rules it inserts</summary>
 
 ```json
 [
@@ -355,6 +364,7 @@ can answer, an ask is refused. A tool that can spend asks once, before its estim
   { "action": "elevenlabs_agents_get_conversation", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_get_conversation_audio_url", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_get_conversation_summary", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_get_draft", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_get_insights_report", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_get_kb_dependents", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_get_kb_document", "resource": "*", "effect": "allow" },
@@ -370,6 +380,7 @@ can answer, an ask is refused. A tool that can spend asks once, before its estim
   { "action": "elevenlabs_agents_get_phone_number", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_get_procedure", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_get_procedure_draft", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_get_pronunciation_dictionary", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_get_rebase_conflicts", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_get_settings", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_get_structured_procedure_schema", "resource": "*", "effect": "allow" },
@@ -434,6 +445,7 @@ can answer, an ask is refused. A tool that can spend asks once, before its estim
   { "action": "elevenlabs_creative_get_flow_node_types", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_get_flow_run_status", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_get_generations", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_creative_get_guide", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_get_model_guide", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_get_model_schema", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_get_view_state", "resource": "*", "effect": "allow" },
@@ -445,6 +457,7 @@ can answer, an ask is refused. A tool that can spend asks once, before its estim
   { "action": "elevenlabs_events_list", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_probe", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_get_signed_url", "resource": "*", "effect": "ask" },
+  { "action": "elevenlabs_agents_add_pronunciation_dictionary_rules", "resource": "*", "effect": "ask" },
   { "action": "elevenlabs_agents_add_triage_ticket_comment", "resource": "*", "effect": "ask" },
   { "action": "elevenlabs_agents_add_triage_ticket_turn_comment", "resource": "*", "effect": "ask" },
   { "action": "elevenlabs_agents_add_workflow_node", "resource": "*", "effect": "ask" },
@@ -470,6 +483,7 @@ can answer, an ask is refused. A tool that can spend asks once, before its estim
   { "action": "elevenlabs_agents_create_merge_proposal", "resource": "*", "effect": "ask" },
   { "action": "elevenlabs_agents_create_phone_number", "resource": "*", "effect": "ask" },
   { "action": "elevenlabs_agents_create_procedure", "resource": "*", "effect": "ask" },
+  { "action": "elevenlabs_agents_create_pronunciation_dictionary", "resource": "*", "effect": "ask" },
   { "action": "elevenlabs_agents_create_secret", "resource": "*", "effect": "ask" },
   { "action": "elevenlabs_agents_create_simulation_test", "resource": "*", "effect": "ask" },
   { "action": "elevenlabs_agents_create_test", "resource": "*", "effect": "ask" },
@@ -489,6 +503,7 @@ can answer, an ask is refused. A tool that can spend asks once, before its estim
   { "action": "elevenlabs_agents_move_tests", "resource": "*", "effect": "ask" },
   { "action": "elevenlabs_agents_publish_draft", "resource": "*", "effect": "ask" },
   { "action": "elevenlabs_agents_rebase_branch", "resource": "*", "effect": "ask" },
+  { "action": "elevenlabs_agents_remove_pronunciation_dictionary_rules", "resource": "*", "effect": "ask" },
   { "action": "elevenlabs_agents_request_merge_proposal_review", "resource": "*", "effect": "ask" },
   { "action": "elevenlabs_agents_review_merge_proposal", "resource": "*", "effect": "ask" },
   { "action": "elevenlabs_agents_update", "resource": "*", "effect": "ask" },
@@ -498,6 +513,7 @@ can answer, an ask is refused. A tool that can spend asks once, before its estim
   { "action": "elevenlabs_agents_update_client_overrides", "resource": "*", "effect": "ask" },
   { "action": "elevenlabs_agents_update_code_tool", "resource": "*", "effect": "ask" },
   { "action": "elevenlabs_agents_update_conversation", "resource": "*", "effect": "ask" },
+  { "action": "elevenlabs_agents_update_draft", "resource": "*", "effect": "ask" },
   { "action": "elevenlabs_agents_update_end_call_tool", "resource": "*", "effect": "ask" },
   { "action": "elevenlabs_agents_update_guardrails", "resource": "*", "effect": "ask" },
   { "action": "elevenlabs_agents_update_kb_document", "resource": "*", "effect": "ask" },
@@ -552,6 +568,7 @@ can answer, an ask is refused. A tool that can spend asks once, before its estim
   { "action": "elevenlabs_agents_compute_kb_rag_index", "resource": "*", "effect": "ask" },
   { "action": "elevenlabs_agents_generate", "resource": "*", "effect": "ask" },
   { "action": "elevenlabs_agents_generate_test_from_conversation", "resource": "*", "effect": "ask" },
+  { "action": "elevenlabs_agents_outbound_call", "resource": "*", "effect": "ask" },
   { "action": "elevenlabs_agents_query_knowledge_base_rag", "resource": "*", "effect": "ask" },
   { "action": "elevenlabs_agents_retry_batch_call", "resource": "*", "effect": "ask" },
   { "action": "elevenlabs_agents_run_attached_tests", "resource": "*", "effect": "ask" },
@@ -592,7 +609,7 @@ The reads run; everything else is denied, including every tool that can spend. A
 too.
 
 <details>
-<summary>The 238 rules it inserts</summary>
+<summary>The 248 rules it inserts</summary>
 
 ```json
 [
@@ -610,6 +627,7 @@ too.
   { "action": "elevenlabs_agents_get_conversation", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_get_conversation_audio_url", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_get_conversation_summary", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_get_draft", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_get_insights_report", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_get_kb_dependents", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_get_kb_document", "resource": "*", "effect": "allow" },
@@ -625,6 +643,7 @@ too.
   { "action": "elevenlabs_agents_get_phone_number", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_get_procedure", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_get_procedure_draft", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_get_pronunciation_dictionary", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_get_rebase_conflicts", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_get_settings", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_get_structured_procedure_schema", "resource": "*", "effect": "allow" },
@@ -689,6 +708,7 @@ too.
   { "action": "elevenlabs_creative_get_flow_node_types", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_get_flow_run_status", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_get_generations", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_creative_get_guide", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_get_model_guide", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_get_model_schema", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_get_view_state", "resource": "*", "effect": "allow" },
@@ -700,6 +720,7 @@ too.
   { "action": "elevenlabs_events_list", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_probe", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_get_signed_url", "resource": "*", "effect": "deny" },
+  { "action": "elevenlabs_agents_add_pronunciation_dictionary_rules", "resource": "*", "effect": "deny" },
   { "action": "elevenlabs_agents_add_triage_ticket_comment", "resource": "*", "effect": "deny" },
   { "action": "elevenlabs_agents_add_triage_ticket_turn_comment", "resource": "*", "effect": "deny" },
   { "action": "elevenlabs_agents_add_workflow_node", "resource": "*", "effect": "deny" },
@@ -725,6 +746,7 @@ too.
   { "action": "elevenlabs_agents_create_merge_proposal", "resource": "*", "effect": "deny" },
   { "action": "elevenlabs_agents_create_phone_number", "resource": "*", "effect": "deny" },
   { "action": "elevenlabs_agents_create_procedure", "resource": "*", "effect": "deny" },
+  { "action": "elevenlabs_agents_create_pronunciation_dictionary", "resource": "*", "effect": "deny" },
   { "action": "elevenlabs_agents_create_secret", "resource": "*", "effect": "deny" },
   { "action": "elevenlabs_agents_create_simulation_test", "resource": "*", "effect": "deny" },
   { "action": "elevenlabs_agents_create_test", "resource": "*", "effect": "deny" },
@@ -744,6 +766,7 @@ too.
   { "action": "elevenlabs_agents_move_tests", "resource": "*", "effect": "deny" },
   { "action": "elevenlabs_agents_publish_draft", "resource": "*", "effect": "deny" },
   { "action": "elevenlabs_agents_rebase_branch", "resource": "*", "effect": "deny" },
+  { "action": "elevenlabs_agents_remove_pronunciation_dictionary_rules", "resource": "*", "effect": "deny" },
   { "action": "elevenlabs_agents_request_merge_proposal_review", "resource": "*", "effect": "deny" },
   { "action": "elevenlabs_agents_review_merge_proposal", "resource": "*", "effect": "deny" },
   { "action": "elevenlabs_agents_update", "resource": "*", "effect": "deny" },
@@ -753,6 +776,7 @@ too.
   { "action": "elevenlabs_agents_update_client_overrides", "resource": "*", "effect": "deny" },
   { "action": "elevenlabs_agents_update_code_tool", "resource": "*", "effect": "deny" },
   { "action": "elevenlabs_agents_update_conversation", "resource": "*", "effect": "deny" },
+  { "action": "elevenlabs_agents_update_draft", "resource": "*", "effect": "deny" },
   { "action": "elevenlabs_agents_update_end_call_tool", "resource": "*", "effect": "deny" },
   { "action": "elevenlabs_agents_update_guardrails", "resource": "*", "effect": "deny" },
   { "action": "elevenlabs_agents_update_kb_document", "resource": "*", "effect": "deny" },
@@ -807,6 +831,7 @@ too.
   { "action": "elevenlabs_agents_compute_kb_rag_index", "resource": "*", "effect": "deny" },
   { "action": "elevenlabs_agents_generate", "resource": "*", "effect": "deny" },
   { "action": "elevenlabs_agents_generate_test_from_conversation", "resource": "*", "effect": "deny" },
+  { "action": "elevenlabs_agents_outbound_call", "resource": "*", "effect": "deny" },
   { "action": "elevenlabs_agents_query_knowledge_base_rag", "resource": "*", "effect": "deny" },
   { "action": "elevenlabs_agents_retry_batch_call", "resource": "*", "effect": "deny" },
   { "action": "elevenlabs_agents_run_attached_tests", "resource": "*", "effect": "deny" },

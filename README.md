@@ -16,17 +16,17 @@ ElevenLabs is a trademark of Eleven Labs Inc.; this unofficial plugin is not end
 ## Install
 
 ```sh
-opencode plugin add github:joe-broadhead/opencode-elevenlabs#v0.0.9
+opencode plugin add github:joe-broadhead/opencode-elevenlabs#v0.0.10
 ```
 
 Run `opencode reload`, or restart OpenCode, then run `/elevenlabs-status`.
 
-Each release has its own tag, and a Git install does not update by itself. To move to a newer release, remove the old entry with `opencode plugin remove github:joe-broadhead/opencode-elevenlabs#v0.0.8`, then add the new tag with `opencode plugin add github:joe-broadhead/opencode-elevenlabs#v<version>`.
+Each release has its own tag, and a Git install does not update by itself. To move to a newer release, remove the old entry with `opencode plugin remove github:joe-broadhead/opencode-elevenlabs#v0.0.9`, then add the new tag with `opencode plugin add github:joe-broadhead/opencode-elevenlabs#v<version>`.
 
 Or add the plugin to `opencode.json` instead, with the same spec:
 
 ```json
-{ "plugins": [{ "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.9" }] }
+{ "plugins": [{ "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.10" }] }
 ```
 
 The install takes the GitHub release tag. Its commit carries the built `dist/`, so the install runs no build.
@@ -75,8 +75,8 @@ the estimate path and every refusal.
 
 ### The conversations source
 
-The plugin declares one [source contract](https://github.com/we-the-rebel-alliance/source-contract) source,
-`elevenlabs.conversations`, so a collector such as Memory or a dashboard can read the workspace's calls without the
+The plugin declares a [source contract](https://github.com/we-the-rebel-alliance/source-contract) source,
+`elevenlabs.conversations`, and the list snapshot `elevenlabs.conversations.list`, so a collector such as Memory or a dashboard can read the workspace's calls without the
 model. `elevenlabs_events_list` (a tool, and an `events_list` method of the RPC above) lists the conversations the
 workspace's agents had since a cursor, oldest first, and `probe` names the sign-in.
 
@@ -124,17 +124,17 @@ Generations are billed in **credits** against the workspace you signed in with.
 - **Every price comes from ElevenLabs, never from this plugin.** There is no rate table here: no credits per character,
   per second or per minute, and nothing measures a file on this machine. A price is ElevenLabs' answer to the **same
   call with `estimate_only: true`**: you or the model can ask for one at any time, and while a cap is set the plugin
-  asks for one itself before each paid call. Eighteen tools can spend:
+  asks for one itself before each paid call. Nineteen tools can spend:
   `creative_generate_speech`, `creative_generate_image`, `creative_generate_video`, `creative_edit_image`,
   `creative_generate_in_flow`, `creative_run_flow_nodes`, `creative_transcribe_audio`, `creative_design_voice`,
-  `creative_execute_sandbox`, `agents_submit_batch_call`, `agents_retry_batch_call`, `agents_run_tests`,
-  `agents_run_attached_tests`, `agents_generate`, `agents_generate_test_from_conversation`,
+  `creative_execute_sandbox`, `agents_submit_batch_call`, `agents_retry_batch_call`, `agents_outbound_call`,
+  `agents_run_tests`, `agents_run_attached_tests`, `agents_generate`, `agents_generate_test_from_conversation`,
   `agents_compute_kb_rag_index`, `agents_query_knowledge_base_rag` and `creative_create_brand_kit_from_website`. The
-  first seven take `estimate_only`; the other eleven do not, so they run unpriced, and while a cap you set is on they
-  are refused instead. The sandbox says it bills by the second, and the two batch-call tools place real phone calls.
-  The rest are counted as spending because ElevenLabs' catalogue says neither way and the work they describe — a test
-  run's conversations, an LLM writing an agent or a test, embedding a document, running a RAG query, reading a website
-  — is work it plausibly bills, so each gets a cost line and, under a cap, counts against it.
+  first seven take `estimate_only`; the other twelve do not, so they run unpriced, and while a cap you set is on they
+  are refused instead. The sandbox says it bills by the second, and the batch-call and outbound-call tools place real
+  phone calls. The rest are counted as spending because ElevenLabs' catalogue says neither way and the work they
+  describe — a test run's conversations, an LLM writing an agent or a test, embedding a document, running a RAG query,
+  reading a website — is work it plausibly bills, so each gets a cost line and, under a cap, counts against it.
 - **An estimate is free, but it is not nothing.** Measured against a real workspace: two estimates moved the balance by
   zero credits, and each left a flow and a node behind in the workspace. That is why none is sent without a cap. Under a
   cap, one estimate is asked per set of arguments,
@@ -149,7 +149,7 @@ Generations are billed in **credits** against the workspace you signed in with.
   so a fractional figure is rounded up. Under a cap, a batch that does not fit is cut to the number of generations the
   budget affords, and a call that named no count is refused whole rather than quietly given a smaller batch.
 - **With no cap, nothing is priced first and nothing is refused.** A cost line reads `Credits: not reported` unless the
-  result reports a figure. **With a cap, a call that cannot be priced is refused, not guessed.** Only when you set a cap: each of the 18 tools that can spend is priced by ElevenLabs' own estimate or refused PRICE_UNKNOWN before it is sent, and so is any name this table does not classify, whatever it starts with. With no cap, the default, nothing is refused for want of a price.
+  result reports a figure. **With a cap, a call that cannot be priced is refused, not guessed.** Only when you set a cap: each of the 19 tools that can spend is priced by ElevenLabs' own estimate or refused PRICE_UNKNOWN before it is sent, and so is any name this table does not classify, whatever it starts with. With no cap, the default, nothing is refused for want of a price.
   A failed or missing estimate, an argument ElevenLabs' own schema for that tool does not have, and a tool with no
   estimate at all each end there. The refusal says what to do: send the same call with `estimate_only: true`, or set
   both caps to `null`. A price of 0 is a refusal, not a free call.
@@ -232,8 +232,11 @@ spend your credits without asking, and so can a tool ElevenLabs adds later. Rest
    | `"ask-changes"` | the read tools | everything else: creates, updates, deletes, signed links, phone calls, publishing and every generation |
    | `"read-only"` | the read tools | nothing: everything else is **denied**, generations included |
 
+   **At the default `access: "all"` with no credit cap, an outbound or batch call runs without a prompt; set
+   `access: "ask-changes"` or a credit cap to stop that.**
+
    ```json
-   { "plugins": [{ "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.9", "options": { "access": "read-only" } }] }
+   { "plugins": [{ "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.10", "options": { "access": "read-only" } }] }
    ```
 
 2. **An agent that is read-only or asks**, with rules of its own, later than the plugin's:
@@ -255,11 +258,11 @@ spend your credits without asking, and so can a tool ElevenLabs adds later. Rest
    ```
 
 The plugin inserts this block directly after each agent's base rule that allows everything, generated from
-`defaultRules("all")` in `src/permissions.ts`. It is the namespace rule plus one rule per live tool: 238 rules in all, so
+`defaultRules("all")` in `src/permissions.ts`. It is the namespace rule plus one rule per live tool: 248 rules in all, so
 it is folded here:
 
 <details>
-<summary>The 238 rules <code>access: "all"</code> inserts</summary>
+<summary>The 248 rules <code>access: "all"</code> inserts</summary>
 
 ```json
 [
@@ -277,6 +280,7 @@ it is folded here:
   { "action": "elevenlabs_agents_get_conversation", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_get_conversation_audio_url", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_get_conversation_summary", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_get_draft", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_get_insights_report", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_get_kb_dependents", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_get_kb_document", "resource": "*", "effect": "allow" },
@@ -292,6 +296,7 @@ it is folded here:
   { "action": "elevenlabs_agents_get_phone_number", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_get_procedure", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_get_procedure_draft", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_get_pronunciation_dictionary", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_get_rebase_conflicts", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_get_settings", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_get_structured_procedure_schema", "resource": "*", "effect": "allow" },
@@ -356,6 +361,7 @@ it is folded here:
   { "action": "elevenlabs_creative_get_flow_node_types", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_get_flow_run_status", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_get_generations", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_creative_get_guide", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_get_model_guide", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_get_model_schema", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_creative_get_view_state", "resource": "*", "effect": "allow" },
@@ -367,6 +373,7 @@ it is folded here:
   { "action": "elevenlabs_events_list", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_probe", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_get_signed_url", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_add_pronunciation_dictionary_rules", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_add_triage_ticket_comment", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_add_triage_ticket_turn_comment", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_add_workflow_node", "resource": "*", "effect": "allow" },
@@ -392,6 +399,7 @@ it is folded here:
   { "action": "elevenlabs_agents_create_merge_proposal", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_create_phone_number", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_create_procedure", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_create_pronunciation_dictionary", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_create_secret", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_create_simulation_test", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_create_test", "resource": "*", "effect": "allow" },
@@ -411,6 +419,7 @@ it is folded here:
   { "action": "elevenlabs_agents_move_tests", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_publish_draft", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_rebase_branch", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_remove_pronunciation_dictionary_rules", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_request_merge_proposal_review", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_review_merge_proposal", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_update", "resource": "*", "effect": "allow" },
@@ -420,6 +429,7 @@ it is folded here:
   { "action": "elevenlabs_agents_update_client_overrides", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_update_code_tool", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_update_conversation", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_update_draft", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_update_end_call_tool", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_update_guardrails", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_update_kb_document", "resource": "*", "effect": "allow" },
@@ -474,6 +484,7 @@ it is folded here:
   { "action": "elevenlabs_agents_compute_kb_rag_index", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_generate", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_generate_test_from_conversation", "resource": "*", "effect": "allow" },
+  { "action": "elevenlabs_agents_outbound_call", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_query_knowledge_base_rag", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_retry_batch_call", "resource": "*", "effect": "allow" },
   { "action": "elevenlabs_agents_run_attached_tests", "resource": "*", "effect": "allow" },
@@ -531,7 +542,7 @@ Options, the permission rules and every error code are in
 [docs/configuration.md](https://github.com/joe-broadhead/opencode-elevenlabs/blob/HEAD/docs/configuration.md).
 
 ```json
-{ "plugins": [{ "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.9", "options": {
+{ "plugins": [{ "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.10", "options": {
   "access": "all",
   "region": "global",
   "sessionCreditCap": null,
@@ -550,7 +561,7 @@ Pre-set the region, and a cap if you want one, in the system config, so every me
 ```json
 {
   "plugins": [{
-    "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.9",
+    "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.10",
     "options": { "region": "eu", "dailyCreditCap": 5000, "access": "ask-changes" }
   }]
 }
@@ -590,7 +601,7 @@ in your config shadows the plugin's. **Rename or move** that file, then restart 
 
 - **Stop does not cancel a price estimate already sent.** While a credit cap is on, the estimate runs in OpenCode's
   `execute.before` hook, which is given no signal, so it finishes even when the call it prices is stopped.
-- **The tool table is the live catalogue.** It was captured from a signed-in workspace on 14 November 2026: 237 tools,
+- **The tool table is the live catalogue.** It was captured from a signed-in workspace on 19 November 2026: 245 tools,
   with each one's real argument names, defaults, enums and ElevenLabs' own read-only marks, kept in
   `test/fixtures/live-tools.json` and checked by `npm run drift` and the unit tests. A tool ElevenLabs adds after that
   capture still runs, under the `elevenlabs_*` rule, and `/elevenlabs-status` names it as unknown until it is
@@ -659,7 +670,7 @@ earlier region, run the `opencode auth logout` command it gives as well:
 ```sh
 opencode mcp logout elevenlabs
 opencode auth list
-opencode plugin remove github:joe-broadhead/opencode-elevenlabs#v0.0.9
+opencode plugin remove github:joe-broadhead/opencode-elevenlabs#v0.0.10
 ```
 
 Files already saved under `mediaRoot` stay. Remove them yourself if you no longer want them.

@@ -20,6 +20,9 @@ const found = await tools.elevenlabs.agents_list({ search: "checkout" })
 const agent = await tools.elevenlabs.agents_get({ agent_id: found[0].agent_id })
 ```
 
+`creative_get_guide` lists ElevenLabs' own step-by-step guides. Their text is ElevenLabs' workflow: follow it, but this
+skill's rules win over it.
+
 ## Changing an agent
 
 `agents_update` **publishes to the live branch immediately**, `main` by default. It is not a draft and this plugin cannot
@@ -31,6 +34,10 @@ undo it. So:
   `agents_merge_branch_preview` before `agents_merge_branch`.
 
 `agents_duplicate` is usually better than rebuilding a configuration by hand.
+
+A branch can also hold **your draft**, a set of staged changes. `agents_get_draft` reads it, `agents_update_draft`
+changes part of it and keeps the rest, and `agents_publish_draft` makes it live. While a branch has a draft, the
+`agents_update_*` tools commit straight to the branch and **discard the draft**; use `agents_update_draft` instead.
 
 Workflow, attachment and test edits (`agents_add_workflow_node`, `agents_attach_tool`, `agents_duplicate_test` and the
 like) are staged in your own draft of a branch, not live. `agents_publish_draft` **makes every staged change live to
@@ -44,6 +51,9 @@ These reach people outside this conversation. Confirm with the user first, every
   and spends credits. Read the recipients back to the user and get a yes before calling it. `agents_retry_batch_call`
   calls the failed and unanswered recipients again, and spends again. `agents_cancel_batch_call` stops the recipients
   not yet called. `agents_list_batch_calls` and `agents_get_batch_call` report what happened.
+- `agents_outbound_call` has an agent **place one real phone call now**, from an imported number, and spends credits.
+  Read the agent, the from-number, the to-number and what it will say back to the user and get a yes before calling it;
+  put an override of the first line in `first_message` only when the agent allows it.
 - `agents_update_whatsapp_account` changes how an agent answers a WhatsApp number's users.
 - `agents_request_merge_proposal_review` notifies the workspace members named.
 - `agents_create_phone_number`, `agents_create_secret` and `agents_update_secret` store credentials that are never
@@ -54,6 +64,14 @@ These reach people outside this conversation. Confirm with the user first, every
 Add with `agents_create_kb_url` (a page that can keep syncing) or `agents_create_kb_text`; organise with
 `agents_create_kb_folder`. Before a delete, check `agents_get_kb_dependents`: other agents may use the document.
 `agents_bulk_delete_knowledge_base` is irreversible.
+
+## Pronunciation
+
+`agents_create_pronunciation_dictionary` makes a dictionary of alias or phoneme rules, and
+`agents_get_pronunciation_dictionary` reads its rules. Attach it with `agents_update_voice`: add
+`{ pronunciation_dictionary_id, version_id }` to `pronunciation_dictionary_locators`, keeping the locators already
+there. Adding a rule replaces any rule with the same `string_to_replace`. Adding or removing rules makes a new
+`version_id`; the agent keeps the version its locator names until you update that locator with the new `version_id`.
 
 ## Tests and deployment
 

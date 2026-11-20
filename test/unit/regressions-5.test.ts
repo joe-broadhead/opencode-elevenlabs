@@ -131,6 +131,7 @@ describe("one list decides what is priced", () => {
       "agents_compute_kb_rag_index",
       "agents_generate",
       "agents_generate_test_from_conversation",
+      "agents_outbound_call",
       "agents_query_knowledge_base_rag",
       "agents_retry_batch_call",
       "agents_run_attached_tests",

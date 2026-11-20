@@ -25,6 +25,7 @@ const CHANGE_WORDS = /\b(creates?|updates?|deletes?|removes?|edits?|modif(?:y|ie
 const WORDING_REVIEWED = new Map([
   ["agents_get_conversation_summary", "reports whether the agent updated anything; reads one conversation"],
   ["creative_get_available_assets", "lists assets already uploaded; uploads nothing"],
+  ["creative_get_guide", "says it spends no credits; lists or reads ElevenLabs' own workflow text"],
   ["agents_get_settings", "names the post-call webhook it reports; posts nothing"],
   ["agents_get_subagent_dependents", "says deleting the agent removes it from these; removes nothing"],
   ["creative_get_generations", "says it spends no credits; shows renders"],

@@ -17,6 +17,7 @@ import {
   parseProbeInput,
   probeResult,
   screenEvents,
+  secretKinds,
   startTime,
 } from "@we-the-rebel-alliance/source-contract/events"
 import type { JsonSchema, OwnedMethod, ToolCall } from "@we-the-rebel-alliance/source-contract/tools-rpc"
@@ -90,6 +91,8 @@ export const MAX_BYTES = 65_536
 export const SETTLE_MS = 2 * 3_600_000
 /** agents_list_conversations' largest page. */
 const PAGE_SIZE = 100
+/** The list registry holds 50 items. A list read asks for that many and returns no more. */
+const LIST_CAP = 50
 /** The most agents_list_conversations pages one call reads; the cursor carries on from the last. */
 const MAX_PAGES = 20
 /** agents_list's largest page, and the most pages each of its two listings (active and archived agents) takes. */
@@ -225,6 +228,58 @@ export const PROBE_INPUT = {
     account: { type: "string", enum: [ACCOUNT], description: "ElevenLabs' one account; default." },
   },
 } as const satisfies JsonSchema
+
+/**
+ * The tools RPC method's input: the events read, and `list: "conversations"` for the list snapshot. `list` is not on
+ * the model tool (`EVENTS_INPUT`), so no agent sees it; a list is for an app's list view, not for answering questions.
+ */
+export const EVENTS_RPC_INPUT = {
+  ...EVENTS_INPUT,
+  properties: {
+    ...EVENTS_INPUT.properties,
+    list: {
+      type: "string",
+      const: "conversations",
+      description: "Read the conversations as the list snapshot instead of events: up to 50 recent titles, newest first, as data.items (id, text). Metadata only, no caller, transcript or summary. For an app's list view, not for answering questions.",
+    },
+  },
+} as const satisfies JsonSchema
+
+/** A list item, as the source contract's `output.list` schema defines it. */
+const LIST_ITEM = {
+  type: "object",
+  additionalProperties: false,
+  required: ["id", "text"],
+  properties: { id: { type: "string", minLength: 1, maxLength: 128 }, text: { type: "string", maxLength: 200 }, done: { type: "boolean" } },
+} as const
+
+/** The list answer's data: the registry's `output.list` schema. */
+const LIST_DATA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["items", "editable"],
+  properties: { items: { type: "array", maxItems: LIST_CAP, items: LIST_ITEM }, editable: { type: "boolean" } },
+} as const
+
+/**
+ * The list snapshot's answer, as the family's list sources answer it: source, account, the list data, when it was read,
+ * and `trust: "untrusted"`. The tools RPC method's output accepts this or the events page.
+ */
+export const LIST_ANSWER = {
+  type: "object",
+  additionalProperties: false,
+  required: ["source", "account", "data", "asOf", "trust"],
+  properties: {
+    source: { type: "string", const: SOURCE },
+    account: { type: "string", const: ACCOUNT },
+    data: LIST_DATA,
+    asOf: { type: "string", description: "When the conversations were read, UTC ISO." },
+    trust: { type: "string", const: "untrusted" },
+  },
+} as const satisfies JsonSchema
+
+/** The tools RPC method's output: the events page, or the list snapshot's answer. */
+export const EVENTS_METHOD_OUTPUT = { anyOf: [EVENTS_OUTPUT, LIST_ANSWER] } as const satisfies JsonSchema
 
 const PROBE_OUTPUT = {
   type: "object",
@@ -639,16 +694,51 @@ function ready(state: EventsState) {
 }
 
 /**
+ * The current conversations as the contract's `list` output. Metadata only: the same title events use, never a caller,
+ * a transcript or a summary. A title that holds a secret is left out: the whole title is screened, then cut to 200
+ * characters, so a secret straddling the cut cannot pass as a prefix. Control characters are dropped, which also keeps
+ * 50 maximal items far inside the declared `maxBytes` (the schema's own caps: 128-byte id, 200-character text).
+ */
+export async function conversationList(read: Read, owner: EventsOwner | undefined, input: Record<string, unknown>, now: number) {
+  const account = text(input["account"])
+  const source = text(input["source"])
+  if (source !== undefined && source !== SOURCE) refuse("SOURCE_UNKNOWN", `This plugin lists one source, ${SOURCE}`, `Leave source out, or pass "${SOURCE}".`)
+  if (account !== undefined && account !== ACCOUNT) refuse("ACCOUNT_MISMATCH", `${DISPLAY_NAME} has one account, ${ACCOUNT}, and this call names another`, `Pass account "${ACCOUNT}", as probe names it.`)
+  if (!owner) refuse("NEEDS_SIGN_IN", `OpenCode holds no ${DISPLAY_NAME} sign-in to name as the owner`, SIGN_IN_NEXT)
+  // Newest first, one page: the API's own order is the list's order, and the item cap is applied after it.
+  const page = readPage(await read(LIST_TOOL, { page_size: PAGE_SIZE, sort_direction: "desc", summary_mode: "exclude" }))
+  const items: { id: string; text: string; done?: true }[] = []
+  for (const conversation of page.conversations) {
+    if (items.length >= LIST_CAP) break
+    const whole = titleOf(conversation).replace(/[\u0000-\u001f\u007f-\u009f]/g, " ").replace(/\s+/g, " ").trim()
+    if (whole === "" || secretKinds(whole).length > 0) continue
+    const id = conversation.id.slice(0, 128)
+    if (id === "") continue
+    items.push({ id, text: whole.slice(0, 200), ...(conversation.status === "done" ? { done: true } : {}) })
+  }
+  return {
+    source: SOURCE,
+    account: ACCOUNT,
+    data: { items, editable: false as const },
+    asOf: new Date(now).toISOString(),
+    trust: "untrusted" as const,
+  }
+}
+
+/**
  * The tool's and the method's one run: asserts elevenlabs_events_list for the caller, then lists. The assert passes the
  * call's own source, so the tools RPC can tell this call's ask apart.
  */
-export async function runEvents(ctx: EventsContext, state: EventsState, input: unknown, context: CallContext, now: number): Promise<EventsListResult> {
+export async function runEvents(ctx: EventsContext, state: EventsState, input: unknown, context: CallContext, now: number): Promise<EventsListResult | Awaited<ReturnType<typeof conversationList>>> {
   await assertAction(ctx, EVENTS_ACTION, context)
   ready(state)
   if (state.disabled()) {
     refuse("SOURCE_DISABLED", `The plugin's conversations option is "off", so no read of a call's history runs`, `Set the plugin option "conversations" to "summary" or "full" to list conversations again.`)
   }
-  return listEvents(reader(ctx, context), await signedIn(ctx), input, now)
+  const signed = await signedIn(ctx)
+  // elevenlabs.conversations.list: the same conversations read, as a list. The model path does not pass list.
+  if (record(input) && input["list"] === "conversations") return conversationList(reader(ctx, context), signed, input, now)
+  return listEvents(reader(ctx, context), signed, input, now)
 }
 
 /** probe's one run: asserts elevenlabs_probe for the caller, then names OpenCode's sign-in. */
@@ -683,14 +773,23 @@ export function registerEvents(ctx: EventsContext & { readonly tool: Pick<Plugin
       output: EVENTS_OUTPUT,
       options: { namespace: SERVER_NAME },
       execute: async (input, context) => {
-        const output = await runEvents(ctx, state, input, context, now())
+        // A list is for a consumer, through the tools RPC method, never for a model. The schema has no `list`, but a host
+        // or Code Mode may pass an extra key through, so the tool refuses it here before any read.
+        if (record(input) && "list" in input) {
+          refuse(
+            "INPUT_INVALID",
+            `${EVENTS_TOOL} does not take "list": a list is read through the tools RPC, not by a model`,
+            `Leave list out to read events; an app reads a list through the tools RPC method, not through this tool.`,
+          )
+        }
+        const output = (await runEvents(ctx, state, input, context, now())) as EventsListResult
         return { output, content: summary(output) }
       },
     })
   })
 }
 
-/** The tools RPC's events_list method: the tool's own run, as the envelope's session. */
+/** The tools RPC's events_list method: the tool's own run, as the envelope's session. It also answers the list snapshot. */
 export function eventsMethod(ctx: EventsContext, state: EventsState, now: () => number = Date.now): OwnedMethod {
   return {
     kind: "plugin",
@@ -698,8 +797,8 @@ export function eventsMethod(ctx: EventsContext, state: EventsState, now: () => 
     name: EVENTS_TOOL,
     action: EVENTS_ACTION,
     description: EVENTS_DESCRIPTION,
-    input: EVENTS_INPUT,
-    output: EVENTS_OUTPUT,
+    input: EVENTS_RPC_INPUT,
+    output: EVENTS_METHOD_OUTPUT,
     run: (input: unknown, call: ToolCall) => runEvents(ctx, state, input, call, now()),
   }
 }

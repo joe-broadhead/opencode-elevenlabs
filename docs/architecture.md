@@ -14,7 +14,7 @@ its own and has no runtime dependencies: the source contract's modules are bundl
 | `src/plugin.ts` | Setup: the server, the namespace, the rules, the guard's hooks, the commands, the tools RPC |
 | `src/constants.ts` | Ids, the region table, the scope pin, the media host, the host range, `TESTED_HOSTS` and the codes |
 | `src/options.ts` | Option parsing and validation |
-| `src/elevenlabs-tools.ts` | The one tool table: all 237 live tools — reads, export, writes, spending tools, deletes — the transcript lists, the tools that reach people, the read-only overrides and `classify()` |
+| `src/elevenlabs-tools.ts` | The one tool table: all 245 live tools — reads, export, writes, spending tools, deletes — the transcript lists, the tools that reach people, the read-only overrides and `classify()` |
 | `src/permissions.ts` | The generated default rules, their placement, and the agents that need them |
 | `src/billing.ts` | ElevenLabs' estimate as the only price, the argument allowlists, the rolling ledger, the pre-call refusal, the cost line, the RPC `cost` object |
 | `src/media/policy.ts` | The export-root path policy and the file write |
@@ -96,8 +96,9 @@ succeeds.
 or per minute, and no measurement of a local file. A call that can spend is priced by sending ElevenLabs the same call
 with `estimate_only: true` and the same arguments, and reading the figure out of its answer (`estimatePrice` in
 `src/billing.ts`). `ESTIMATE_TOOLS` holds the seven tools whose live schema declares `estimate_only`; `SPEND_TOOLS`
-holds the eighteen that can spend. A spending tool with no estimate — the eleven that are not in `ESTIMATE_TOOLS`,
-from `creative_design_voice` and the batch calls to `creative_create_brand_kit_from_website` — has no price at all: with no cap it runs unpriced, and while a cap the owner set is on it is refused (`PRICE_UNKNOWN`).
+holds the nineteen that can spend. A spending tool with no estimate — the twelve that are not in `ESTIMATE_TOOLS`,
+from `creative_design_voice` and the batch and outbound calls to `creative_create_brand_kit_from_website` — has no
+price at all: with no cap it runs unpriced, and while a cap the owner set is on it is refused (`PRICE_UNKNOWN`).
 
 **Caps are opt-in.** `sessionCreditCap` and `dailyCreditCap` default to `null`. With neither set, `quote` and
 `quoteSync` send no estimate and refuse, clamp and reserve nothing. Each path records the figure the result itself
@@ -223,12 +224,12 @@ transcribes the node it is connected to, once.
 not a file on this machine. `creative_transcribe_audio` has no file or path argument at all — its audio comes from the
 node it is connected to, and the server never sees anything on this disk.
 
-The eleven spending tools with no list are `creative_design_voice`, `creative_execute_sandbox`,
-`agents_submit_batch_call`, `agents_retry_batch_call`, `agents_run_tests`, `agents_run_attached_tests`,
-`agents_generate`, `agents_generate_test_from_conversation`, `agents_compute_kb_rag_index`,
-`agents_query_knowledge_base_rag` and `creative_create_brand_kit_from_website`, because their live schemas declare no
-`estimate_only` and nothing here can price them; a cap refuses them outright, so a list of arguments would decide
-nothing.
+The twelve spending tools with no list are `creative_design_voice`, `creative_execute_sandbox`,
+`agents_submit_batch_call`, `agents_retry_batch_call`, `agents_outbound_call`, `agents_run_tests`,
+`agents_run_attached_tests`, `agents_generate`, `agents_generate_test_from_conversation`,
+`agents_compute_kb_rag_index`, `agents_query_knowledge_base_rag` and `creative_create_brand_kit_from_website`, because
+their live schemas declare no `estimate_only` and nothing here can price them; a cap refuses them outright, so a list
+of arguments would decide nothing.
 
 ElevenLabs no longer takes a `context` argument on any tool. Until the capture of 14 November 2026 every live tool
 required one, and every list held it; now none does, so a priced call that carries it is refused under a cap like any
@@ -236,11 +237,11 @@ other argument the schema lacks.
 
 ### What each tool is allowed to do
 
-`classify()` puts each of the 237 live tools in one class: 100 reads, 1 export, 104 writes, 18 that can spend and 14
+`classify()` puts each of the 245 live tools in one class: 103 reads, 1 export, 108 writes, 19 that can spend and 14
 destructive. Nothing is left unclassified. The class is the worst thing a tool can do; it never decides whether a call
 runs, only what the generated default rules give it.
 
-**A read is exactly a tool ElevenLabs marks read-only.** The capture of 14 November 2026 records each tool's
+**A read is exactly a tool ElevenLabs marks read-only.** The live capture records each tool's
 `readOnlyHint`, and Jelly enforces the declared `readOnly` without loading the plugin, so the table follows the server,
 with two exceptions kept stricter on purpose and named in `READ_ONLY_OVERRIDES`: `agents_query_knowledge_base_rag`,
 which this plugin counts as spending (below), and `get_more_tools`, which sends the model's words to ElevenLabs.
@@ -248,12 +249,14 @@ which this plugin counts as spending (below), and `get_more_tools`, which sends 
 table's `destructive` class: it also marks updates that replace a value (`agents_update`, `agents_update_settings`,
 `agents_publish_draft` and others), which stay writes here; every delete is destructive, and ElevenLabs marks each one so.
 
-**Five tools reach people outside the conversation** (`REACH_TOOLS`): `agents_submit_batch_call` and
-`agents_retry_batch_call` place real phone calls, `agents_publish_draft` makes staged changes live to callers,
+**Six tools reach people outside the conversation** (`REACH_TOOLS`): `agents_submit_batch_call` and
+`agents_retry_batch_call` place real phone calls, `agents_outbound_call` places one call now,
+`agents_publish_draft` makes staged changes live to callers,
 `agents_update_whatsapp_account` changes how an agent answers a WhatsApp number, and
 `agents_request_merge_proposal_review` notifies workspace members. None is a read, so `ask-changes` asks before each,
 a script's call is refused there because a script cannot answer, and `read-only` denies them. At the default `all`
-they run, like every other tool; the two batch-call tools are also spending tools, so a cap refuses them.
+they run, like every other tool; the batch-call tools and `agents_outbound_call` are also spending tools, so a cap
+refuses them.
 
 Some of them are judgement calls, recorded here because nothing in the catalogue settles them. **One rule decides every
 tool the catalogue is silent about:** a tool whose own description says it does server-side work ElevenLabs plausibly
@@ -279,9 +282,9 @@ so each runs unpriced, or is refused while a cap is set, and live pass 2 measure
   typography and tone — *"best-effort and takes a while"*, which is the shape of a billed extraction.
 - **`creative_design_voice` is counted as spending** and `creative_save_designed_voice` is a write: designing previews
   is the part that generates audio.
-- **Three say they spend outright.** `creative_execute_sandbox` *"costs credits for each second the command runs"*,
-  and `agents_submit_batch_call` and `agents_retry_batch_call` place real phone calls. `creative_get_sandbox_run`,
-  which waits for a sandbox run already started, is a write that starts nothing.
+- **Four say they spend outright.** `creative_execute_sandbox` *"costs credits for each second the command runs"*,
+  and `agents_submit_batch_call`, `agents_retry_batch_call` and `agents_outbound_call` place real phone calls.
+  `creative_get_sandbox_run`, which waits for a sandbox run already started, is a write that starts nothing.
 - **`creative_create_asset_upload` is a write, not an export.** It opens an upload into the workspace; nothing leaves
   it. The one export is `agents_get_signed_url`, which mints a signed URL that starts a conversation with a private
   agent and which ElevenLabs says to treat as a credential. `agents_get_link`, the agent's existing shareable link, and

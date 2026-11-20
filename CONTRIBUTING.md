@@ -27,7 +27,7 @@ SDK and print a notice.
 
 ## ElevenLabs' tools
 
-`src/elevenlabs-tools.ts` classifies the 237 tools the live server lists. The capture in `test/fixtures/live-tools.json`
+`src/elevenlabs-tools.ts` classifies the 245 tools the live server lists. The capture in `test/fixtures/live-tools.json`
 (with `provenance.json` beside it) is what `npm run drift` and `test/unit/live-tools.test.ts` check it against: every
 served tool declared in `jelly.tools`, every declared tool served, and each `readOnly` equal to ElevenLabs'
 `readOnlyHint` unless `READ_ONLY_OVERRIDES` and `test/fixtures/tool-registry.json` give the reason it is stricter. To
@@ -170,7 +170,7 @@ Each release has its own tag, and a Git install does not update by itself. To mo
 Or add the plugin to `opencode.json` instead, with the same spec:
 
 ```json
-{ "plugins": [{ "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.9" }] }
+{ "plugins": [{ "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.10" }] }
 ```
 ## Installing from a checkout
 
