@@ -1,14 +1,14 @@
 {
   "schema": "opencode-family/live-tools@1",
   "evidence": "live-observed",
-  "note": "Captured by scripts/capture-tools.mjs from the server's own tools/list. Descriptions are public tool metadata, recorded in full. No tool was called. No token, header, account id, server instructions or result text is recorded.",
-  "listedAt": "2026-11-14",
+  "note": "Captured by scripts/capture-tools.mjs from the server's own tools/list. Descriptions are public tool metadata, recorded in full, with the signed-in account's own values replaced by placeholders (redactions). No tool was called. No token, header, account id, server instructions or result text is recorded.",
+  "listedAt": "2026-11-19",
   "server": "elevenlabs",
   "namespace": "elevenlabs",
   "endpoint": "https://api.elevenlabs.io/v1/mcp",
   "auth": "signed-in",
   "host": {
-    "opencode": "2.2.6",
+    "opencode": "2.3.2",
     "via": "running OpenCode server: MCP status and active credential; raw MCP tools/list"
   },
   "protocol": {
@@ -19,9 +19,10 @@
     }
   },
   "pages": 5,
-  "count": 237,
-  "readOnlyHints": 237,
-  "digest": "864f58dd0738288284f93d8a28ea105bd747683b6227e1d79c327e4b80a60f33",
+  "count": 245,
+  "readOnlyHints": 245,
+  "redactions": 0,
+  "digest": "711c6ae0567bd18672eded2c1db77d1cf18459dd41e0d0e7356dee00c615f48a",
   "tools": [
     {
       "name": "account_get_usage",
@@ -45,6 +46,79 @@
         "sha256": "a52d303d9704dc2cbd8ad32dcbfcc014eacd8983813b296c536ea236d7842caf",
         "length": 176,
         "text": "Get the account's plan and usage: subscription tier and status, credits used and the credit limit, when credits next reset, current overage, and voice slots used and available."
+      }
+    },
+    {
+      "name": "agents_add_pronunciation_dictionary_rules",
+      "title": "Add pronunciation dictionary rules",
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": null,
+      "openWorldHint": false,
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false,
+        "title": "Add pronunciation dictionary rules"
+      },
+      "inputSchema": {
+        "properties": {
+          "pronunciation_dictionary_id": {
+            "type": "string",
+            "description": "The pronunciation dictionary ID."
+          },
+          "rules": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 1000,
+            "items": {
+              "type": "object",
+              "properties": {
+                "string_to_replace": {
+                  "type": "string",
+                  "description": "The word or phrase to match, e.g. Jelena."
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "alias",
+                    "phoneme"
+                  ],
+                  "description": "alias says other text instead; phoneme spells out the sounds."
+                },
+                "alias": {
+                  "type": "string",
+                  "description": "Alias rules: the text to say instead, e.g. Yelena."
+                },
+                "phoneme": {
+                  "type": "string",
+                  "description": "Phoneme rules: the pronunciation, e.g. jɛˈlɛna."
+                },
+                "alphabet": {
+                  "type": "string",
+                  "description": "Phoneme rules: ipa or cmu-arpabet."
+                }
+              },
+              "required": [
+                "string_to_replace",
+                "type"
+              ],
+              "additionalProperties": false
+            },
+            "description": "The rules. Each matches case-sensitively, on whole words."
+          }
+        },
+        "required": [
+          "pronunciation_dictionary_id",
+          "rules"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "description": {
+        "sha256": "a83a7f2c7bc6647d6db346a406d9bf9f08713deccdedacd3e9db21f1276214c0",
+        "length": 303,
+        "text": "Add rules to a pronunciation dictionary, replacing any rule with the same string_to_replace. Returns the dictionary's new version_id. Each change makes a new version: an agent keeps the version its pronunciation_dictionary_locators name until its voice settings are updated with the returned version_id."
       }
     },
     {
@@ -1285,6 +1359,7 @@
               "telegram_integration",
               "intercom_integration",
               "freshdesk_integration",
+              "plain_integration",
               "salesforce_integration",
               "template_preview",
               "genesys_bot_connector",
@@ -1386,7 +1461,7 @@
             "type": "string",
             "minLength": 0,
             "title": "Voice Id",
-            "description": "The voice ID to use for TTS",
+            "description": "The voice the agent speaks with. Pass only a voice_id that creative_list_voices returned or the user gave, never one from memory. Leave it out to use the default agent voice.",
             "default": "cjVigY5qzO86Huf0OWal",
             "x-convai-client-override": true,
             "x-convai-language-override": true
@@ -1795,9 +1870,9 @@
         }
       },
       "description": {
-        "sha256": "f1ef23f7d5d4b71c5a014bfd617768dd8febe08b38dd6110c5ab38b9e742dcda",
-        "length": 39,
-        "text": "Create a draft for an ElevenLabs Agent."
+        "sha256": "ba9b2e148bb470c599ebf86ac00f48407066321bd0da32375225163f96abb831",
+        "length": 215,
+        "text": "Create a draft for an ElevenLabs Agent, replacing your whole draft of the branch with the config sent. To change a few fields and keep the rest of the draft, use agents_update_draft; agents_publish_draft commits it."
       }
     },
     {
@@ -3514,9 +3589,86 @@
         }
       },
       "description": {
-        "sha256": "fa0b00b8e67522fcc9dccc4575b7efe7f9bf9c144ed5fc0a57e9cc660be901ab",
-        "length": 1256,
-        "text": "Create a procedure on an agent branch. A procedure is a standard operating procedure the agent follows for one specific task: trigger says when the agent should use it, content says what to do. There are two types. A free-form procedure (type=free_form) is markdown instructions that are injected into the prompt when the procedure is active; the agent reads them and uses judgment about wording and order. A structured procedure (type=deterministic) is a list of typed steps the agent runs in a fixed order, every time. Set trigger as the top-level field; never write it inside content. For structured content, send the steps object JSON-encoded in content; its shape and rules are documented at https://elevenlabs.io/docs/eleven-agents/customization/procedures/structured-procedures. Do not connect workflow edges to a structured procedure: those connections are removed when the platform rebuilds its execution form. Chain structured procedures with a Sub-procedure step; entry from a matching trigger and completion are platform-managed. The procedure is a draft until the agent is published; saving the draft (agents_create_draft) and publishing both validate structured procedures and return per-procedure errors with the path of each offending step."
+        "sha256": "432ab879870c08f17bfd8ea1918ae965f106c79401ce7ae5b3ff1daa5ba86809",
+        "length": 1287,
+        "text": "Create a procedure on an agent branch. A procedure is a standard operating procedure the agent follows for one specific task: trigger says when the agent should use it, content says what to do. There are two types. A free-form procedure (type=free_form) is markdown instructions that are injected into the prompt when the procedure is active; the agent reads them and uses judgment about wording and order. A structured procedure (type=deterministic) is a list of typed steps the agent runs in a fixed order, every time. Set trigger as the top-level field; never write it inside content. For structured content, send the steps object JSON-encoded in content; its shape and rules are documented at https://elevenlabs.io/docs/eleven-agents/customization/procedures/structured-procedures. Do not connect workflow edges to a structured procedure: those connections are removed when the platform rebuilds its execution form. Chain structured procedures with a Sub-procedure step; entry from a matching trigger and completion are platform-managed. The procedure is a draft until agents_publish_draft commits your draft of the branch; saving the draft (agents_create_draft) and publishing both validate structured procedures and return per-procedure errors with the path of each offending step."
+      }
+    },
+    {
+      "name": "agents_create_pronunciation_dictionary",
+      "title": "Create pronunciation dictionary",
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": null,
+      "openWorldHint": false,
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false,
+        "title": "Create pronunciation dictionary"
+      },
+      "inputSchema": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "A name for the dictionary."
+          },
+          "description": {
+            "type": "string",
+            "description": "What the dictionary is for."
+          },
+          "rules": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 1000,
+            "items": {
+              "type": "object",
+              "properties": {
+                "string_to_replace": {
+                  "type": "string",
+                  "description": "The word or phrase to match, e.g. Jelena."
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "alias",
+                    "phoneme"
+                  ],
+                  "description": "alias says other text instead; phoneme spells out the sounds."
+                },
+                "alias": {
+                  "type": "string",
+                  "description": "Alias rules: the text to say instead, e.g. Yelena."
+                },
+                "phoneme": {
+                  "type": "string",
+                  "description": "Phoneme rules: the pronunciation, e.g. jɛˈlɛna."
+                },
+                "alphabet": {
+                  "type": "string",
+                  "description": "Phoneme rules: ipa or cmu-arpabet."
+                }
+              },
+              "required": [
+                "string_to_replace",
+                "type"
+              ],
+              "additionalProperties": false
+            },
+            "description": "The rules. Each matches case-sensitively, on whole words."
+          }
+        },
+        "required": [
+          "name",
+          "rules"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "description": {
+        "sha256": "fc8a4e37cd4aea4938471671b04ec8493d7da457800ff65d732bd6eb85cc5a35",
+        "length": 351,
+        "text": "Create a pronunciation dictionary from alias or phoneme rules, so an agent's voice says a name or term the way it should. Returns id and version_id. To attach it, add {pronunciation_dictionary_id: id, version_id} to the agent's conversation_config.tts.pronunciation_dictionary_locators with the voice settings tool, keeping the locators already there."
       }
     },
     {
@@ -3628,6 +3780,7 @@
         "properties": {
           "body": {
             "type": "object",
+            "description": "Create Chat Response Test Request Information",
             "anyOf": [
               {
                 "$ref": "#/$defs/CreateResponseUnitTestRequest"
@@ -3639,7 +3792,6 @@
                 "$ref": "#/$defs/CreateSimulationTestRequest"
               }
             ],
-            "description": "Create Chat Response Test Request Information",
             "title": "Test Request"
           }
         },
@@ -4401,6 +4553,16 @@
               },
               "webhook_details": {
                 "$ref": "#/$defs/ConversationHistoryTranscriptToolCallWebhookDetails"
+              },
+              "function_details": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ConversationHistoryTranscriptToolCallIntegrationFunctionDetails"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               }
             },
             "type": "object",
@@ -4408,6 +4570,22 @@
               "webhook_details"
             ],
             "title": "ConversationHistoryTranscriptToolCallApiIntegrationWebhookDetails"
+          },
+          "ConversationHistoryTranscriptToolCallIntegrationFunctionDetails": {
+            "properties": {
+              "resolved_parameters": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object",
+                "title": "Resolved Parameters"
+              }
+            },
+            "type": "object",
+            "required": [
+              "resolved_parameters"
+            ],
+            "title": "ConversationHistoryTranscriptToolCallIntegrationFunctionDetails"
           },
           "ConversationHistoryTranscriptOtherToolsResultCommonModel": {
             "properties": {
@@ -6324,6 +6502,8 @@
               "gpt-6-luna",
               "gpt-6.1-sol",
               "gpt-6.1-terra",
+              "gpt-6.2-astra",
+              "gpt-6.2-sol",
               "gpt-5-mini",
               "gpt-5-nano",
               "gpt-3.5-turbo",
@@ -6344,6 +6524,8 @@
               "gemini-3.7-flash",
               "gemini-3.8-flash",
               "gemini-4-argon",
+              "gemini-4-hydrogen",
+              "gemini-4-neon",
               "claude-sonnet-4-5",
               "claude-opus-4-6",
               "claude-opus-4-7",
@@ -6360,7 +6542,6 @@
               "claude-3-5-sonnet",
               "claude-3-5-sonnet-v1",
               "claude-3-haiku",
-              "grok-beta",
               "custom-llm",
               "qwen3-4b",
               "qwen3-30b-a3b",
@@ -6629,6 +6810,7 @@
               "telegram_integration",
               "intercom_integration",
               "freshdesk_integration",
+              "plain_integration",
               "salesforce_integration",
               "template_preview",
               "genesys_bot_connector",
@@ -7255,9 +7437,9 @@
         }
       },
       "description": {
-        "sha256": "fce831f8c44082f9b5dbb222a705a15eeb4a63b94594e6476706f6766d3e5821",
-        "length": 30,
-        "text": "Create an agent response test."
+        "sha256": "cd1876afa0094ac6329354657c993d9f17250dccb116c929a7a637162aca9e32",
+        "length": 923,
+        "text": "Create a test of the agent's next turn after a conversation so far. type picks the check: llm (the default) judges the reply against success_condition, with optional success_examples and failure_examples, each {\"response\": \"...\"}; tool checks the tool call the agent makes, set in tool_call_parameters. For a simulated conversation, use agents_create_simulation_test instead. chat_history is the conversation so far, as turns of {\"role\": \"user\" or \"agent\", \"message\": \"...\", \"time_in_call_secs\": seconds into the call}, and must end with a user turn or a tool result, because the agent speaks next. Example body: {\"name\": \"Refund policy\", \"chat_history\": [{\"role\": \"agent\", \"message\": \"Hi, how can I help?\", \"time_in_call_secs\": 0}, {\"role\": \"user\", \"message\": \"Can I get a refund?\", \"time_in_call_secs\": 4}], \"success_condition\": \"The agent explains the refund policy.\"}. Returns its id; attach it with agents_attach_test."
       }
     },
     {
@@ -7715,8 +7897,7 @@
               "request_body_schema": {
                 "anyOf": [
                   {
-                    "$ref": "#/$defs/ObjectJsonSchemaProperty-Input",
-                    "description": "JSON schema for the parameters the LLM provides."
+                    "$ref": "#/$defs/ObjectJsonSchemaProperty-Input"
                   },
                   {
                     "type": "null"
@@ -7985,7 +8166,14 @@
             "properties": {
               "properties": {
                 "additionalProperties": {
-                  "$ref": "#/$defs/LiteralJsonSchemaProperty"
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/LiteralJsonSchemaProperty"
+                    },
+                    {
+                      "$ref": "#/$defs/QueryArrayJsonSchemaProperty-Input"
+                    }
+                  ]
                 },
                 "type": "object",
                 "minProperties": 1,
@@ -8005,6 +8193,86 @@
               "properties"
             ],
             "title": "QueryParamsJsonSchema"
+          },
+          "QueryArrayJsonSchemaProperty-Input": {
+            "properties": {
+              "property_kind": {
+                "type": "string",
+                "enum": [
+                  "array",
+                  "object"
+                ],
+                "title": "Property Kind",
+                "default": "array"
+              },
+              "description": {
+                "type": "string",
+                "title": "Description",
+                "default": ""
+              },
+              "dynamic_variable": {
+                "type": "string",
+                "title": "Dynamic Variable",
+                "description": "When set, the entire parameter is populated from this dynamic variable at runtime. Mutually exclusive with description (LLM-provided value), constant_value, and is_omitted.",
+                "default": ""
+              },
+              "constant_value": {
+                "anyOf": [
+                  {
+                    "items": {},
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Constant Value",
+                "description": "When set, the entire array uses this constant value at runtime. Mutually exclusive with description (LLM-provided array), dynamic_variable, and is_omitted."
+              },
+              "is_omitted": {
+                "type": "boolean",
+                "title": "Is Omitted",
+                "description": "If true, this parameter will be completely omitted from the request. Only valid for optional parameters. Mutually exclusive with description, dynamic_variable, and constant_value.",
+                "default": false
+              },
+              "type": {
+                "type": "string",
+                "const": "array",
+                "title": "Type"
+              },
+              "items": {
+                "oneOf": [
+                  {
+                    "$ref": "#/$defs/LiteralJsonSchemaProperty"
+                  },
+                  {
+                    "$ref": "#/$defs/ObjectJsonSchemaProperty-Input",
+                    "description": "JSON schema for the parameters the LLM provides."
+                  },
+                  {
+                    "$ref": "#/$defs/ArrayJsonSchemaProperty-Input"
+                  }
+                ],
+                "title": "Items",
+                "description": "Schema for each value; must be a string, number or boolean.",
+                "default": {
+                  "type": "string",
+                  "description": "Array element",
+                  "is_system_provided": false,
+                  "dynamic_variable": "",
+                  "allowed_values_dynamic_variable": "",
+                  "constant_value": "",
+                  "is_omitted": false
+                }
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "type"
+            ],
+            "title": "QueryArrayJsonSchemaProperty",
+            "description": "A query param holding several literals, sent as a repeated key (?a=x&a=y)."
           },
           "ObjectJsonSchemaProperty-Input": {
             "properties": {
@@ -11772,6 +12040,51 @@
       }
     },
     {
+      "name": "agents_get_draft",
+      "title": "Get agent draft",
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": null,
+      "openWorldHint": false,
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true,
+        "title": "Get agent draft"
+      },
+      "inputSchema": {
+        "properties": {
+          "agent_id": {
+            "type": "string",
+            "description": "The agent ID."
+          },
+          "branch_id": {
+            "type": "string",
+            "description": "The branch whose draft to read. Defaults to the agent's main branch."
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 1,
+            "description": "Dotted config paths to return instead of the whole agent, such as conversation_config.tts or conversation_config.agent.prompt.built_in_tools.end_call. The result keys each value under config by its path; omit this for the full agent."
+          }
+        },
+        "required": [
+          "agent_id"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "description": {
+        "sha256": "2091ad8db860993c2c88d3aa90bf98c5a3784312e630fb29be4fe82d9338cd47",
+        "length": 513,
+        "text": "Read your unpublished draft of an ElevenLabs Agent's branch: the changes staged on it that publishing the draft would commit. Compare it with agents_get on the same branch to see what the draft changes. Without a draft on the branch it returns the branch's latest version, as agents_get does. The full document is large: pass fields, a list of dotted config paths such as conversation_config.agent.prompt.tool_ids, to get only those parts, keyed by path under config, alongside agent_id, branch_id and version_id."
+      }
+    },
+    {
       "name": "agents_get_insights_report",
       "title": "Get agent insights report",
       "readOnlyHint": true,
@@ -12451,6 +12764,38 @@
         "sha256": "143dc3dfcdea98e05256a7953fd31e50354a5d4e4f2c5ea0860023d99285e493",
         "length": 48,
         "text": "Get the draft of a procedure on an agent branch."
+      }
+    },
+    {
+      "name": "agents_get_pronunciation_dictionary",
+      "title": "Get pronunciation dictionary",
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": null,
+      "openWorldHint": false,
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true,
+        "title": "Get pronunciation dictionary"
+      },
+      "inputSchema": {
+        "properties": {
+          "pronunciation_dictionary_id": {
+            "type": "string",
+            "description": "The pronunciation dictionary ID."
+          }
+        },
+        "required": [
+          "pronunciation_dictionary_id"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "description": {
+        "sha256": "9306503c6c4ebfd77efb261de675ea3eb87a9272c785672ee2b969f04586d046",
+        "length": 109,
+        "text": "Get a pronunciation dictionary's rules, as of its latest version, and that version's id as latest_version_id."
       }
     },
     {
@@ -14664,6 +15009,7 @@
               "telegram_integration",
               "intercom_integration",
               "freshdesk_integration",
+              "plain_integration",
               "salesforce_integration",
               "template_preview",
               "genesys_bot_connector",
@@ -16050,7 +16396,7 @@
           "sort_by": {
             "$ref": "#/$defs/AgentConversationTicketSortBy",
             "type": "string",
-            "description": "Order by most recently created, by priority (most urgent first, then most recently created), or by most recently reported (the newest report merged into the agent issue, else its creation).",
+            "description": "Order by most recently created, by priority (most urgent first, then most recently created), by most recently reported (the newest report merged into the agent issue, else its creation), or by report count (most reports merged into the agent issue first, then most recently created).",
             "default": "created_at"
           },
           "owner_user_id": {
@@ -16078,19 +16424,6 @@
             ],
             "description": "Filter agent issues by assignee. Use 'unassigned' for issues with no assignee.",
             "title": "Assignee User Id"
-          },
-          "issue_type": {
-            "type": "string",
-            "anyOf": [
-              {
-                "$ref": "#/$defs/AgentConversationTicketIssueType"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Filter agent issues by type.",
-            "title": "Issue Type"
           },
           "label": {
             "type": "string",
@@ -16190,21 +16523,6 @@
               "last_reported"
             ],
             "title": "AgentConversationTicketSortBy"
-          },
-          "AgentConversationTicketIssueType": {
-            "type": "string",
-            "enum": [
-              "knowledge_gap",
-              "incorrect_information",
-              "documentation_gap",
-              "product_feedback",
-              "platform_bug",
-              "tool_issue",
-              "missing_tool",
-              "unnecessary_escalation",
-              "wrong_action"
-            ],
-            "title": "AgentConversationTicketIssueType"
           }
         }
       },
@@ -16399,19 +16717,116 @@
               "force": {
                 "type": "boolean",
                 "title": "Force",
-                "description": "Force source branch changes onto the target, overriding timestamp-based conflict resolution",
+                "description": "Keep the source branch's value for every conflict instead of sending `conflict_resolutions`",
                 "default": false
+              },
+              "conflict_resolutions": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "$ref": "#/$defs/ConflictResolution"
+                    },
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Conflict Resolutions",
+                "description": "Side to keep, or custom text where the conflict accepts it, for each conflict the preview reported. A merge or rebase with conflicts is rejected unless there is one for every conflict, sent with both tip ids. On a merge it can't be combined with `force`, which lets the source win every conflict instead.",
+                "examples": [
+                  [
+                    {
+                      "choice": "source",
+                      "conflict_id": "conversation_config:agent.first_message"
+                    }
+                  ]
+                ]
+              },
+              "source_tip_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Source Tip Id",
+                "description": "Source branch tip version the conflicts were resolved against (`source_tip_version_id` of the preview). The request fails with 409 if the branch moved since.",
+                "examples": [
+                  "agtvrsn_0901k4aafjxxfxt93gd841r7tv5t"
+                ]
+              },
+              "target_tip_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Target Tip Id",
+                "description": "Target branch tip version the conflicts were resolved against (`target_tip_version_id` of the preview). The request fails with 409 if the branch moved since.",
+                "examples": [
+                  "agtvrsn_0901k4aafjxxfxt93gd841r7tv5t"
+                ]
               }
             },
             "type": "object",
             "title": "Body_Merge_a_branch_into_a_target_branch_v1_convai_agents__agent_id__branches__source_branch_id__merge_post"
+          },
+          "ConflictResolution": {
+            "properties": {
+              "conflict_id": {
+                "type": "string",
+                "title": "Conflict Id",
+                "description": "`id` of the conflict this resolves, as the merge or rebase preview reported it.",
+                "examples": [
+                  "conversation_config:agent.first_message"
+                ]
+              },
+              "choice": {
+                "$ref": "#/$defs/ConflictResolutionChoice",
+                "description": "Keep the source value, the target value, or `custom_value`. On a list of entities, the side settles the entities both branches changed; ones only one branch changed still merge in."
+              },
+              "custom_value": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 1000000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Custom Value",
+                "description": "Text to keep when `choice` is `custom`, or for a procedure conflict the id of the procedure version to pin. Only conflicts with `accepts_custom_value` take one."
+              }
+            },
+            "type": "object",
+            "required": [
+              "conflict_id",
+              "choice"
+            ],
+            "title": "ConflictResolution"
+          },
+          "ConflictResolutionChoice": {
+            "type": "string",
+            "enum": [
+              "source",
+              "target",
+              "custom"
+            ],
+            "title": "ConflictResolutionChoice"
           }
         }
       },
       "description": {
-        "sha256": "7e5d665c5d73ac9022316c4ebf300bb01e19073a0f09ce5a1f5a78669fa2e055",
-        "length": 45,
-        "text": "Merge a source branch into its target branch."
+        "sha256": "095a339d2633295e3fd7bae4d9903f71789a6c0ac7310b74d48faa0a24d8afd0",
+        "length": 358,
+        "text": "Merge a source branch into its target branch. Where both branches changed the same field, the merge is rejected unless conflict_resolutions has a choice for every conflict the merge preview reports, sent with that preview's source_tip_version_id as source_tip_id and target_tip_version_id as target_tip_id, or force is set to keep the source branch's values."
       }
     },
     {
@@ -16458,7 +16873,7 @@
           },
           "force": {
             "type": "boolean",
-            "description": "When true, source branch changes always win conflicts regardless of timestamps",
+            "description": "When true, the preview keeps the source branch's value for every conflict, as a merge with `force` does. Without it, a merge with conflicts needs `conflict_resolutions`.",
             "default": false,
             "title": "Force"
           },
@@ -16539,7 +16954,7 @@
               "force": {
                 "type": "boolean",
                 "title": "Force",
-                "description": "Force source branch changes onto the target, overriding timestamp-based conflict resolution.",
+                "description": "Keep the source branch's value for every conflict.",
                 "default": false
               }
             },
@@ -16621,6 +17036,72 @@
       }
     },
     {
+      "name": "agents_outbound_call",
+      "title": "Place outbound call",
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": true,
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": false,
+        "title": "Place outbound call"
+      },
+      "inputSchema": {
+        "properties": {
+          "provider": {
+            "type": "string",
+            "enum": [
+              "twilio",
+              "sip_trunk",
+              "exotel"
+            ],
+            "description": "The provider of the number to call from."
+          },
+          "agent_id": {
+            "type": "string",
+            "description": "The agent ID."
+          },
+          "agent_phone_number_id": {
+            "type": "string",
+            "description": "The imported number to call from."
+          },
+          "to_number": {
+            "type": "string",
+            "description": "The number to call, in E.164 form."
+          },
+          "dynamic_variables": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Values for the agent's {{variables}} on this call."
+          },
+          "first_message": {
+            "type": "string",
+            "description": "What the agent says first on this call only. The agent must allow its first message to be overridden."
+          },
+          "branch_id": {
+            "type": "string",
+            "description": "The agent branch to use. Defaults to main."
+          }
+        },
+        "required": [
+          "provider",
+          "agent_id",
+          "agent_phone_number_id",
+          "to_number"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "description": {
+        "sha256": "2d671fa196cb7effcea2055e26fdcbb90bd98482f1513483bbf5074c3cbce229",
+        "length": 326,
+        "text": "Have an ElevenLabs Agent call one phone number now, from one of the workspace's imported numbers. Places a real call that costs credits and reaches a real person; confirm the number, the agent and what it will say with the user first. Returns conversation_id, whose transcript the conversation tools return once the call ends."
+      }
+    },
+    {
       "name": "agents_publish_draft",
       "title": "Publish draft",
       "readOnlyHint": false,
@@ -16656,9 +17137,9 @@
         "additionalProperties": false
       },
       "description": {
-        "sha256": "ab18664d6bf329b6346bc28b3b57a55993ed3d80e264481fb443654038975d05",
-        "length": 279,
-        "text": "Publish your draft of a branch as its new version, making every staged change live on that branch. Fails with draft_behind_branch_tip when the branch got a new version after the draft was started: agents_delete_draft and stage the changes again. Returns branch_id and version_id."
+        "sha256": "2c4075c31439cf936407b70432223d891c921aa500217aafde1cb4cbe92c9298",
+        "length": 469,
+        "text": "Publish your draft of a branch as its new version, making every staged change live on that branch, procedure edits included. Fails with draft_not_found when you have no draft on the branch, as after the agents_update_* tools, which commit straight to it: there is then nothing to publish. Fails with draft_behind_branch_tip when the branch got a new version after the draft was started: agents_delete_draft and stage the changes again. Returns branch_id and version_id."
       }
     },
     {
@@ -17143,16 +17624,114 @@
         "additionalProperties": false,
         "$defs": {
           "Body_Rebase_a_branch_onto_main_v1_convai_agents__agent_id__branches__branch_id__rebase_post": {
-            "properties": {},
+            "properties": {
+              "conflict_resolutions": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "$ref": "#/$defs/ConflictResolution"
+                    },
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Conflict Resolutions",
+                "description": "Side to keep, or custom text where the conflict accepts it, for each conflict the preview reported. A merge or rebase with conflicts is rejected unless there is one for every conflict, sent with both tip ids. On a merge it can't be combined with `force`, which lets the source win every conflict instead.",
+                "examples": [
+                  [
+                    {
+                      "choice": "source",
+                      "conflict_id": "conversation_config:agent.first_message"
+                    }
+                  ]
+                ]
+              },
+              "branch_tip_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Branch Tip Id",
+                "description": "Tip version of the branch being rebased (`source_tip_version_id` of the rebase preview) the conflicts were resolved against. The request fails with 409 if it moved since.",
+                "examples": [
+                  "agtvrsn_0901k4aafjxxfxt93gd841r7tv5t"
+                ]
+              },
+              "source_tip_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Source Tip Id",
+                "description": "Tip version of the branch the changes are pulled from (`source_branch_id`, the main branch by default; `target_tip_version_id` of the rebase preview) the conflicts were resolved against. The request fails with 409 if it moved since.",
+                "examples": [
+                  "agtvrsn_0901k4aafjxxfxt93gd841r7tv5t"
+                ]
+              }
+            },
             "type": "object",
             "title": "Body_Rebase_a_branch_onto_main_v1_convai_agents__agent_id__branches__branch_id__rebase_post"
+          },
+          "ConflictResolution": {
+            "properties": {
+              "conflict_id": {
+                "type": "string",
+                "title": "Conflict Id",
+                "description": "`id` of the conflict this resolves, as the merge or rebase preview reported it.",
+                "examples": [
+                  "conversation_config:agent.first_message"
+                ]
+              },
+              "choice": {
+                "$ref": "#/$defs/ConflictResolutionChoice",
+                "description": "Keep the source value, the target value, or `custom_value`. On a list of entities, the side settles the entities both branches changed; ones only one branch changed still merge in."
+              },
+              "custom_value": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 1000000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Custom Value",
+                "description": "Text to keep when `choice` is `custom`, or for a procedure conflict the id of the procedure version to pin. Only conflicts with `accepts_custom_value` take one."
+              }
+            },
+            "type": "object",
+            "required": [
+              "conflict_id",
+              "choice"
+            ],
+            "title": "ConflictResolution"
+          },
+          "ConflictResolutionChoice": {
+            "type": "string",
+            "enum": [
+              "source",
+              "target",
+              "custom"
+            ],
+            "title": "ConflictResolutionChoice"
           }
         }
       },
       "description": {
-        "sha256": "18e9e5e3e56756806d7380fc51c38ff01240c1f7d4b269852ec9828793aa9310",
-        "length": 253,
-        "text": "Pull a source branch's changes (main by default) into a branch as a new version, so it stops falling behind main. Where both branches changed the same field, the branch keeps its own value. Fails when the branch already has every change from the source."
+        "sha256": "63e242ed740031b4247479a5cd34a9320558f7c3ad05b0b9e8a7792622b8c793",
+        "length": 440,
+        "text": "Pull a source branch's changes (main by default) into a branch as a new version, so it stops falling behind main. Where both branches changed the same field, the rebase is rejected unless conflict_resolutions has a choice for every conflict the rebase preview reports, sent with that preview's source_tip_version_id as branch_tip_id and target_tip_version_id as source_tip_id. Fails when the branch already has every change from the source."
       }
     },
     {
@@ -17220,9 +17799,51 @@
         "additionalProperties": false
       },
       "description": {
-        "sha256": "43eebf3920d65a3701e374f520b7704b1272b37810bc87803f645d4729d71a23",
-        "length": 354,
-        "text": "Preview pulling a source branch's changes (main by default) into a branch without performing it: the result, and the conflicts where both branches changed the same field, which the branch's own value wins. Use it to show what a rebase would do before running it. When the full preview is too large, agents_get_rebase_conflicts returns only the conflicts."
+        "sha256": "a36d3d2fef48e3b65d8a635f32bce3ebc248e36b86205015f2bef5f8a7174282",
+        "length": 368,
+        "text": "Preview pulling a source branch's changes (main by default) into a branch without performing it: the result, and the conflicts where both branches changed the same field, each of which the rebase needs a resolution for. Use it to show what a rebase would do before running it. When the full preview is too large, agents_get_rebase_conflicts returns only the conflicts."
+      }
+    },
+    {
+      "name": "agents_remove_pronunciation_dictionary_rules",
+      "title": "Remove pronunciation dictionary rules",
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "idempotentHint": null,
+      "openWorldHint": false,
+      "annotations": {
+        "destructiveHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false,
+        "title": "Remove pronunciation dictionary rules"
+      },
+      "inputSchema": {
+        "properties": {
+          "pronunciation_dictionary_id": {
+            "type": "string",
+            "description": "The pronunciation dictionary ID."
+          },
+          "rule_strings": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 1000,
+            "items": {
+              "type": "string"
+            },
+            "description": "The string_to_replace of each rule to remove."
+          }
+        },
+        "required": [
+          "pronunciation_dictionary_id",
+          "rule_strings"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "description": {
+        "sha256": "cf218a52fdd4c5145439273d49e8793095b9c13db7479bdd08620a0def98eeb4",
+        "length": 321,
+        "text": "Remove rules from a pronunciation dictionary by their string_to_replace, as reading the dictionary lists them. Returns the dictionary's new version_id. Each change makes a new version: an agent keeps the version its pronunciation_dictionary_locators name until its voice settings are updated with the returned version_id."
       }
     },
     {
@@ -17624,9 +18245,9 @@
         }
       },
       "description": {
-        "sha256": "f8cbdde35cdc3f57a7901925ba76ab6da84656a18ce0f5a055f65b14de08e5a2",
-        "length": 49,
-        "text": "Run a suite of tests against an ElevenLabs Agent."
+        "sha256": "4f9847c046e5a9adb23221755d7519f8cd67f3913a31a4661245beb612f80e55",
+        "length": 193,
+        "text": "Run a suite of tests against an ElevenLabs Agent. Returns the test run and its id once the tests are queued; they keep running after the call returns, so read the run's summary for the results."
       }
     },
     {
@@ -18237,6 +18858,7 @@
               "telegram_integration",
               "intercom_integration",
               "freshdesk_integration",
+              "plain_integration",
               "salesforce_integration",
               "template_preview",
               "genesys_bot_connector",
@@ -18570,9 +19192,9 @@
         "additionalProperties": false
       },
       "description": {
-        "sha256": "9a0fdc93faf5c1ed12e3608eed8bec750bedb739f9d33c49912e4d766ae253ab",
-        "length": 244,
-        "text": "Have an ElevenLabs Agent call a list of recipients, now or at scheduled_time_unix, each with their own dynamic variables. Places real calls; confirm the recipients with the user first. Returns the batch, whose id agents_cancel_batch_call takes."
+        "sha256": "4ba1e814bc45f044736d6121b621294a1c56708a5b551b660b36b10dac3c413d",
+        "length": 439,
+        "text": "Have an ElevenLabs Agent call a list of recipients, now or at scheduled_time_unix, each with their own dynamic variables. Places real calls; confirm the recipients with the user first. The user must have accepted the batch calling terms in the ElevenLabs app, which cannot be done here; until then this fails with batch_calling_agreement_required, whose next_step links to where. Returns the batch, whose id agents_cancel_batch_call takes."
       }
     },
     {
@@ -18950,6 +19572,7 @@
               "telegram_integration",
               "intercom_integration",
               "freshdesk_integration",
+              "plain_integration",
               "salesforce_integration",
               "template_preview",
               "genesys_bot_connector",
@@ -19226,6 +19849,8 @@
               "gpt-6-luna",
               "gpt-6.1-sol",
               "gpt-6.1-terra",
+              "gpt-6.2-astra",
+              "gpt-6.2-sol",
               "gpt-5-mini",
               "gpt-5-nano",
               "gpt-3.5-turbo",
@@ -19246,6 +19871,8 @@
               "gemini-3.7-flash",
               "gemini-3.8-flash",
               "gemini-4-argon",
+              "gemini-4-hydrogen",
+              "gemini-4-neon",
               "claude-sonnet-4-5",
               "claude-opus-4-6",
               "claude-opus-4-7",
@@ -19262,7 +19889,6 @@
               "claude-3-5-sonnet",
               "claude-3-5-sonnet-v1",
               "claude-3-haiku",
-              "grok-beta",
               "custom-llm",
               "qwen3-4b",
               "qwen3-30b-a3b",
@@ -20265,9 +20891,9 @@
         }
       },
       "description": {
-        "sha256": "d167a6f279e37f0eb0a0bc1e61d4f081b8ffbc8103af7471fdddb56e3894270b",
-        "length": 462,
-        "text": "Choose which parts of an ElevenLabs Agent's configuration a client may override when it starts a conversation, and which of those the workspace allows at all. This grants permission to override; it does not set the values themselves. Returns agent_id, branch_id and version_id, and under config, keyed by path, the stored values of platform_settings.overrides, platform_settings.workspace_overrides as saved by this call, limited to the fields this tool accepts."
+        "sha256": "354f2f45a4d0de25a590d0b50d4f8ed4a77f5d90dc140c0ff903e3c57a774be1",
+        "length": 755,
+        "text": "Choose which parts of an ElevenLabs Agent's configuration a client may override when it starts a conversation (overrides). This grants permission to override; it does not set the values themselves. workspace_overrides sets this agent's own webhooks in place of the workspace's: its conversation-initiation webhook, and its post-call webhook (webhooks.post_call_webhook_id, a workspace webhook's id) with the events it sends. Its post-call settings apply only while post_call_webhook_id is set; otherwise the workspace's apply. Returns agent_id, branch_id and version_id, and under config, keyed by path, the stored values of platform_settings.overrides, platform_settings.workspace_overrides as saved by this call, limited to the fields this tool accepts."
       }
     },
     {
@@ -20585,6 +21211,49 @@
         "sha256": "f92ac31ac21fc8bdecf0fa76521c1b1376e469e66f68cc9b217dfe3d0127862f",
         "length": 423,
         "text": "Set the session-level limits and modalities of an ElevenLabs Agent: maximum conversation duration, which text and audio modalities are accepted, client events streamed to the caller, and whether the conversation may be recorded. Returns agent_id, branch_id and version_id, and under config, keyed by path, the stored values of conversation_config.conversation as saved by this call, limited to the fields this tool accepts."
+      }
+    },
+    {
+      "name": "agents_update_draft",
+      "title": "Update draft",
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": null,
+      "openWorldHint": false,
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false,
+        "title": "Update draft"
+      },
+      "inputSchema": {
+        "properties": {
+          "agent_id": {
+            "type": "string",
+            "description": "The agent ID."
+          },
+          "branch_id": {
+            "type": "string",
+            "description": "The branch whose draft to change. Staging on a branch other than main, made with agents_create_branch, keeps the change off live traffic."
+          },
+          "conversation_config": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "The conversation config fields to change."
+          }
+        },
+        "required": [
+          "agent_id",
+          "branch_id",
+          "conversation_config"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "description": {
+        "sha256": "6d71a9cd1efd8db814bc0004b2e1112278637700064860d25cf0449786c19821",
+        "length": 776,
+        "text": "Change part of an ElevenLabs Agent's conversation config in your draft of a branch, keeping every other staged change. Pass only what changes, nested as in the agent config, e.g. {agent: {prompt: {tool_ids: [...]}}}: objects merge into the draft, while lists and maps such as tool_ids, dynamic_variable_placeholders and language_presets are replaced whole, so send all of them. While a branch has a draft, use this rather than the agents_update_* tools: those commit straight to the branch and discard your draft. A workflow node's settings, such as its additional_tool_ids, are changed with agents_update_workflow_node. The change is staged in your own draft of branch_id, not live: agents_publish_draft makes it live. Saving the same branch in the editor replaces the draft."
       }
     },
     {
@@ -22777,6 +23446,8 @@
               "gpt-6-luna",
               "gpt-6.1-sol",
               "gpt-6.1-terra",
+              "gpt-6.2-astra",
+              "gpt-6.2-sol",
               "gpt-5-mini",
               "gpt-5-nano",
               "gpt-3.5-turbo",
@@ -22797,6 +23468,8 @@
               "gemini-3.7-flash",
               "gemini-3.8-flash",
               "gemini-4-argon",
+              "gemini-4-hydrogen",
+              "gemini-4-neon",
               "claude-sonnet-4-5",
               "claude-opus-4-6",
               "claude-opus-4-7",
@@ -22813,7 +23486,6 @@
               "claude-3-5-sonnet",
               "claude-3-5-sonnet-v1",
               "claude-3-haiku",
-              "grok-beta",
               "custom-llm",
               "qwen3-4b",
               "qwen3-30b-a3b",
@@ -23879,6 +24551,7 @@
               "occupation",
               "physical_attribute",
               "language",
+              "criminal_record",
               "username",
               "password",
               "url",
@@ -23954,6 +24627,23 @@
                 ],
                 "title": "Auto Resolve After Inactive Minutes",
                 "description": "How many minutes an alert can stay inactive before it is auto-resolved. Unset values fall through to the next layer."
+              },
+              "environments": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array",
+                    "maxItems": 20,
+                    "minItems": 1
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Environments",
+                "description": "Environments whose conversations are monitored, e.g. ``['production']``. The list must include ``production``. Unset values fall through to the next layer; when no layer sets it, every environment is monitored."
               },
               "notifiers": {
                 "items": {
@@ -24626,9 +25316,9 @@
         }
       },
       "description": {
-        "sha256": "f34f4b38f2ce09f099a1115f36e4b5cc2e4302e998b6b25978ec5089524d21c3",
-        "length": 906,
-        "text": "Update the draft of a procedure on an agent branch. Send name, content, type and trigger in full. type must be the procedure's existing type: a procedure's type cannot be changed after creation, so to convert between free_form and deterministic, create a new procedure instead. For structured content, send the steps object JSON-encoded in content; its shape and rules are documented at https://elevenlabs.io/docs/eleven-agents/customization/procedures/structured-procedures. Do not connect workflow edges to a structured procedure: those connections are removed when the platform rebuilds its execution form. Chain structured procedures with a Sub-procedure step; entry from a matching trigger and completion are platform-managed. The change is a draft until the agent is published; saving the draft (agents_create_draft) and publishing both validate structured procedures and return per-procedure errors."
+        "sha256": "f95334c61b8b851e5c90bd925e5f71248d49907c8f70b531ff1ec5716b8f277a",
+        "length": 937,
+        "text": "Update the draft of a procedure on an agent branch. Send name, content, type and trigger in full. type must be the procedure's existing type: a procedure's type cannot be changed after creation, so to convert between free_form and deterministic, create a new procedure instead. For structured content, send the steps object JSON-encoded in content; its shape and rules are documented at https://elevenlabs.io/docs/eleven-agents/customization/procedures/structured-procedures. Do not connect workflow edges to a structured procedure: those connections are removed when the platform rebuilds its execution form. Chain structured procedures with a Sub-procedure step; entry from a matching trigger and completion are platform-managed. The change is a draft until agents_publish_draft commits your draft of the branch; saving the draft (agents_create_draft) and publishing both validate structured procedures and return per-procedure errors."
       }
     },
     {
@@ -24687,9 +25377,9 @@
         "additionalProperties": false
       },
       "description": {
-        "sha256": "8a73335380dc98104403efd38a055a5602a1521b675d655028065bae71c0bb94",
-        "length": 332,
-        "text": "Set or clear the condition on dynamic variables that decides whether a procedure is offered in the agent's procedure menu during a conversation; a procedure without one is always offered. The change is a draft until the agent is published. Folders take no visibility, and workspaces without procedure visibility enabled are refused."
+        "sha256": "7d14b9e74bb71724b9a9005396dc6c71cd16cbf0a9ac14e30f0635f965120dd0",
+        "length": 349,
+        "text": "Set or clear the condition on dynamic variables that decides whether a procedure is offered in the agent's procedure menu during a conversation; a procedure without one is always offered. The change is a draft until agents_publish_draft commits the branch. Folders take no visibility, and workspaces without procedure visibility enabled are refused."
       }
     },
     {
@@ -24965,6 +25655,8 @@
               "gpt-6-luna",
               "gpt-6.1-sol",
               "gpt-6.1-terra",
+              "gpt-6.2-astra",
+              "gpt-6.2-sol",
               "gpt-5-mini",
               "gpt-5-nano",
               "gpt-3.5-turbo",
@@ -24985,6 +25677,8 @@
               "gemini-3.7-flash",
               "gemini-3.8-flash",
               "gemini-4-argon",
+              "gemini-4-hydrogen",
+              "gemini-4-neon",
               "claude-sonnet-4-5",
               "claude-opus-4-6",
               "claude-opus-4-7",
@@ -25001,7 +25695,6 @@
               "claude-3-5-sonnet",
               "claude-3-5-sonnet-v1",
               "claude-3-haiku",
-              "grok-beta",
               "custom-llm",
               "qwen3-4b",
               "qwen3-30b-a3b",
@@ -26126,7 +26819,9 @@
             "enum": [
               "elevenlabs",
               "scribe_realtime",
-              "scribe_v2_turbo"
+              "scribe_v2_turbo",
+              "scribe_v3_live",
+              "scribe_v3_live_medical"
             ],
             "title": "ASRProvider",
             "x-fern-enum": {
@@ -26687,6 +27382,7 @@
           },
           "body": {
             "type": "object",
+            "description": "Agent test to update",
             "anyOf": [
               {
                 "$ref": "#/$defs/UpdateResponseUnitTestRequest"
@@ -26698,7 +27394,6 @@
                 "$ref": "#/$defs/UpdateSimulationTestRequest"
               }
             ],
-            "description": "Agent test to update",
             "title": "Test Request"
           }
         },
@@ -27461,6 +28156,16 @@
               },
               "webhook_details": {
                 "$ref": "#/$defs/ConversationHistoryTranscriptToolCallWebhookDetails"
+              },
+              "function_details": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ConversationHistoryTranscriptToolCallIntegrationFunctionDetails"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               }
             },
             "type": "object",
@@ -27468,6 +28173,22 @@
               "webhook_details"
             ],
             "title": "ConversationHistoryTranscriptToolCallApiIntegrationWebhookDetails"
+          },
+          "ConversationHistoryTranscriptToolCallIntegrationFunctionDetails": {
+            "properties": {
+              "resolved_parameters": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object",
+                "title": "Resolved Parameters"
+              }
+            },
+            "type": "object",
+            "required": [
+              "resolved_parameters"
+            ],
+            "title": "ConversationHistoryTranscriptToolCallIntegrationFunctionDetails"
           },
           "ConversationHistoryTranscriptOtherToolsResultCommonModel": {
             "properties": {
@@ -29384,6 +30105,8 @@
               "gpt-6-luna",
               "gpt-6.1-sol",
               "gpt-6.1-terra",
+              "gpt-6.2-astra",
+              "gpt-6.2-sol",
               "gpt-5-mini",
               "gpt-5-nano",
               "gpt-3.5-turbo",
@@ -29404,6 +30127,8 @@
               "gemini-3.7-flash",
               "gemini-3.8-flash",
               "gemini-4-argon",
+              "gemini-4-hydrogen",
+              "gemini-4-neon",
               "claude-sonnet-4-5",
               "claude-opus-4-6",
               "claude-opus-4-7",
@@ -29420,7 +30145,6 @@
               "claude-3-5-sonnet",
               "claude-3-5-sonnet-v1",
               "claude-3-haiku",
-              "grok-beta",
               "custom-llm",
               "qwen3-4b",
               "qwen3-30b-a3b",
@@ -29689,6 +30413,7 @@
               "telegram_integration",
               "intercom_integration",
               "freshdesk_integration",
+              "plain_integration",
               "salesforce_integration",
               "template_preview",
               "genesys_bot_connector",
@@ -30720,8 +31445,7 @@
               "request_body_schema": {
                 "anyOf": [
                   {
-                    "$ref": "#/$defs/ObjectJsonSchemaProperty-Input",
-                    "description": "JSON schema for the parameters the LLM provides."
+                    "$ref": "#/$defs/ObjectJsonSchemaProperty-Input"
                   },
                   {
                     "type": "null"
@@ -30990,7 +31714,14 @@
             "properties": {
               "properties": {
                 "additionalProperties": {
-                  "$ref": "#/$defs/LiteralJsonSchemaProperty"
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/LiteralJsonSchemaProperty"
+                    },
+                    {
+                      "$ref": "#/$defs/QueryArrayJsonSchemaProperty-Input"
+                    }
+                  ]
                 },
                 "type": "object",
                 "minProperties": 1,
@@ -31010,6 +31741,86 @@
               "properties"
             ],
             "title": "QueryParamsJsonSchema"
+          },
+          "QueryArrayJsonSchemaProperty-Input": {
+            "properties": {
+              "property_kind": {
+                "type": "string",
+                "enum": [
+                  "array",
+                  "object"
+                ],
+                "title": "Property Kind",
+                "default": "array"
+              },
+              "description": {
+                "type": "string",
+                "title": "Description",
+                "default": ""
+              },
+              "dynamic_variable": {
+                "type": "string",
+                "title": "Dynamic Variable",
+                "description": "When set, the entire parameter is populated from this dynamic variable at runtime. Mutually exclusive with description (LLM-provided value), constant_value, and is_omitted.",
+                "default": ""
+              },
+              "constant_value": {
+                "anyOf": [
+                  {
+                    "items": {},
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Constant Value",
+                "description": "When set, the entire array uses this constant value at runtime. Mutually exclusive with description (LLM-provided array), dynamic_variable, and is_omitted."
+              },
+              "is_omitted": {
+                "type": "boolean",
+                "title": "Is Omitted",
+                "description": "If true, this parameter will be completely omitted from the request. Only valid for optional parameters. Mutually exclusive with description, dynamic_variable, and constant_value.",
+                "default": false
+              },
+              "type": {
+                "type": "string",
+                "const": "array",
+                "title": "Type"
+              },
+              "items": {
+                "oneOf": [
+                  {
+                    "$ref": "#/$defs/LiteralJsonSchemaProperty"
+                  },
+                  {
+                    "$ref": "#/$defs/ObjectJsonSchemaProperty-Input",
+                    "description": "JSON schema for the parameters the LLM provides."
+                  },
+                  {
+                    "$ref": "#/$defs/ArrayJsonSchemaProperty-Input"
+                  }
+                ],
+                "title": "Items",
+                "description": "Schema for each value; must be a string, number or boolean.",
+                "default": {
+                  "type": "string",
+                  "description": "Array element",
+                  "is_system_provided": false,
+                  "dynamic_variable": "",
+                  "allowed_values_dynamic_variable": "",
+                  "constant_value": "",
+                  "is_omitted": false
+                }
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "type"
+            ],
+            "title": "QueryArrayJsonSchemaProperty",
+            "description": "A query param holding several literals, sent as a repeated key (?a=x&a=y)."
           },
           "ObjectJsonSchemaProperty-Input": {
             "properties": {
@@ -35216,7 +36027,7 @@
             "type": "string",
             "minLength": 0,
             "title": "Voice Id",
-            "description": "The voice ID to use for TTS. Defaults to \"cjVigY5qzO86Huf0OWal\" when never set.",
+            "description": "The voice the agent speaks with. Pass only a voice_id that creative_list_voices returned or the user gave, never one from memory. Defaults to \"cjVigY5qzO86Huf0OWal\" when never set.",
             "x-convai-client-override": true,
             "x-convai-language-override": true
           },
@@ -38538,7 +39349,8 @@
               "voice-creation",
               "video-to-music",
               "audio-effects",
-              "studio-video"
+              "studio-video",
+              "random"
             ],
             "description": "The type of node to create."
           },
@@ -38583,8 +39395,10 @@
               "eleven_music_v1",
               "eleven_music_v2",
               "eleven_music_v2_5",
+              "eleven_random",
               "eleven_scribe_v1",
               "eleven_text_to_sound_v2",
+              "eleven_text_to_sound_v3",
               "eleven_ttv_v3",
               "eleven_turbo_v2_5",
               "eleven_v3",
@@ -38624,6 +39438,8 @@
               "gpt-image-2.6-flare",
               "gpt-image-2.6-sunburst",
               "heygen-avatar4",
+              "heygen-avatar6",
+              "heygen-avatar6-turbo",
               "ideogram-4.5",
               "kling-2.5-turbo",
               "kling-2.6-pro",
@@ -41588,7 +42404,7 @@
             "items": {
               "type": "string"
             },
-            "description": "Existing node IDs that should feed INTO this new node. Pass these when you already know the upstream wiring — the canvas places the new node correctly on creation instead of parking it first and reflowing later. This is how a reference node created by creative_upload_flow_reference (or creative_add_flow_asset_node) gets wired into this generation — the node must already exist on this same flow_id. A node_id only ever comes from a tool result, creative_upload_flow_reference's widget context, or creative_get_flow — never from memory or invention. If you do not have one yet, call creative_get_flow and read it from there rather than guessing a name like 'reference'. For an image edit driven by a reference — 'change X into Y in this image' — use gpt-image-2.5-sunburst unless the user names a model. It is the default for this specifically; the plain text-to-image default does not apply once a reference is wired."
+            "description": "Existing node IDs that should feed INTO this new node. Pass these when you already know the upstream wiring — the canvas places the new node correctly on creation instead of parking it first and reflowing later. This is how a reference node created by an upload tool, creative_attach_reference_file or creative_add_flow_asset_node gets wired into this generation — the node must already exist on this same flow_id. A node_id only ever comes from a tool result, an upload's widget context, or creative_get_flow — never from memory or invention. If you do not have one yet, call creative_get_flow and read it from there rather than guessing a name like 'reference'. For an image edit driven by a reference — 'change X into Y in this image' — use gpt-image-2.5-sunburst unless the user names a model. It is the default for this specifically; the plain text-to-image default does not apply once a reference is wired."
           },
           "prompt": {
             "type": "string",
@@ -41642,7 +42458,7 @@
             "minimum": 1,
             "maximum": 4,
             "default": 4,
-            "description": "How many variations to produce, so the user can pick. Defaults to 4 so the user can pick from several options — keep it at 4 unless the user asks for a specific number. Costs scale with the count."
+            "description": "How many variations to produce. Defaults to 4 so the user can pick from several options — keep it at 4 unless the user asks for a specific number. Costs scale with the count."
           },
           "estimate_only": {
             "type": "boolean",
@@ -42425,9 +43241,9 @@
         "additionalProperties": true
       },
       "description": {
-        "sha256": "7f6f3c315f6a5c523e59aabeaa2cdc3f484fc7be403ed070d0db2a0c03224b31",
-        "length": 1247,
-        "text": "Edit an existing image already on this flow: pass its node_id as connect_from and it starts at once. That node can be one an earlier creative_generate_image call on this same flow just produced (\"make it darker\", \"same image but at sunset\"), one from creative_add_flow_asset_node, or one from creative_upload_flow_reference. It must be on this flow_id — pass back the flow_id the earlier call returned rather than letting a new flow be created; nodes on different flows cannot be connected. connect_from is required; a call with none raises — call creative_upload_flow_reference first for a file on the user's own machine. Never say this connector cannot edit images, and never ask the user to attach a file to the chat.\nReturns flow_id, node_id and session_ids, plus a url to keep editing on the canvas. If a view renders it tracks progress on its own; otherwise poll creative_get_flow_run_status until all_completed or has_failures is true.\nSpends credits: never call this a second time to retry.\nFor an image edit driven by a reference — 'change X into Y in this image' — use gpt-image-2.5-sunburst unless the user names a model. It is the default for this specifically; the plain text-to-image default does not apply once a reference is wired."
+        "sha256": "1a6cc0eaa209a94e5a7b1b47a26f31d22cc8f63f3fae645c1319fce2f6477fdc",
+        "length": 1282,
+        "text": "Edit an existing image already on this flow: pass its node_id as connect_from and it starts at once. That node can be one an earlier creative_generate_image call on this same flow just produced (\"make it darker\", \"same image but at sunset\"), one from creative_add_flow_asset_node, or one from an upload tool or creative_attach_reference_file. It must be on this flow_id — pass back the flow_id the earlier call returned rather than letting a new flow be created; nodes on different flows cannot be connected. connect_from is required; a call with none raises — put the file on the flow first with an upload tool, or creative_attach_reference_file for a URL. Never say this connector cannot edit images, and never ask the user to attach a file to the chat.\nReturns flow_id, node_id and session_ids, plus a url to keep editing on the canvas. If a view renders it tracks progress on its own; otherwise poll creative_get_flow_run_status until all_completed or has_failures is true.\nSpends credits: never call this a second time to retry.\nFor an image edit driven by a reference — 'change X into Y in this image' — use gpt-image-2.5-sunburst unless the user names a model. It is the default for this specifically; the plain text-to-image default does not apply once a reference is wired."
       }
     },
     {
@@ -42795,7 +43611,7 @@
             "items": {
               "type": "string"
             },
-            "description": "Existing node IDs that should feed INTO this new node. Pass these when you already know the upstream wiring — the canvas places the new node correctly on creation instead of parking it first and reflowing later. This is how a reference node created by creative_upload_flow_reference (or creative_add_flow_asset_node) gets wired into this generation — the node must already exist on this same flow_id. A node_id only ever comes from a tool result, creative_upload_flow_reference's widget context, or creative_get_flow — never from memory or invention. If you do not have one yet, call creative_get_flow and read it from there rather than guessing a name like 'reference'. For an image edit driven by a reference — 'change X into Y in this image' — use gpt-image-2.5-sunburst unless the user names a model. It is the default for this specifically; the plain text-to-image default does not apply once a reference is wired."
+            "description": "Existing node IDs that should feed INTO this new node. Pass these when you already know the upstream wiring — the canvas places the new node correctly on creation instead of parking it first and reflowing later. This is how a reference node created by an upload tool, creative_attach_reference_file or creative_add_flow_asset_node gets wired into this generation — the node must already exist on this same flow_id. A node_id only ever comes from a tool result, an upload's widget context, or creative_get_flow — never from memory or invention. If you do not have one yet, call creative_get_flow and read it from there rather than guessing a name like 'reference'. For an image edit driven by a reference — 'change X into Y in this image' — use gpt-image-2.5-sunburst unless the user names a model. It is the default for this specifically; the plain text-to-image default does not apply once a reference is wired."
           },
           "prompt": {
             "type": "string",
@@ -42849,7 +43665,7 @@
             "minimum": 1,
             "maximum": 4,
             "default": 4,
-            "description": "How many variations to produce, so the user can pick. Defaults to 4 so the user can pick from several options — keep it at 4 unless the user asks for a specific number. Costs scale with the count."
+            "description": "How many variations to produce. Defaults to 4 so the user can pick from several options — keep it at 4 unless the user asks for a specific number. Costs scale with the count."
           },
           "estimate_only": {
             "type": "boolean",
@@ -43676,7 +44492,8 @@
               "voice-creation",
               "video-to-music",
               "audio-effects",
-              "studio-video"
+              "studio-video",
+              "random"
             ],
             "description": "The type of node to create."
           },
@@ -43721,8 +44538,10 @@
               "eleven_music_v1",
               "eleven_music_v2",
               "eleven_music_v2_5",
+              "eleven_random",
               "eleven_scribe_v1",
               "eleven_text_to_sound_v2",
+              "eleven_text_to_sound_v3",
               "eleven_ttv_v3",
               "eleven_turbo_v2_5",
               "eleven_v3",
@@ -43762,6 +44581,8 @@
               "gpt-image-2.6-flare",
               "gpt-image-2.6-sunburst",
               "heygen-avatar4",
+              "heygen-avatar6",
+              "heygen-avatar6-turbo",
               "ideogram-4.5",
               "kling-2.5-turbo",
               "kling-2.6-pro",
@@ -43823,7 +44644,7 @@
             "items": {
               "type": "string"
             },
-            "description": "Existing node IDs that should feed INTO this new node. Pass these when you already know the upstream wiring — the canvas places the new node correctly on creation instead of parking it first and reflowing later. This is how a reference node created by creative_upload_flow_reference (or creative_add_flow_asset_node) gets wired into this generation — the node must already exist on this same flow_id. A node_id only ever comes from a tool result, creative_upload_flow_reference's widget context, or creative_get_flow — never from memory or invention. If you do not have one yet, call creative_get_flow and read it from there rather than guessing a name like 'reference'. For an image edit driven by a reference — 'change X into Y in this image' — use gpt-image-2.5-sunburst unless the user names a model. It is the default for this specifically; the plain text-to-image default does not apply once a reference is wired."
+            "description": "Existing node IDs that should feed INTO this new node. Pass these when you already know the upstream wiring — the canvas places the new node correctly on creation instead of parking it first and reflowing later. This is how a reference node created by an upload tool, creative_attach_reference_file or creative_add_flow_asset_node gets wired into this generation — the node must already exist on this same flow_id. A node_id only ever comes from a tool result, an upload's widget context, or creative_get_flow — never from memory or invention. If you do not have one yet, call creative_get_flow and read it from there rather than guessing a name like 'reference'. For an image edit driven by a reference — 'change X into Y in this image' — use gpt-image-2.5-sunburst unless the user names a model. It is the default for this specifically; the plain text-to-image default does not apply once a reference is wired."
           },
           "view_state_id": {
             "type": "string",
@@ -44669,7 +45490,7 @@
             "minimum": 1,
             "maximum": 4,
             "default": 2,
-            "description": "How many variations to produce, so the user can pick. Defaults to 2. Change it only when the user asks for a specific number of takes. Costs scale with the count."
+            "description": "How many variations to produce. Defaults to 2 so the user can pick. Change it only when the user asks for a specific number of takes. Costs scale with the count."
           },
           "estimate_only": {
             "type": "boolean",
@@ -45478,7 +46299,7 @@
             "items": {
               "type": "string"
             },
-            "description": "Existing node IDs that should feed INTO this new node. Pass these when you already know the upstream wiring — the canvas places the new node correctly on creation instead of parking it first and reflowing later. This is how a reference node created by creative_upload_flow_reference (or creative_add_flow_asset_node) gets wired into this generation — the node must already exist on this same flow_id. A node_id only ever comes from a tool result, creative_upload_flow_reference's widget context, or creative_get_flow — never from memory or invention. If you do not have one yet, call creative_get_flow and read it from there rather than guessing a name like 'reference'. For an image edit driven by a reference — 'change X into Y in this image' — use gpt-image-2.5-sunburst unless the user names a model. It is the default for this specifically; the plain text-to-image default does not apply once a reference is wired."
+            "description": "Existing node IDs that should feed INTO this new node. Pass these when you already know the upstream wiring — the canvas places the new node correctly on creation instead of parking it first and reflowing later. This is how a reference node created by an upload tool, creative_attach_reference_file or creative_add_flow_asset_node gets wired into this generation — the node must already exist on this same flow_id. A node_id only ever comes from a tool result, an upload's widget context, or creative_get_flow — never from memory or invention. If you do not have one yet, call creative_get_flow and read it from there rather than guessing a name like 'reference'. For an image edit driven by a reference — 'change X into Y in this image' — use gpt-image-2.5-sunburst unless the user names a model. It is the default for this specifically; the plain text-to-image default does not apply once a reference is wired."
           },
           "prompt": {
             "type": "string",
@@ -45510,6 +46331,8 @@
               "gemini-omni-1.2-flash-extend",
               "gemini-omni-flash",
               "heygen-avatar4",
+              "heygen-avatar6",
+              "heygen-avatar6-turbo",
               "kling-2.5-turbo",
               "kling-2.6-pro",
               "kling-2.6-pro-motion-control",
@@ -45554,7 +46377,7 @@
             "minimum": 1,
             "maximum": 1,
             "default": 1,
-            "description": "How many variations to produce, so the user can pick. Defaults to 1 so the user can pick from several options — keep it at 1 unless the user asks for a specific number. Costs scale with the count."
+            "description": "How many variations to produce. Defaults to 1, which is also the maximum: this model makes one take per call."
           },
           "estimate_only": {
             "type": "boolean",
@@ -47756,6 +48579,35 @@
       }
     },
     {
+      "name": "creative_get_guide",
+      "title": "Get a workflow guide",
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": null,
+      "openWorldHint": false,
+      "annotations": {
+        "destructiveHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": true,
+        "title": "Get a workflow guide"
+      },
+      "inputSchema": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The guide to read. Omit it to list the guides available here."
+          }
+        },
+        "type": "object",
+        "additionalProperties": false
+      },
+      "description": {
+        "sha256": "f5ebcfafbea48a6de2e25d0738e267e9be04925959cbfcf32cd32f8c29dabe1c",
+        "length": 214,
+        "text": "Before you start a task that takes more than one tool call, read its step-by-step guide here. Call with no name to list the guides available here, each with when to use it; pass name to read one. Spends no credits."
+      }
+    },
+    {
       "name": "creative_get_model_guide",
       "title": "Get model guide",
       "readOnlyHint": true,
@@ -47851,7 +48703,8 @@
               "voice-creation",
               "video-to-music",
               "audio-effects",
-              "studio-video"
+              "studio-video",
+              "random"
             ],
             "description": "The type of node to create."
           },
@@ -47892,8 +48745,10 @@
               "eleven_music_v1",
               "eleven_music_v2",
               "eleven_music_v2_5",
+              "eleven_random",
               "eleven_scribe_v1",
               "eleven_text_to_sound_v2",
+              "eleven_text_to_sound_v3",
               "eleven_ttv_v3",
               "eleven_turbo_v2_5",
               "eleven_v3",
@@ -47933,6 +48788,8 @@
               "gpt-image-2.6-flare",
               "gpt-image-2.6-sunburst",
               "heygen-avatar4",
+              "heygen-avatar6",
+              "heygen-avatar6-turbo",
               "ideogram-4.5",
               "kling-2.5-turbo",
               "kling-2.6-pro",
@@ -48561,6 +49418,16 @@
               "usage_character_count_1y"
             ],
             "description": "Library voice ordering: trending, latest, most cloned, or most used by character count."
+          },
+          "page_size": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Voices per page. Defaults to 25."
+          },
+          "cursor": {
+            "type": "string",
+            "description": "The next_cursor of the previous result, to get the next page of the same search. Keep the other arguments the same."
           }
         },
         "type": "object",
@@ -48627,6 +49494,23 @@
             "default": null,
             "title": "Total Count"
           },
+          "has_more": {
+            "type": "boolean",
+            "default": null,
+            "title": "Has More"
+          },
+          "next_cursor": {
+            "type": "string",
+            "default": null,
+            "description": "Pass as cursor to get the next page. Absent on the last page.",
+            "title": "Next Cursor"
+          },
+          "library_total": {
+            "type": "integer",
+            "default": null,
+            "description": "Voice Library matches, when known.",
+            "title": "Library Total"
+          },
           "error": {
             "type": "string",
             "default": null,
@@ -48638,9 +49522,9 @@
         "title": "VoiceSearchResult"
       },
       "description": {
-        "sha256": "35ca7b8f95ab9167c3f874a365577ce8a4359d2b9e6e7ee0bcb8fd617e835e28",
-        "length": 487,
-        "text": "Search the voices this workspace can speak with, to choose one for a speech node instead of asking the user for a voice id. Combine the free-text search with languages, accent, gender, age, use_cases, descriptives, voice_category and sort filters to narrow results — e.g. a 'warm storytelling male' request reads better as search='warm storytelling' with gender='male' than as search text alone. descriptives and voice_category ('professional'/'famous') narrow results to library voices."
+        "sha256": "27c37d67aadea56ab6c8dac440d0122476438c6c05f714e1c0295cf2499150c9",
+        "length": 756,
+        "text": "Search the voices this workspace can speak with, to choose one for a speech node instead of asking the user for a voice id. Combine the free-text search with languages, accent, gender, age, use_cases, descriptives, voice_category and sort filters to narrow results. Always pass languages (ISO 639-1 codes) when the language is known: without it voices of every language come back. Results are paged: while has_more is true, pass next_cursor as cursor (same other arguments) for the next page, and use page_size to change the page size. E.g. a 'warm storytelling male' request reads better as search='warm storytelling' with gender='male' than as search text alone. descriptives and voice_category ('professional'/'famous') narrow results to library voices."
       }
     },
     {
@@ -50567,7 +51451,7 @@
             "items": {
               "type": "string"
             },
-            "description": "Existing node IDs that should feed INTO this new node. Pass these when you already know the upstream wiring — the canvas places the new node correctly on creation instead of parking it first and reflowing later. The audio node on this same flow to transcribe, as returned by creative_upload_flow_reference or creative_add_flow_asset_node. A node_id only ever comes from a tool result or creative_get_flow, never from memory or invention. Omit it to let the user pick a file — if a view can render one, an upload picker is shown instead of raising."
+            "description": "Existing node IDs that should feed INTO this new node. Pass these when you already know the upstream wiring — the canvas places the new node correctly on creation instead of parking it first and reflowing later. The audio node on this same flow to transcribe, as returned by an upload tool, creative_attach_reference_file or creative_add_flow_asset_node. A node_id only ever comes from a tool result or creative_get_flow, never from memory or invention. Omit it to let the user pick a file — if a view can render one, an upload picker is shown instead of raising."
           },
           "flow_id": {
             "type": "string",
@@ -52227,6 +53111,7 @@
                     "bytedance-seedance-v2.5-extend",
                     "bytedance-seedance-v2.5-extend-us",
                     "bytedance-seedance-v2.5-flash",
+                    "bytedance-seedance-v2.5-flash-avatar",
                     "bytedance-seedance-v2.5-us",
                     "bytedance-seedream-4",
                     "bytedance-seedream-4.5",
@@ -52251,6 +53136,7 @@
                     "eleven_music_v1",
                     "eleven_music_v2",
                     "eleven_music_v2_5",
+                    "eleven_random",
                     "eleven_scribe_v1",
                     "eleven_studio_video",
                     "eleven_text_to_sound_v2",
@@ -52297,6 +53183,8 @@
                     "gpt-image-2.6-flare",
                     "gpt-image-2.6-sunburst",
                     "heygen-avatar4",
+                    "heygen-avatar6",
+                    "heygen-avatar6-turbo",
                     "ideogram-4.5",
                     "imagen-4",
                     "imagen-4-fast",
@@ -52509,8 +53397,10 @@
               "eleven_music_v1",
               "eleven_music_v2",
               "eleven_music_v2_5",
+              "eleven_random",
               "eleven_scribe_v1",
               "eleven_text_to_sound_v2",
+              "eleven_text_to_sound_v3",
               "eleven_ttv_v3",
               "eleven_turbo_v2_5",
               "eleven_v3",
@@ -52550,6 +53440,8 @@
               "gpt-image-2.6-flare",
               "gpt-image-2.6-sunburst",
               "heygen-avatar4",
+              "heygen-avatar6",
+              "heygen-avatar6-turbo",
               "ideogram-4.5",
               "kling-2.5-turbo",
               "kling-2.6-pro",

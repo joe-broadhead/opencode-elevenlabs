@@ -69,8 +69,8 @@ describe("call examples", () => {
 
   test.each(SKILLS)("%s names in backticks only tools, parameters and fields the plugin knows", (file) => {
     const known = new Set([...LIVE.keys(), ...[...LIVE.values()].flatMap((tool) => tool.params)])
-    // The plugin's own tool, the fields its result carries, the two argument shorthands the skills use, and the one
-    // tool the skills name that belongs to a host rather than to ElevenLabs: Jelly's sign-in request (T12).
+    // The plugin's own tool, the fields its result carries, the two argument shorthands the skills use, a nested rule
+    // field, and the one tool the skills name that belongs to a host rather than to ElevenLabs: Jelly's sign-in request.
     const others = new Set([
       "jelly_connection_request",
       "save_media", "elevenlabs_save_media", "duration_seconds", "sha256", "flow_id", "node_id", "session_ids",
@@ -78,6 +78,7 @@ describe("call examples", () => {
       "estimate_only", "generations_count", "cost_fiat", "mediaRoot", "text_to_speech", "speech_history_read",
       "convai_read", "convai_write", "image_video_generation", "voice_generation", "all_completed", "has_failures",
       "eleven_multilingual_v2", "eleven_v3", "gemini-2.5-flash-image", "gpt-image-2", "flux-2-pro", "main",
+      "string_to_replace",
     ])
     const named = [...read(file).matchAll(/`([a-z]+(?:_[a-z]+)+)`/g)].map((match) => match[1]!)
     expect(named.filter((name) => !known.has(name) && !others.has(name))).toEqual([])

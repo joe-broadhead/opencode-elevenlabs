@@ -7,7 +7,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and thi
 
 ### Added
 
-- **List snapshot** `elevenlabs.conversations.list` (`output: "list"`). An app can bind it and render conversations without knowing ElevenLabs. It calls the existing `agents_list_conversations` read and keeps metadata only: no caller, transcript or summary. `elevenlabs.conversations` stays the events source and is not renamed. No write is declared. The source-contract pin stays v0.2.0.
+- **The eight tools ElevenLabs added to its hosted server,** captured on 19 November 2026 and classified the way the
+  table already classifies tools: `agents_get_draft`, `agents_get_pronunciation_dictionary` and `creative_get_guide`
+  are reads; `agents_create_pronunciation_dictionary`, `agents_add_pronunciation_dictionary_rules`,
+  `agents_remove_pronunciation_dictionary_rules` and `agents_update_draft` are writes; and `agents_outbound_call` is a
+  spending tool that also reaches people, so `ask-changes` asks before it, `read-only` denies it, and a credit cap
+  refuses it rather than invent a price. `/elevenlabs-status` now reports no unknown tools against the catalogue, and
+  the skills cover the outbound call, the pronunciation dictionary flow, the draft flow and `creative_get_guide`.
+- **A refreshed live capture,** `test/fixtures/live-tools.json`: 245 tools from the server's own `tools/list`,
+  read-only, with names, schemas and annotations only.
+- **List snapshot** `elevenlabs.conversations.list` (`output: "list"`). An app can bind it and render conversations
+  without knowing ElevenLabs. It calls the existing `agents_list_conversations` read and keeps metadata only: no
+  caller, transcript or summary. `elevenlabs.conversations` stays the events source and is not renamed. No write is
+  declared.
+
+### Changed
+
+- **The counts follow the catalogue:** nineteen tools can spend, and the Jelly declaration holds 247 tools (104
+  read-only). `jelly.cost` now says nineteen. The Jelly fields changed, so Jelly asks for consent again; the source
+  descriptor is unchanged.
+- The source-contract dev dependency is v0.3.0 (it was v0.2.0): `package.json` and the lockfile, and the conformance
+  test states why each v0.3 check that does not apply to this source is skipped. The source sends no new key.
 
 ## [0.0.9] - 2026-11-18
 
