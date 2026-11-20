@@ -79,7 +79,8 @@ each agent's base `* * allow`. Everything later wins: the agent's own rules, you
 ### `access: "all"` — the default
 
 Every tool runs, including a tool ElevenLabs adds later, and generations spend credits within the workspace's balance
-and any cap you set.
+and any cap you set. **At the default `access: "all"` with no credit cap, an outbound or batch call runs without a
+prompt; set `access: "ask-changes"` or a credit cap to stop that.**
 
 <details>
 <summary>The 248 rules it inserts</summary>

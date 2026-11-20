@@ -12,8 +12,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and thi
   are reads; `agents_create_pronunciation_dictionary`, `agents_add_pronunciation_dictionary_rules`,
   `agents_remove_pronunciation_dictionary_rules` and `agents_update_draft` are writes; and `agents_outbound_call` is a
   spending tool that also reaches people, so `ask-changes` asks before it, `read-only` denies it, and a credit cap
-  refuses it rather than invent a price. `/elevenlabs-status` now reports no unknown tools against the catalogue, and
-  the skills cover the outbound call, the pronunciation dictionary flow, the draft flow and `creative_get_guide`.
+  refuses it rather than invent a price. At the default `access: "all"` with no credit cap, an outbound or batch call
+  runs without a prompt; set `access: "ask-changes"` or a credit cap to stop that. `/elevenlabs-status` now reports no
+  unknown tools against the catalogue, and the skills cover the outbound call, the pronunciation dictionary flow, the
+  draft flow and `creative_get_guide`.
 - **A refreshed live capture,** `test/fixtures/live-tools.json`: 245 tools from the server's own `tools/list`,
   read-only, with names, schemas and annotations only.
 - **List snapshot** `elevenlabs.conversations.list` (`output: "list"`). An app can bind it and render conversations

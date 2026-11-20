@@ -629,6 +629,22 @@ describe("the conversations list on the tools RPC", () => {
   const rpc = async (sessionID: string, method: string, input: unknown) =>
     (await host.client.rpc.call({ rpcID: "elevenlabs.tools", method, input: { sessionID, input } as never, location: host.location })).output as Record<string, unknown>
 
+  /**
+   * A sign-in makes the MCP client reconnect; a call that lands in that moment is refused "not connected" or "lists
+   * no …", because the server's new connection has not listed its tools yet. Everything else fails at once.
+   */
+  const settled = async <T,>(call: () => Promise<T>): Promise<T> => {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await call()
+      } catch (error) {
+        const code = (error as { data?: { code?: string } }).data?.code
+        if (attempt >= 40 || code !== "UNAVAILABLE" || !/not connected|lists no /.test(String((error as Error).message))) throw error
+        await new Promise((resolve) => setTimeout(resolve, 250))
+      }
+    }
+  }
+
   const signIn = async () => {
     const { data: servers } = await host.client.mcp.list({ location: host.location })
     const integrationID = servers.find((server) => server.name === "elevenlabs")!.integrationID!
@@ -650,7 +666,7 @@ describe("the conversations list on the tools RPC", () => {
     )
     expect(probed).toMatchObject({ source: "elevenlabs", account: "default" })
 
-    const listed = await rpc(sessionID, "events_list", { source: "elevenlabs", list: "conversations", account: "default" })
+    const listed = await settled(() => rpc(sessionID, "events_list", { source: "elevenlabs", list: "conversations", account: "default" }))
     expect(listed).toMatchObject({
       source: "elevenlabs",
       account: "default",
@@ -666,7 +682,7 @@ describe("the conversations list on the tools RPC", () => {
     expect(Number.isFinite(Date.parse(String(listed["asOf"])))).toBe(true)
 
     const since = new Date(Date.now() - 6 * 3_600_000).toISOString()
-    const page = await rpc(sessionID, "events_list", { account: "default", since, limit: 10 })
+    const page = await settled(() => rpc(sessionID, "events_list", { account: "default", since, limit: 10 }))
     expect(page["events"]).toHaveLength(2)
     expect(page).toMatchObject({ source: "elevenlabs", account: "default", trust: "untrusted" })
   })

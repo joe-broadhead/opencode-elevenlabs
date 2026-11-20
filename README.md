@@ -232,6 +232,9 @@ spend your credits without asking, and so can a tool ElevenLabs adds later. Rest
    | `"ask-changes"` | the read tools | everything else: creates, updates, deletes, signed links, phone calls, publishing and every generation |
    | `"read-only"` | the read tools | nothing: everything else is **denied**, generations included |
 
+   **At the default `access: "all"` with no credit cap, an outbound or batch call runs without a prompt; set
+   `access: "ask-changes"` or a credit cap to stop that.**
+
    ```json
    { "plugins": [{ "package": "github:joe-broadhead/opencode-elevenlabs#v0.0.9", "options": { "access": "read-only" } }] }
    ```
