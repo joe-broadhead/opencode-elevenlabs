@@ -1,7 +1,7 @@
 // The list snapshot: what it answers, what it refuses, and that it stays inside the declared caps. No ElevenLabs call:
 // the read is a fake that answers as `agents_list_conversations` does.
 import { describe, expect, test } from "bun:test"
-import { ACCOUNT, MAX_BYTES, SOURCE, conversationList, type Read } from "../../src/events.js"
+import { ACCOUNT, EVENTS_INPUT, EVENTS_METHOD_OUTPUT, EVENTS_OUTPUT, LIST_ANSWER, MAX_BYTES, SOURCE, conversationList, type Read } from "../../src/events.js"
 import { NOW, OWNER } from "../support/synthetic-conversations.js"
 
 /** One conversation as the read answers it. */
@@ -20,6 +20,12 @@ const reading =
   async () => ({ conversations })
 
 describe("the conversations list", () => {
+  test("list is on the tools RPC method's input only, and its output accepts the events page or the list answer", () => {
+    // Ruling (b): a list is for consumers, never on the model tool, so no agent's schema or description changes.
+    expect(Object.keys(EVENTS_INPUT.properties)).not.toContain("list")
+    expect(EVENTS_METHOD_OUTPUT.anyOf).toEqual([EVENTS_OUTPUT, LIST_ANSWER])
+  })
+
   test("answers source, account, the list data, the read's time and untrusted", async () => {
     const answer = await conversationList(reading(conversation("conv_list_1", "Support Desk")), OWNER, {}, NOW)
     expect(answer).toEqual({
