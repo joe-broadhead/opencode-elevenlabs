@@ -98,6 +98,31 @@
           "class": "free"
         },
         "maxBytes": 65536
+      },
+      {
+        "id": "elevenlabs.conversations.list",
+        "kind": "snapshot",
+        "tool": "events_list",
+        "input": {
+          "source": "elevenlabs",
+          "list": "conversations"
+        },
+        "output": "list",
+        "accounts": {
+          "named": false
+        },
+        "permission": {
+          "tool": "elevenlabs_events_list",
+          "operations": [
+            "agents_list_conversations"
+          ]
+        },
+        "private": true,
+        "cost": {
+          "class": "free"
+        },
+        "maxAgeSec": 900,
+        "maxBytes": 65536
       }
     ]
   },

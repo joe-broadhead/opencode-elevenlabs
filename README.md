@@ -75,8 +75,8 @@ the estimate path and every refusal.
 
 ### The conversations source
 
-The plugin declares one [source contract](https://github.com/we-the-rebel-alliance/source-contract) source,
-`elevenlabs.conversations`, so a collector such as Memory or a dashboard can read the workspace's calls without the
+The plugin declares a [source contract](https://github.com/we-the-rebel-alliance/source-contract) source,
+`elevenlabs.conversations`, and the list snapshot `elevenlabs.conversations.list`, so a collector such as Memory or a dashboard can read the workspace's calls without the
 model. `elevenlabs_events_list` (a tool, and an `events_list` method of the RPC above) lists the conversations the
 workspace's agents had since a cursor, oldest first, and `probe` names the sign-in.
 

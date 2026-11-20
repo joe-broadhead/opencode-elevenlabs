@@ -3,6 +3,12 @@
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project follows
 [Semantic Versioning](https://semver.org).
 
+## [Unreleased]
+
+### Added
+
+- **List snapshot** `elevenlabs.conversations.list` (`output: "list"`). An app can bind it and render conversations without knowing ElevenLabs. It calls the existing `agents_list_conversations` read and keeps metadata only: no caller, transcript or summary. `elevenlabs.conversations` stays the events source and is not renamed. No write is declared. The source-contract pin stays v0.2.0.
+
 ## [0.0.9] - 2026-11-18
 
 ### Changed

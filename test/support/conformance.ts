@@ -108,7 +108,8 @@ async function cases(): Promise<PageCase[]> {
 export async function conformanceReports(): Promise<ConformanceReport[]> {
   const sources = declaredSources()
   const source = sources.items.find((item) => item.id === SOURCE_ID)
-  if (!source || sources.items.length !== 1) throw new Error(`package.json must declare exactly one source, ${SOURCE_ID}`)
+  const listed = sources.items.find((item) => item.id === "elevenlabs.conversations.list")
+  if (!source || !listed) throw new Error(`package.json must declare ${SOURCE_ID} and elevenlabs.conversations.list`)
   const report = await sourceConformance({
     plugin: pkg.name,
     source,
@@ -124,5 +125,20 @@ export async function conformanceReports(): Promise<ConformanceReport[]> {
     describe: { id: TOOLS_RPC_ID },
     atomicPages: { reason: ATOMIC },
   })
-  return [report]
+  const snapshot = await sourceConformance({
+    plugin: pkg.name,
+    source: listed,
+    tools: declaredTools(),
+    calls: {
+      snapshot: (input, session) => list(input as Record<string, unknown>, session),
+      probe: (input, session) => probe(input as Record<string, unknown>, session),
+    },
+    snapshotCases: [{ ...(listed.input ?? {}), account: ACCOUNT }],
+    cases: [],
+    identityOperations: [],
+    account: ACCOUNT,
+    sources,
+    describe: { id: TOOLS_RPC_ID },
+  })
+  return [report, snapshot]
 }
