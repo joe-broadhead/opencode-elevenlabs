@@ -642,10 +642,6 @@ function ready(state: EventsState) {
 }
 
 /**
- * The tool's and the method's one run: asserts elevenlabs_events_list for the caller, then lists. The assert passes the
- * call's own source, so the tools RPC can tell this call's ask apart.
- */
-/**
  * The current conversations as the contract's `list` output. Metadata only: the same title events use, never a caller,
  * a transcript or a summary. A title that holds a secret is left out.
  */
@@ -672,6 +668,10 @@ export async function conversationList(read: Read, owner: EventsOwner | undefine
   }
 }
 
+/**
+ * The tool's and the method's one run: asserts elevenlabs_events_list for the caller, then lists. The assert passes the
+ * call's own source, so the tools RPC can tell this call's ask apart.
+ */
 export async function runEvents(ctx: EventsContext, state: EventsState, input: unknown, context: CallContext, now: number): Promise<EventsListResult | Awaited<ReturnType<typeof conversationList>>> {
   await assertAction(ctx, EVENTS_ACTION, context)
   ready(state)
