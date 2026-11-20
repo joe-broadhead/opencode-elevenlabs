@@ -773,7 +773,15 @@ export function registerEvents(ctx: EventsContext & { readonly tool: Pick<Plugin
       output: EVENTS_OUTPUT,
       options: { namespace: SERVER_NAME },
       execute: async (input, context) => {
-        // The model tool takes EVENTS_INPUT, which has no `list`: a list is read through the tools RPC only.
+        // A list is for a consumer, through the tools RPC method, never for a model. The schema has no `list`, but a host
+        // or Code Mode may pass an extra key through, so the tool refuses it here before any read.
+        if (record(input) && "list" in input) {
+          refuse(
+            "INPUT_INVALID",
+            `${EVENTS_TOOL} does not take "list": a list is read through the tools RPC, not by a model`,
+            `Leave list out to read events; an app reads a list through the tools RPC method, not through this tool.`,
+          )
+        }
         const output = (await runEvents(ctx, state, input, context, now())) as EventsListResult
         return { output, content: summary(output) }
       },

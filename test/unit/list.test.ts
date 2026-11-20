@@ -1,7 +1,7 @@
 // The list snapshot: what it answers, what it refuses, and that it stays inside the declared caps. No ElevenLabs call:
 // the read is a fake that answers as `agents_list_conversations` does.
 import { describe, expect, test } from "bun:test"
-import { ACCOUNT, EVENTS_INPUT, EVENTS_METHOD_OUTPUT, EVENTS_OUTPUT, LIST_ANSWER, MAX_BYTES, SOURCE, conversationList, type Read } from "../../src/events.js"
+import { ACCOUNT, EVENTS_INPUT, EVENTS_METHOD_OUTPUT, EVENTS_OUTPUT, LIST_ANSWER, MAX_BYTES, SOURCE, conversationList, registerEvents, type Read } from "../../src/events.js"
 import { NOW, OWNER } from "../support/synthetic-conversations.js"
 
 /** One conversation as the read answers it. */
@@ -24,6 +24,16 @@ describe("the conversations list", () => {
     // Ruling (b): a list is for consumers, never on the model tool, so no agent's schema or description changes.
     expect(Object.keys(EVENTS_INPUT.properties)).not.toContain("list")
     expect(EVENTS_METHOD_OUTPUT.anyOf).toEqual([EVENTS_OUTPUT, LIST_ANSWER])
+  })
+
+  test("the model tool refuses a list argument itself, before any read", async () => {
+    // A host or Code Mode may pass an extra key through even though the schema has none, so the tool refuses it here.
+    let added: { name: string; execute: (input: unknown, context: unknown) => Promise<unknown> } | undefined
+    const editor = { add: (tool: never) => void (added = tool) }
+    const ctx = { tool: { transform: async (callback: (editor: { add: (tool: never) => void }) => void) => (callback(editor), { dispose: async () => {} }) } }
+    await registerEvents(ctx as never, { managed: () => true, disabled: () => false }, () => NOW)
+    expect(added?.name).toBe("events_list")
+    await expect(added!.execute({ list: "conversations" }, {} as never)).rejects.toMatchObject({ code: "INPUT_INVALID" })
   })
 
   test("answers source, account, the list data, the read's time and untrusted", async () => {
