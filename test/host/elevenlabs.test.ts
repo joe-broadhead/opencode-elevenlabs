@@ -13,7 +13,7 @@ import { defaultRules, type Rule } from "../../src/permissions.js"
 import { SKILL_NAMES } from "../../src/skills.js"
 import { OAUTH_SCOPES, SUPPORTED_HOST, TESTED_HOSTS } from "../../src/constants.js"
 import { serverIntegrationID } from "../../src/old-sign-ins.js"
-import { DELETE, IMAGE, IMAGE_CREDITS, LINK, NEW_TOOL, READ, SPEECH, WRITE } from "./fake-mcp.js"
+import { DELETE, IMAGE, IMAGE_CREDITS, LINK, LIST, NEW_TOOL, READ, SPEECH, WRITE } from "./fake-mcp.js"
 import { agentRules, attempt, cleanup, effect, HOST_VERSION, session, startHost, unattended, until, type Host } from "./harness.js"
 
 const AGENT_RULES = defaultRules().map((rule, index, rules) => `  ${JSON.stringify(rule)}${index < rules.length - 1 ? "," : ""}`).join("\n")
@@ -611,5 +611,63 @@ describe("the forced Code Mode catalogue", () => {
     // The one thing the section must carry: where the model reads the rules before it spends anything.
     expect(text).toContain("elevenlabs skill")
     expect(Math.round(text.length / 4)).toBeLessThanOrEqual(1_000)
+  })
+})
+
+// The list snapshot rides the events_list tools-RPC method. The host validates a method's output against the method's
+// declared output, so this proves the list answer is accepted (an anyOf of the events page and the list answer) and
+// that an events read still is, on every tested host.
+describe("the conversations list on the tools RPC", () => {
+  let host: Host
+  beforeAll(async () => {
+    // Only the conversations read is served: this describes the list answer, not the whole catalogue. The server
+    // connects first (a challenge before sign-in leaves the host's tool list empty), then the test signs in.
+    host = await startHost({ oauth: true, fake: { tools: [LIST] } })
+  })
+  afterAll(() => host?.close())
+
+  const rpc = async (sessionID: string, method: string, input: unknown) =>
+    (await host.client.rpc.call({ rpcID: "elevenlabs.tools", method, input: { sessionID, input } as never, location: host.location })).output as Record<string, unknown>
+
+  const signIn = async () => {
+    const { data: servers } = await host.client.mcp.list({ location: host.location })
+    const integrationID = servers.find((server) => server.name === "elevenlabs")!.integrationID!
+    const { data: integration } = await host.client.integration.get({ integrationID, location: host.location })
+    const oauth = (host.client.integration as unknown as { oauth: { connect: (input: object) => Promise<{ data: { attemptID: string; url: string } }> } }).oauth
+    const { data: attempt } = await oauth.connect({ integrationID, methodID: (integration.methods[0] as unknown as { id: string }).id, location: host.location })
+    const redirect = await fetch(attempt.url, { redirect: "manual" })
+    await fetch(redirect.headers.get("location")!)
+  }
+
+  test("answers the list snapshot, and an events read still answers the page", async () => {
+    // The host lists an MCP server's tools shortly after it connects.
+    await until("the conversations read is listed", async () => (await host.probe().tool.list()).some((tool) => tool.id === `elevenlabs_${LIST}`))
+    await signIn()
+    const sessionID = await session(host)
+    // The sign-in is stored as a credential in a moment; until then the source refuses with NEEDS_SIGN_IN.
+    const probed = await until("the tools RPC sees the sign-in", async () =>
+      rpc(sessionID, "probe", {}).then((answer) => (answer["source"] === "elevenlabs" ? answer : false), () => false),
+    )
+    expect(probed).toMatchObject({ source: "elevenlabs", account: "default" })
+
+    const listed = await rpc(sessionID, "events_list", { source: "elevenlabs", list: "conversations", account: "default" })
+    expect(listed).toMatchObject({
+      source: "elevenlabs",
+      account: "default",
+      data: {
+        editable: false,
+        items: [
+          { id: "conv_host_02", text: "Support Desk: inbound call, done, successful", done: true },
+          { id: "conv_host_01", text: "Booking Line: outbound call, failed" },
+        ],
+      },
+      trust: "untrusted",
+    })
+    expect(Number.isFinite(Date.parse(String(listed["asOf"])))).toBe(true)
+
+    const since = new Date(Date.now() - 6 * 3_600_000).toISOString()
+    const page = await rpc(sessionID, "events_list", { account: "default", since, limit: 10 })
+    expect(page["events"]).toHaveLength(2)
+    expect(page).toMatchObject({ source: "elevenlabs", account: "default", trust: "untrusted" })
   })
 })

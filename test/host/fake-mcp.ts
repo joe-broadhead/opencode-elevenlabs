@@ -19,6 +19,13 @@ export const LINK = "agents_get_signed_url"
 export const SPEECH = "creative_generate_speech"
 export const IMAGE = "creative_generate_image"
 export const TRANSCRIPT = "agents_get_conversation"
+/** The conversations read, and the two conversations the fake lists, newest first as the plugin asks. Their starts are
+ * relative to the run, so an events read stays inside a day and needs no agent retention lookup. */
+export const LIST = "agents_list_conversations"
+export const LISTED = [
+  { conversation_id: "conv_host_02", agent_id: "agent_host_support", agent_name: "Support Desk", status: "done", call_successful: "success", direction: "inbound", startedAgoSec: 3_600 },
+  { conversation_id: "conv_host_01", agent_id: "agent_host_booking", agent_name: "Booking Line", status: "failed", call_successful: "unknown", direction: "outbound", startedAgoSec: 7_200 },
+] as const
 
 /** The credits one generation costs in the fake's estimate, before the batch size multiplies it. */
 export const IMAGE_CREDITS = 500
@@ -51,7 +58,6 @@ const CATALOG = [
   { ...NEW_TOOL, inputSchema: schema },
 ]
 const SERVED = [READ, WRITE, DELETE, LINK, SPEECH, IMAGE, NEW_TOOL.name]
-const TOOLS = CATALOG.filter((tool) => SERVED.includes(tool.name))
 
 /** The upstream error a "fail" call gets: two lines, the first with a signed URL. */
 export const UPSTREAM_FAILURE = "ElevenLabs refused https://files.elevenlabs.example/a.png?signature=fake-signature-123 for this input\nTraceback: second line"
@@ -61,6 +67,8 @@ export interface FakeMcpOptions {
   readonly catalog?: "elevenlabs"
   /** Answer every request with 401 and a bearer challenge from the start, as ElevenLabs does before a sign-in. */
   readonly challenge?: true
+  /** The tools this server serves. `SERVED` by default: one read, write, delete, export link, two generations and an unknown tool. */
+  readonly tools?: readonly string[]
   /** Whether the token endpoint issues a refresh token. */
   readonly refreshTokens?: boolean
   /** Report credits in a generation's result, so the model path can be exact instead of "at most". */
@@ -95,6 +103,8 @@ export interface FakeMcp {
 type Message = { jsonrpc: "2.0"; id?: number | string; method: string; params?: { protocolVersion?: string; name?: string; arguments?: Record<string, unknown> } }
 
 export async function startFakeMcp(options: FakeMcpOptions = {}): Promise<FakeMcp> {
+  // The tools this server serves, in the catalogue's order.
+  const tools = CATALOG.filter((tool) => (options.tools ?? SERVED).includes(tool.name))
   const calls: string[] = []
   const called: { tool: string; path: string }[] = []
   const inputs: { tool: string; arguments: Record<string, unknown> }[] = []
@@ -112,7 +122,7 @@ export async function startFakeMcp(options: FakeMcpOptions = {}): Promise<FakeMc
       case "initialize":
         return reply({ protocolVersion: message.params?.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: "fake-elevenlabs", version: "0.0.0" } })
       case "tools/list":
-        return reply({ tools: options.catalog === "elevenlabs" ? CATALOG : TOOLS })
+        return reply({ tools: options.catalog === "elevenlabs" ? CATALOG : tools })
       case "tools/call": {
         const tool = message.params?.name ?? ""
         const args = message.params?.arguments ?? {}
@@ -139,6 +149,12 @@ export async function startFakeMcp(options: FakeMcpOptions = {}): Promise<FakeMc
         }
         if (tool === TRANSCRIPT) {
           return reply({ content: [{ type: "text", text: "agent: hello\nuser: I need a refund for order 1234" }], structuredContent: { conversation_id: "conv_1", user_id: "user_1", cost: 12 } })
+        }
+        if (tool === LIST) {
+          // agents_list_conversations, as the public API documents it: newest first, with pages the plugin reads.
+          const now = Math.floor(Date.now() / 1_000)
+          const conversations = LISTED.map(({ startedAgoSec, ...rest }) => ({ ...rest, start_time_unix_secs: now - startedAgoSec }))
+          return reply({ content: [{ type: "text", text: `${conversations.length} conversations` }], structuredContent: { conversations, has_more: false } })
         }
         if (tool === LINK) return reply({ content: [{ type: "text", text: `Share link: ${fake.origin}/share/agent-1` }], structuredContent: { url: `${fake.origin}/share/agent-1` } })
         if (asked.startsWith("text")) return reply({ content: [{ type: "text", text: `text from ${tool}` }] })

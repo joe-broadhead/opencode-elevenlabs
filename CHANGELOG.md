@@ -17,15 +17,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and thi
 - **A refreshed live capture,** `test/fixtures/live-tools.json`: 245 tools from the server's own `tools/list`,
   read-only, with names, schemas and annotations only.
 - **List snapshot** `elevenlabs.conversations.list` (`output: "list"`). An app can bind it and render conversations
-  without knowing ElevenLabs. It calls the existing `agents_list_conversations` read and keeps metadata only: no
-  caller, transcript or summary. `elevenlabs.conversations` stays the events source and is not renamed. No write is
-  declared.
+  without knowing ElevenLabs. It calls the existing `agents_list_conversations` read on one page, newest first, and
+  keeps metadata only: an id and the title events use, never a caller, transcript or summary. A title is screened
+  whole for secrets and then cut to 200 characters, so a secret straddling the cut is never listed as a prefix; up to
+  50 items, and the answer stays inside the declared `maxBytes`. It answers `{ source, account, data: { items,
+  editable }, asOf, trust }` — a snapshot's answer, not an events page. `list` is an input of the tools RPC method
+  `events_list` only, never of the model tool, whose schema and description are unchanged; the method's declared
+  output accepts the events page or the list answer, so the host accepts both.
+  `elevenlabs.conversations` stays the events source and is not renamed. No write is declared.
 
 ### Changed
 
 - **The counts follow the catalogue:** nineteen tools can spend, and the Jelly declaration holds 247 tools (104
-  read-only). `jelly.cost` now says nineteen. The Jelly fields changed, so Jelly asks for consent again; the source
-  descriptor is unchanged.
+  read-only). `jelly.cost` now says nineteen. The Jelly fields changed, so Jelly asks for consent again. The source
+  descriptor gains `elevenlabs.conversations.list`; `elevenlabs.conversations` is unchanged.
 - The source-contract dev dependency is v0.3.0 (it was v0.2.0): `package.json` and the lockfile, and the conformance
   test states why each v0.3 check that does not apply to this source is skipped. The source sends no new key.
 
