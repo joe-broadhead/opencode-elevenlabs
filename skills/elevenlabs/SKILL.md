@@ -70,9 +70,8 @@ Add with `agents_create_kb_url` (a page that can keep syncing) or `agents_create
 `agents_create_pronunciation_dictionary` makes a dictionary of alias or phoneme rules, and
 `agents_get_pronunciation_dictionary` reads its rules. Attach it with `agents_update_voice`: add
 `{ pronunciation_dictionary_id, version_id }` to `pronunciation_dictionary_locators`, keeping the locators already
-there. Adding or removing rules (`agents_add_pronunciation_dictionary_rules`,
-`agents_remove_pronunciation_dictionary_rules`) makes a new `version_id`, which replaces any rule with the same
-`string_to_replace`. The agent keeps the version its locator names until you update that locator with the new `version_id`.
+there. Adding a rule replaces any rule with the same `string_to_replace`. Adding or removing rules makes a new
+`version_id`; the agent keeps the version its locator names until you update that locator with the new `version_id`.
 
 ## Tests and deployment
 
