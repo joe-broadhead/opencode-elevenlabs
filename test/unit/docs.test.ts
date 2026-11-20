@@ -60,7 +60,7 @@ describe("docs", () => {
     const uninstall = /## Uninstall(.*?)## Links/.exec(flat("README.md"))?.[1] ?? ""
     const logout = uninstall.indexOf("opencode mcp logout elevenlabs")
     const check = uninstall.indexOf("opencode auth list")
-    const remove = uninstall.indexOf("opencode plugin remove github:joe-broadhead/opencode-elevenlabs#v0.0.9")
+    const remove = uninstall.indexOf("opencode plugin remove github:joe-broadhead/opencode-elevenlabs#v0.0.10")
     expect(logout).toBeGreaterThanOrEqual(0)
     expect(check).toBeGreaterThan(logout)
     expect(remove).toBeGreaterThan(check)
